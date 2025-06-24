@@ -1,0 +1,186 @@
+#pragma once
+#include "utils.hpp"
+#include "gusli_client_api.hpp"
+#include "03backend/server_clnt_api.hpp"
+#include <semaphore.h>
+
+namespace gusli {
+
+#define LIB_NAME "GUSLIc"
+#define LIB_COLOR NV_COL_NONE
+
+/*****************************************************************************/
+enum bdev_type {							// Fast path to supported bdevs
+	DUMMY_DEV_INVAL = 0x0,					// Invalid type
+	DUMMY_DEV_FAIL =  'X',					// Dummy device which always fails io. For integration testing of bad-path
+	FS_FILE =	      'f',					// 1 File or a directory of files storing the data
+	KERNEL_BDEV =     'K',					// Backwards compatibility to /dev/... kernel implemented block devices including NVMe drives, /dev/zero, etc
+	LINUX_UBLK =      'U',					// Backwards compatibility to Linux user space block device
+	NVMESH_UM =       'N',
+	NVME_OF =         'O',
+	OTHER =           '?',
+};
+
+struct bdev_config {
+	enum bdev_type type;
+	enum connect_how { SHARED_RW = 'W', READ_ONLY = 'R', EXCLUSIVE_RW = 'X'} how;
+	bool is_direct_io;
+	union connection_type {
+		char local_bdev_path[32];					//	Kernel block device /dev/....
+		char local_file_path[32];					//	Local file path like /tmp/my_file.txt
+	} conn;
+	bdev_config() { memset(this, 0, sizeof(*this)); }
+	void init_dev_fail(void) { type = DUMMY_DEV_FAIL; how = EXCLUSIVE_RW; strcpy(conn.local_file_path, ""); }
+	void init_fs_file (const char *file_name) { type = FS_FILE; how = EXCLUSIVE_RW; strncpy(conn.local_file_path, file_name, sizeof(conn.local_file_path)-1); }
+	void init_kernel_bdev(const char *path  ) { type = KERNEL_BDEV; how = EXCLUSIVE_RW; strncpy(conn.local_bdev_path, path, sizeof(conn.local_bdev_path)-1); }
+};
+
+class bdev_no_backend_api {									// When there is no server, and client emulates it
+ public:
+	uint32_t n_mapped_bufs;
+	bdev_no_backend_api() : n_mapped_bufs(0) { }
+};
+
+struct bdev_stats_clnt {
+	uint64_t n_doorbels_wakeup_srvr;
+	bdev_stats_clnt() { memset(this, 0, sizeof(*this)); }
+	int print_stats(char* buf, int buf_len) {
+		return scnprintf(buf, buf_len, "d={%lu}", n_doorbels_wakeup_srvr);
+	}
+};
+
+class bdev_backend_api {									// API to server 1 block device
+	static constexpr const uint32_t minimal_delay = 100;	// Minimal rate of control path changes propagations X[millisec],
+	sock_t sock;											// Socket through which clnt talks to server
+	connect_addr ca;										// Connected server address
+	time_t last_keepalive;
+	const char* ip;
+	struct bdev_stats_clnt stats;
+
+	uint32_t periodic_msec_passed;	// Amount of msec passed from previous periodic control path processing
+	bool is_msg_processing_stopped;
+	bool is_control_path_ok;								// State of control path
+	pthread_t io_listener_tid;
+	sem_t wait_control_path;
+	bool check_incoming();
+	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
+	void on_keep_alive_received(void) { time(&last_keepalive); }
+ public:
+	char security_cookie[16];								// Used for handshake with server, to verify library is authorized to access this bdev
+	class datapath_t dp;
+	class bdev_no_backend_api f;							// Todo: Properly union with dp and other fields
+	bdev_info info;											// block device information visible for user
+	bdev_backend_api() { }
+	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
+	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
+	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
+	int close(     const backend_bdev_id& id);
+	int dp_wakeup_server(void);
+	static void* io_completions_listener(bdev_backend_api *_self);
+	uint32_t suggested_control_past_rate(void) const { return minimal_delay * (is_control_path_ok ? 10 : 1); } // Slower ping to DS in steady state of good path, faster response to disaster recovery
+
+	bool are_all_msgs_stopped(void) const { return is_msg_processing_stopped; }
+	void suicide_stop_all(void);
+};
+
+struct server_bdev {					// Reflection of server (how to communicate with it)
+	struct backend_bdev_id id;			// Key to find server by it
+	struct bdev_config conf;			// Config of how to connect to this block device
+	bdev_backend_api b;					// Remote connection
+	server_bdev() { }
+	int get_fd(void) const { return b.info.bdev_descriptor; }
+	int& get_fd(void) { return b.info.bdev_descriptor; }
+	bool is_alive(void) const { return ((conf.type != DUMMY_DEV_INVAL) && (get_fd() > 0)); }
+};
+
+struct bdevs_hash { 					// Hash table of connected servers
+	static constexpr int N_MAX_BDEVS = 8;
+	struct server_bdev arr[N_MAX_BDEVS];
+	int n_devices = 0;
+	bdevs_hash() { }
+	struct server_bdev *find_by(int fd) const {
+		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
+			if (fd == arr[i].get_fd())
+				return (struct server_bdev *)&arr[i];
+		}
+		return NULL;
+	}
+	struct server_bdev *find_by(const struct backend_bdev_id& id) const {
+		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
+			if (id == arr[i].id)
+				return (struct server_bdev *)&arr[i];
+		}
+		return NULL;
+	}
+	bool has_any_bdev_open(void) const {
+		for (int i = 0; i < N_MAX_BDEVS; i++ )
+			if (arr[i].is_alive())
+				return true;
+		return false;
+	}
+	bool should_skip_comment(char* &p) const {
+		while (char_is_space(*p)) p++;					// Skip empty characters at line start
+		if ((p[0] == 0) || (p[0] == '#')) 				// Empty line or single line comment
+			return true;
+		char *eol_comment = strchr(p, '#'); 			// Skip optional end of line comment
+		if (eol_comment)
+			*eol_comment = 0;
+		return false;
+	}
+
+	int parse_conf(char *buf, char* buf_end) {
+		for (char *p = buf, *line_end; (p < buf_end); p = line_end + 1 ) {
+			line_end = strchr(p, '\n');
+			if (line_end)
+				*line_end = 0;						// Split lines
+			else
+				line_end = buf_end;					// Last line in a file
+			if (should_skip_comment(p))
+				continue;
+			int argc = 0, n_args_read = 0;
+			char *argv[8], c;						// Split line into arguments, separated by invisible characters (' ', '\t', ...)
+			for (; argc < 8; *p++ = 0) {
+				while (char_is_space(*p)) p++;		// Skip empty characters between arguments
+				if (*p == 0) break;
+				argv[argc++] = p;
+				while (char_is_visible(*p)) p++;	// Skip the argument itself
+				if (*p == 0) break;
+			}
+			struct server_bdev *b = &arr[n_devices];
+			n_args_read += sscanf(argv[0], "%s", b->id.set_invalid()->uuid);
+			n_args_read += sscanf(argv[1], "%c", &c); b->conf.type = (enum bdev_type)c;
+			n_args_read += sscanf(argv[2], "%c", &c); b->conf.how = (bdev_config::connect_how)c;
+			n_args_read += sscanf(argv[3], "%c", &c); b->conf.is_direct_io = (bool)((c == 'D')||(c == 'd'));
+			n_args_read += sscanf(argv[4], "%s", (char*)&b->conf.conn);
+			n_args_read += sscanf(argv[5], "%s", (char*)&b->b.security_cookie);
+			if (n_args_read != argc)
+				return -3;
+			n_devices++;
+		}
+		return 0;
+	}
+};
+
+class global_clnt_context_imp : public global_clnt_context, public base_library {
+ public:
+	friend class global_clnt_context;
+	char lib_info_json[256];
+	struct init_params par;
+	bdevs_hash bdevs;
+	global_clnt_context_imp() : base_library(LIB_NAME) { memset(lib_info_json, 0, sizeof(lib_info_json)); }
+	enum connect_rv bdev_connect(void);
+	int server_disconenct(void);
+	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing nvme disk / etc.
+	void on_event_server_up(void);
+	int parse_conf(void);
+};
+
+global_clnt_context& global_clnt_context::get(void) {
+	static class global_clnt_context_imp gc_ctx;
+	return gc_ctx;
+}
+
+static inline       global_clnt_context_imp* _impl(      global_clnt_context* g) { return       (global_clnt_context_imp*)g; }
+static inline const global_clnt_context_imp* _impl(const global_clnt_context* g) { return (const global_clnt_context_imp*)g; }
+
+} // namespace gusli
