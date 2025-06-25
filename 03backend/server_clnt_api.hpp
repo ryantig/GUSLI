@@ -41,7 +41,7 @@ struct io_csring_cqe {
 } __attribute__((aligned(sizeof(long))));
 
 template <class T, unsigned int CAPACITY>
-class io_csring_queue {					// Circular buffer, can hold up to CAPACITY-1 elements
+class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up to CAPACITY-1 elements
 	T arr[CAPACITY];
 	t_lock_spinlock lock_;
 	uint32_t head;						// Next free entry to use
@@ -92,13 +92,11 @@ class io_csring_queue {					// Circular buffer, can hold up to CAPACITY-1 elemen
 	}
 };
 
-struct io_csring {							// Datapath mechanism to remote bdev
+struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev, shared memory is initialized
 	static constexpr int CAPACITY = 256;	// Maximal ammount of in air IO's + at least 1
  public:
 	io_csring_queue<io_csring_sqe, CAPACITY> sq;
 	io_csring_queue<io_csring_cqe, CAPACITY> cq;
-	io_csring() = default;					// Never directly called, shared memory is initialized
-	~io_csring() = delete;
 	void init(void) {						// Initialized by client (producer)
 		sq.init();
 		cq.init();
@@ -227,7 +225,7 @@ inline int datapath_t::srvr_finish_io(io_request &io, bool *need_wakeup_clnt) co
 #define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
 
 /******************************** Control Path ***********************/
-class MGMT {								// CLient<-->Server control path API
+class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	static constexpr int msg_type_len = 6;	// Header of all messages is 6 bytes long. See below
  public:
 	static constexpr int COMM_PORT = 2051;	// Communication port

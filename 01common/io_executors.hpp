@@ -7,7 +7,7 @@
 #define AIO_VERBOSE (0)
 namespace gusli {
 
-class io_request_executor_base {
+class io_request_executor_base : no_implicit_constructors {
  public:
 	virtual ~io_request_executor_base() {}
 	void attach_to_io(       io_request &io) { (void)io; /*io.__internal_context = (void*)this;*/ }

@@ -5,12 +5,8 @@
 #include "gusli_client_api.hpp"	// for struct bdev_info
 
 namespace gusli {
-class global_srvr_context {					// Singletone: Library context
- protected:
-	global_srvr_context() = default;
-	global_srvr_context(const global_srvr_context&) = delete;
-	global_srvr_context& operator=(const global_srvr_context&) = delete;
-
+class global_srvr_context : no_implicit_constructors {	// Singletone: Library context
+ protected: global_srvr_context() = default;
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)

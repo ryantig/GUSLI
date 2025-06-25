@@ -59,15 +59,25 @@ template<class T> static inline T align_down(  T x, T y) { return ((x / y) * y);
 	#define MAX(a,b) (((a)>(b))?(a):(b))
 #endif
 
+struct no_implicit_constructors {	// No copy/move/assign operations to prevent accidental copying of resources, leaks, double free and performance degradation
+	no_implicit_constructors(           const no_implicit_constructors& ) = delete;
+	no_implicit_constructors(                 no_implicit_constructors&&) = delete;
+	no_implicit_constructors& operator=(const no_implicit_constructors& ) = delete;
+	no_implicit_constructors& operator=(      no_implicit_constructors&&) = delete;
+	no_implicit_constructors() {}
+};
+struct no_constructors_at_all : no_implicit_constructors { // Stronger version, do not allow any constructors. Protect shared memory / placement new objects
+	no_constructors_at_all() = default;
+	~no_constructors_at_all() = delete;
+};
+
 /******************************** Debugger *********************************/
-class tDbg {			// Debugging utility Singletone: Debugger/Logger/Timer.
+class tDbg : no_implicit_constructors {			// Debugging utility Singletone: Debugger/Logger/Timer.
 	uint64_t timer;		// Used for profiling Timer start/measure
 	int debugger_pid;	// Enusre the costly function called once
 	FILE* flog;			// File to which logs are written
 	tDbg() : debugger_pid(-1), flog(stdout) { timer_start(); } // Launch timer in case user uses get() before start
 	~tDbg() {};
-	tDbg(const tDbg&) = delete;
-	void operator=(const tDbg&) = delete;
 	int is_debugger_present(void);
 	void break_point(void);
 	static void dump_stack(void);

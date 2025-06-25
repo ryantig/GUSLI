@@ -120,12 +120,16 @@ class io_request {								// Data structure for issuing IO
 /******************************** Global library context ***********************/
 enum connect_rv { C_OK = 0, C_NO_DEVICE = -100, C_NO_RESPONSE, C_ALREADY_CONNECTED, C_WRONG_ARGUMENTS};
 
-class global_clnt_context {					// Singletone: Library context
- protected:
-	global_clnt_context() = default;
-	global_clnt_context(const global_clnt_context&) = delete;
-	global_clnt_context& operator=(const global_clnt_context&) = delete;
+struct no_implicit_constructors {	// No copy/move/assign operations to prevent accidental copying of resources, leaks, double free and performance degradation
+	no_implicit_constructors(           const no_implicit_constructors& ) = delete;
+	no_implicit_constructors(                 no_implicit_constructors&&) = delete;
+	no_implicit_constructors& operator=(const no_implicit_constructors& ) = delete;
+	no_implicit_constructors& operator=(      no_implicit_constructors&&) = delete;
+	no_implicit_constructors() {}
+};
 
+class global_clnt_context : no_implicit_constructors {					// Singletone: Library context
+ protected: global_clnt_context() = default;
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
