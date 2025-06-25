@@ -1,5 +1,5 @@
 # ********** Define compiler and compilation flags *********
-BUILD_RELEASE?=0
+BUILD_RELEASE?=1
 BUILD_FOR_UNITEST?=1
 UNAME := $(shell uname)# Which operating system we use?
 HT = $(shell uname -m)
@@ -48,8 +48,8 @@ OBJECTS_UNITEST += $(OBJ_DIR)/unitest.o # Unitest code for library
 OBJECTS_ALL = $(OBJECTS_COMMON) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
 
 # Include dependency files if they exist, causes .cpp files to depend on their .hpp files
-DEPEND_FILES_ALL = $(OBJECTS:.o=.d) $(OBJECTS_UNITEST:.o=.d)
-#DFLAGS = -MP -MMD
+DEPEND_FILES_ALL = $(OBJECTS_ALL:.o=.d) $(OBJECTS_UNITEST:.o=.d)
+DFLAGS = -MP -MMD
 
 # Compilation output (Lib/Exe)
 PROJECT_PREFIX=gusli
