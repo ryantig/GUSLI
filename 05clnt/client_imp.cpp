@@ -216,6 +216,10 @@ void io_request::submit_io(void) noexcept {
 		complete();
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		io_request_executor_base *exec = nullptr;
+		#if defined(HAS_URING_LIB)
+			if (!has_callback())							// Uring does not support async callback mode
+				exec = new uring_request_executor(*this);
+		#endif
 		if (!exec) {
 			if (has_callback() || params._async_no_comp) {	// Async IO, with / without completion
 				exec = new aio_request_executor(*this);

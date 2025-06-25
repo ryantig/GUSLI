@@ -90,6 +90,16 @@ endif
 # ********** Define Linker flags *********
 LDFLAGS = -lpthread -rdynamic -no-pie
 
+# ********** External libraries ********* heck for lib using pkg-config and update flags appropriately
+EXTLIB=liburing
+ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
+	CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
+	LDFLAGS += $(shell pkg-config --libs $(EXTLIB))
+	LIBURING_AVAILABLE := Y
+else
+	LIBURING_AVAILABLE := N
+endif
+
 # ********** Define compiler and compilation flags *********
 CFLAGS += -DCOMPILATION_DATE=${COMPILATION_DATE} -DCOMMIT_ID=0x$(COMMIT_ID)UL -DVER_TAGID=$(VER_TAGID) -DBRANCH_NAME=$(BRANCH_NAME)
 CFLAGS += -Wall -Werror -Wextra -Wshadow -Werror=strict-aliasing -Wno-nonnull-compare -falign-functions=8 -std=c++2a
@@ -122,6 +132,7 @@ define print_compilation_info
 	@printf "\t* INCLUDS | $(INCLUDES)\n"
 	@printf "\t* DFLAGS  | $(DFLAGS)\n"
 	@printf "\t* LDLAGS  | $(LDFLAGS)\n"
+	@printf "\t* Depend  | $(EXTLIB)=$(LIBURING_AVAILABLE)\n"
 	@printf "\t* INSTALL | $(INSTALL_DIR)\n"
 	@printf "===========================================\n"
 endef

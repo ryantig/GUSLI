@@ -199,3 +199,104 @@ public:
 };
 
 }; // namespace gusli
+
+/*****************************************************************************/
+#if defined(HAS_URING_LIB)
+#include <liburing.h>				// To use uring library do: sudo apt install -y liburing-dev   or   sudo dnf install liburing-devel
+namespace gusli {
+class uring_request_executor : public io_request_executor_base {	// Execute async io with liburing, assume class allocated on heap (cant be on stack because non blocking)
+	typedef void (*prep_func_t)(struct io_uring_sqe*, int fd, const void*buf, unsigned int nbytes, __u64 offset);
+	struct io_uring uring;
+	const int num_entries;			// Total number of entries in ring == io ranges
+	int num_completed;				// Number of completed io ranges so far
+	bool had_failure;
+	prep_func_t prep_op;  // Pointer to prep function
+	bool init_uring_queue(void) {
+		io_uring_params p = {};
+		if (io_uring_queue_init_params(num_entries, &uring, &p) < 0) {
+			pr_err1("Failed to initialize io_uring " PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS);
+			had_failure = true;
+		} else if (false) {
+			char buf[256];
+			int buf_len = 256, count = 0;
+			buf[0] = 0;
+			if (p.features | IORING_FEAT_SQPOLL_NONFIXED) BUF_ADD("SQPOLL,");
+			if (p.features | IORING_FEAT_FAST_POLL)       BUF_ADD("IOPOLL,");
+			if (buf[0] == 0) BUF_ADD("None");
+			pr_verb1("uring flags=0x%x, params={%s}\n", p.flags, buf);
+		}
+		return !had_failure;
+	}
+	bool prep_uringio(const io_map_t& map) {
+		struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
+		if (!sqe) {
+			pr_err1("Error get io_uring.sqe, io_ranges=%u\n", io.params.num_ranges());
+			had_failure = true;
+		} else {
+			prep_op(sqe, io.params.bdev_descriptor, map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
+			sqe->user_data = (__u64)this;
+		}
+		return !had_failure;
+	}
+	void __analyze_1_range(const struct io_uring_cqe *cqe) {
+		pr_verb1("cqe=%p exec=0x%llx, rv=%d\n", cqe, cqe->user_data, cqe->res);
+		if (cqe->res > 0)
+			total_bytes += cqe->res;
+	}
+public:
+	uring_request_executor(class io_request& _io) : io_request_executor_base(_io), num_entries(_io.params.num_ranges()) {
+		num_completed = 0;
+		had_failure = false;
+		prep_op = (_io.params.op == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
+		if (!init_uring_queue()) return;
+		if (num_entries > 1) {
+			const io_multi_map_t *mm = get_mm();
+			for (uint32_t i = 0; i < mm->n_entries; i++)
+				if (!prep_uringio(mm->entries[i])) return;
+		} else {
+			if (!prep_uringio(io.params.map)) return;
+		}
+	}
+	~uring_request_executor() { io_uring_queue_exit(&uring); }
+	void run(void) override {
+		if (unlikely(had_failure)) { return mark_done_send_err_async_work(); }
+		BUG_ON(io.params.completion_cb != NULL, "Wrong executor usage, async mode unsupported yet");
+		const int n_submit = io_uring_submit(&uring);
+		if (n_submit != num_entries) {
+			BUG_ON(n_submit > 0, "partial io_uring submission not supported yet: %d/%d", n_submit, num_entries);
+			had_failure = true; return mark_done_send_err_async_work();
+		}
+		if (io.params._async_no_comp)
+			return;									// Nothing to do, user will poll for completion
+		while (num_completed != num_entries) {		// Blocking mode, poll uring ourselves
+			struct io_uring_cqe *cqe;
+			const int wait_rv = io_uring_wait_cqe(&uring, &cqe);
+			if (wait_rv < 0) {
+				pr_err1("Failed to get cqe" PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS);
+				return mark_done_send_err_async_work();
+			}
+			__analyze_1_range(cqe);
+			num_completed++;
+			io_uring_cqe_seen(&uring, cqe);
+		}
+		mark_done_with_all_async_work();
+	}
+	enum io_error_codes is_still_running(void) {
+		const io_error_codes rv = io_request_executor_base::is_still_running();
+		if (rv != io_error_codes::E_IN_TRANSFER)
+			return rv;
+		struct io_uring_cqe* cqe;					// Process all available completions
+		unsigned head, count = 0;
+		io_uring_for_each_cqe(&uring, head, cqe) {
+			__analyze_1_range(cqe);
+			count++;
+		}
+		io_uring_cq_advance(&uring, count);			// Mark all seen
+		num_completed += count;
+		if (num_completed == num_entries)
+			mark_done_with_all_async_work();
+		return io_request_executor_base::is_still_running();
+	}
+};
+}; // namespace gusli
+#endif
