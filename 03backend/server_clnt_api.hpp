@@ -12,7 +12,7 @@ namespace gusli {
 
 /******************************** Datapath ***********************/
 // Ideas from https://github.com/deepseek-ai/3FS/blob/main/src/fuse/IoRing.h, https://elixir.bootlin.com/linux/v6.14.5/source/tools/include/io_uring/mini_liburing.h
-struct io_uring_sqe {					// IO submition queue entry
+struct io_csring_sqe {					// IO submition queue entry
 	using context_t = io_request::params_t;
 	context_t user_data;
 	uint32_t is_used : 8;
@@ -26,7 +26,7 @@ struct io_uring_sqe {					// IO submition queue entry
 	void extract_to(context_t* p) { *p = user_data; }
 } __attribute__((aligned(sizeof(long))));
 
-struct io_uring_cqe {
+struct io_csring_cqe {
 	using context_t = struct {
 		io_request *io_ptr;				// Connect completion entry to clients IO pointer
 		int64_t  rv;					// result code for the IO as returned from the server
@@ -41,7 +41,7 @@ struct io_uring_cqe {
 } __attribute__((aligned(sizeof(long))));
 
 template <class T, unsigned int CAPACITY>
-class io_uring_queue {					// Circular buffer, can hold up to CAPACITY-1 elements
+class io_csring_queue {					// Circular buffer, can hold up to CAPACITY-1 elements
 	T arr[CAPACITY];
 	t_lock_spinlock lock_;
 	uint32_t head;						// Next free entry to use
@@ -92,13 +92,13 @@ class io_uring_queue {					// Circular buffer, can hold up to CAPACITY-1 element
 	}
 };
 
-struct io_uring {							// Datapath mechanism to remote bdev
+struct io_csring {							// Datapath mechanism to remote bdev
 	static constexpr int CAPACITY = 256;	// Maximal ammount of in air IO's + at least 1
  public:
-	io_uring_queue<io_uring_sqe, CAPACITY> sq;
-	io_uring_queue<io_uring_cqe, CAPACITY> cq;
-	io_uring() = default;					// Never directly called, shared memory is initialized
-	~io_uring() = delete;
+	io_csring_queue<io_csring_sqe, CAPACITY> sq;
+	io_csring_queue<io_csring_cqe, CAPACITY> cq;
+	io_csring() = default;					// Never directly called, shared memory is initialized
+	~io_csring() = delete;
 	void init(void) {						// Initialized by client (producer)
 		sq.init();
 		cq.init();
@@ -127,7 +127,7 @@ class datapath_t {
 	uint64_t num_total_bytes;
 	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { /*shm_io_bufs.reserve(16);*/}
 	~datapath_t() {}
-	io_uring *get(void) const { return (io_uring *)shm.get_buf(); }
+	io_csring *get(void) const { return (io_csring *)shm.get_buf(); }
 	int shared_buf_find(const io_buffer_t &buf) const;
 	int shared_buf_find(const uint32_t buf_idx) const;
 	int clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
@@ -180,7 +180,7 @@ inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) cons
 	if (!io.params.assume_safe_io && !verify_io_param_valid(io)) {
 		io.out.rv = io_error_codes::E_INVAL_PARAMS; return -1;
 	}
-	io_uring *r = get();
+	io_csring *r = get();
 	rv = r->sq.insert(io.params, need_wakeup_srvr);
 	if (rv < 0) {
 		io.out.rv = io_error_codes::E_THROTTLE_RETRY_LATER; return -1;
@@ -189,8 +189,8 @@ inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) cons
 }
 
 inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
-	io_uring *r = get();
-	io_uring_cqe::context_t comp;
+	io_csring *r = get();
+	io_csring_cqe::context_t comp;
 	const int rv = r->cq.remove(&comp, need_wakeup_srvr);
 	if (rv >= 0) {
 		io_request* io = (io_request*)comp.io_ptr;
@@ -202,13 +202,13 @@ inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
 }
 
 inline int datapath_t::srvr_receive_io(io_request &io, bool *need_wakeup_clnt) const {
-	io_uring *r = get();
+	io_csring *r = get();
 	return r->sq.remove(&io.params, need_wakeup_clnt);
 }
 
 inline int datapath_t::srvr_finish_io(io_request &io, bool *need_wakeup_clnt) const {
-	io_uring *r = get();
-	io_uring_cqe::context_t comp{(io_request *)io.params.completion_context, io.out.rv};
+	io_csring *r = get();
+	io_csring_cqe::context_t comp{(io_request *)io.params.completion_context, io.out.rv};
 	int rv = r->cq.insert(comp, need_wakeup_clnt);
 	ASSERT_IN_PRODUCTION(rv >= 0);		// Todo: Server has to block to let client process the completions
 	return rv;

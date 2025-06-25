@@ -197,7 +197,7 @@ int global_srvr_context_imp::run(void) {
 int global_srvr_context_imp::init(void) {
 	int rv = 0;
 	#define abort_exe_init_on_err() { pr_err1("Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
-	if (!io_uring::is_big_enough_for(par.binfo.num_max_inflight_io))
+	if (!io_csring::is_big_enough_for(par.binfo.num_max_inflight_io))
 		abort_exe_init_on_err()
 	if (this->start() != 0)
 		abort_exe_init_on_err()

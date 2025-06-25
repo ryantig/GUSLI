@@ -49,7 +49,7 @@ int global_clnt_context::init(struct init_params _par) {
 	g->par = _par;
 	tDbg::log_file_set(g->par.log);
 	sprintf(g->lib_info_json, "\"" LIB_NAME "\":{tag=%s commit=0x%lx}}", __stringify(VER_TAGID) , COMMIT_ID);
-	if (!io_uring::is_big_enough_for(g->par.max_num_simultaneous_requests))
+	if (!io_csring::is_big_enough_for(g->par.max_num_simultaneous_requests))
 		abort_exe_init_on_err()
 	if (g->start() != 0)
 		abort_exe_init_on_err()
@@ -304,7 +304,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* _
 		// Initialize datapath of producer
 		dp.block_size = info.block_size;
 		dp.num_total_bytes = info.num_total_blocks * info.block_size;
-		const uint64_t n_bytes = align_up(sizeof(io_uring), (uint64_t)dp.block_size);
+		const uint64_t n_bytes = align_up(sizeof(io_csring), (uint64_t)dp.block_size);
 		pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
 		ASSERT_IN_PRODUCTION(dp.shm.init_producer(pr->name, n_bytes) == 0);
 		*(uint64_t*)dp.shm.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
@@ -401,7 +401,7 @@ bool bdev_backend_api::check_incoming() {
 			return false;	// Nothing special to do
 		} else if (msg.is(MGMT::msg::hello_ack)) {
 			this->info = msg.pay.s_hello_ack.info;
-			ASSERT_IN_PRODUCTION(io_uring::is_big_enough_for(info.num_max_inflight_io));
+			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(info.num_max_inflight_io));
 			ASSERT_IN_PRODUCTION(info.block_size >= 1);
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
