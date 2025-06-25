@@ -346,7 +346,7 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
 #include <thread>		// sleep
-void client_server_test(gusli::global_clnt_context& lib) {
+void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	log("-----------------  Remote server init -------------\n");
 	const pid_t child_pid = fork();
 	my_assert(child_pid >= 0);
@@ -388,10 +388,10 @@ void client_server_test(gusli::global_clnt_context& lib) {
 
 
 		if (1) { // Lauch async perf read test
-			log("-----------------  IO-to-srvr-perf -------------\n");
+			log("-----------------  IO-to-srvr-perf %u[Mio]-------------\n", (num_ios_preassure >> 20));
 			all_ios_t ios(map, info);
-			for (int i = 0; i< 4; i++)
-				ios.launch_perf_reads(1 << 23);
+			for (int i = 0; i < 4; i++)
+				ios.launch_perf_reads(num_ios_preassure);
 		}
 
 		log("-----------------  Unmap bufs -------------\n");
@@ -421,12 +421,26 @@ void client_server_test(gusli::global_clnt_context& lib) {
 }
 
 /*****************************************************************************/
-int main(void) {
+#include <getopt.h>
+int main(int argc, char *argv[]) {
+	int opt, num_ios_preassure = (1 << 23);
+	while ((opt = getopt(argc, argv, "n:h")) != -1) {
+		switch (opt) {
+			case 'n': num_ios_preassure = std::stoi(  optarg); break;
+			case 'h':
+			default:
+				log("Usage: %s [-n num_ios_preassure] [-h]\n", argv[0]);
+				log("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
+				log("  -h                    Show this help message\n");
+				return (opt == 'h') ? 0 : 1;
+		}
+	}
+
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	gusli::global_clnt_context::init_params p;
 	p.client_name = UNITEST_CLNT_NAME;
 #if 0
-	p.config_file = "./gusli.conf";
+	p.config_file = "./gusli.conf";			// Can use external file
 #else
 	char conf_buf[512];
 	sprintf(conf_buf,
@@ -441,6 +455,6 @@ int main(void) {
 #endif
 	my_assert(lib.init(p) == 0);
 	base_lib_unitests(lib);
-	client_server_test(lib);
+	client_server_test(lib, num_ios_preassure);
 	my_assert(lib.destroy() == 0);
 }
