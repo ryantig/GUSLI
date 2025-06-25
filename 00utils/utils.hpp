@@ -162,15 +162,6 @@ static inline char bool_YN(bool x) { return (x ? 'Y' : 'N'); }
 #endif
 #define BUF_ADD(...) count += scnprintf(&buf[count], buf_len - count, __VA_ARGS__)
 
-/*struct data_shard_byte_interval {
-	uint64_t start, len;
-	data_shard_byte_interval(uint64_t _start, uint64_t _length) : start(_start), len(_length) {}
-	static data_shard_byte_interval null(void) { return data_shard_byte_interval(0, 0); }
-	uint64_t end(void) const { return start + len; }
-	bool does_include(uint64_t byte_ptr) const { return (byte_ptr >= start) && (byte_ptr < end()); }
-	bool is_valid(void) const { return (start != 0) && (start < end()); } 	// No wrap around
-};*/
-
 /************************ Sandbox Unitest Environment ************************/
 #ifdef UNITEST_ENV
 	#define NVR_ROOT_DIR "."       // Sandbox local dir  ./

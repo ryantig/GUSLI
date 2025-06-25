@@ -475,25 +475,6 @@ uint64_t tDbg::get_cur_timestamp_unix(void) {
 }
 
 /*****************************************************************************/
-/*int file_system::uuid_t::encode(char *buf, int buf_len) const {
-	int count = 0;
-	BUF_ADD(string_fmt, PRINT_FS_UUID_ARGS(*this));
-	return count;
-}
-
-int file_system::uuid_t::to_string(char *buf, int buf_len) const {
-	int count = 0;
-	BUF_ADD(PRINT_FS_UUID, PRINT_FS_UUID_ARGS(*this));
-	return count;
-}
-
-bool file_system::uuid_t::decode(const char *arg) {
-	this->set_invalid();
-	const int n_args = sscanf(arg, this->string_fmt, &major, &minor);
-	return (n_args == 2);
-}*/
-
-/*****************************************************************************/
 static uint32_t crc32_tab[] = {
 	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
 	0xe963a535, 0x9e6495a3,	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
