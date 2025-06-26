@@ -1,7 +1,5 @@
 #pragma once
-/* Based on ideas from aio_lib, https://github.com/deepseek-ai/3FS/blob/main/src/lib/api/UsrbIo.md
-	Integration with NIXL, do like: : https://github.com/ai-dynamo/nixl/pull/266
-	People: Omri Kahlon, Vishwanath Venkatesan */
+/* Gusli client: Block IO submition api */
 #include <stdio.h>			// FILE, printf
 #include <string.h>			// memset, memcmp
 #include <stdint.h>			// uint64_t, uint32_t
@@ -90,9 +88,12 @@ class io_request {								// Data structure for issuing IO
 		uint8_t is_mutable_data : 1;			// Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
 		uint8_t assume_safe_io : 1;				// Set to true if caller verifies correctness of io (fully inside mapped are, etc...), Skips internal checks so IO uses less client side CPU
 		uint8_t _has_mm : 1;					// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
-		void (*completion_cb)(void* ctx);		// Completion callback, If NULL will do syncronous IO. Called from library internal thread, dont do processing/wait-for-locks in this context!
+		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
+		void (*completion_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *completion_context;				// Callers Completion context passed to the function above
 		template<class C, typename F> void set_completion(C ctx, F cb) { completion_context = (void*)ctx, completion_cb = (void (*)(void*))cb; }
+									  void set_blocking(void) {          completion_context = NULL;       completion_cb = NULL; _async_no_comp = false; }
+									  void set_async_pollable(void) {    completion_context = NULL;       completion_cb = NULL; _async_no_comp = true; }
 		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf, len, lba); }
 		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0); }
 		uint64_t buf_size(void) const {   return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
@@ -110,11 +111,13 @@ class io_request {								// Data structure for issuing IO
  protected:
 	friend class io_request_executor_base;		// Execution of io via third-party block device driver
 	friend class datapath_t;					// Server-Client datapath
+	class io_request_executor_base* _exec;		// During execution executor attaches to IO
 	struct output_t {
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;
+	bool has_callback(void) const { return (params.completion_cb != NULL); }
 	const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
-	void complete(void) { if (params.completion_cb) params.completion_cb(params.completion_context); }
+	void complete(void) { if (has_callback()) params.completion_cb(params.completion_context); }
 };
 
 /******************************** Global library context ***********************/

@@ -5,6 +5,7 @@
 #include <sys/time.h>
 #include <vector>
 #include <unistd.h>
+#include <thread>		// sleep
 
 int _log(const char *fmt,...) __attribute__ ((format (printf, 1, 2)));
 int _log(const char *fmt,...) {
@@ -21,32 +22,48 @@ int _log(const char *fmt,...) {
 // Compile gusli with
 //	clear; ll /dev/shm/gs*; rm core.*; make clean all; ./z_gusli_clnt_unitest; ps -eLo pid,ppid,comm,user | grep gusli
 /***************************** Base sync IO test ***************************************/
+enum io_exec_mode { BLOCKING = 0, ASYNC_CB = 1, POLLABLE = 2, N_MODES } mode;
+#define for_each_exec_mode(i) for (int i = io_exec_mode::BLOCKING; i < io_exec_mode::N_MODES; i++)
 struct unitest_io {
+	static constexpr const char* io_exec_mode_str = "BAP";
 	static constexpr const int buf_size = (1 << 16);	// 64K
 	const int buf_align = sysconf(_SC_PAGESIZE);
 	gusli::io_request io;
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
 	sem_t wait;					// Block sender until io returns
 	int counter = 0;			// Number of executed ios
-	static void completion_cb(struct unitest_io *c) {
-		log("\t\tAsync IO[op=%c] completed, rv=%d. n_exec=%d\n", c->io.params.op, c->io.get_error(), c->counter++);
+	void print_io_comp(void) { log("\t  +cmp[%u] %csync-%c rv=%d\n", counter++, io_exec_mode_str[mode], io.params.op, io.get_error()); }
+	static void __comp_cb(struct unitest_io *c) {
+		c->print_io_comp();
 		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter
 	}
 	unitest_io() { my_assert(posix_memalign((void**)&io_buf, buf_align, buf_size) == 0);	}
 	~unitest_io() { if (io_buf) free(io_buf); }
-	void exec_blocking_io(gusli::io_type _op, bool expect_success = true, bool async = true) {
+	void exec(gusli::io_type _op, io_exec_mode _mode, bool expect_success = true) {
+		mode = _mode;
 		const int n_bytes = (int)io.params.buf_size();
 		my_assert(n_bytes < buf_size);
-		log("\tSubmit[%u] %csync, op=%c %u[b], n_ranges=%u\n", counter, (async? 'a' : ' '), _op, n_bytes, io.params.num_ranges());
+		log("\tSubmit[%u] %csync-%c %u[b], n_ranges=%u\n", counter, io_exec_mode_str[mode], _op, n_bytes, io.params.num_ranges());
 		io.params.op = _op;
-		io.params.set_completion(this, ((async == false) ? NULL : completion_cb));
-		if (async)
+		if (mode == io_exec_mode::ASYNC_CB) {
+			io.params.set_completion(this, __comp_cb);
 			my_assert(sem_init(&wait, 0, 0) == 0);
+		} else if (mode == POLLABLE) {
+			io.params.set_async_pollable();
+		} else {
+			io.params.set_blocking();
+		}
 		io.submit_io();
-		if (async)
+		if (mode == io_exec_mode::ASYNC_CB) {
 			my_assert(sem_wait(&wait) == 0);
-		else
-			log("\t\t_sync IO[op=%c] completed, rv=%d. n_exec=%d\n", io.params.op, io.get_error(), counter++);
+		} else if (mode == POLLABLE) {
+			while (io.get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			print_io_comp();
+		} else {
+			print_io_comp();
+		}
 		if (_op == gusli::G_READ)
 			io_buf[n_bytes] = 0;		// Null termination for prints
 		const bool io_succeeded = (io.get_error() == gusli::io_error_codes::E_OK);
@@ -69,12 +86,11 @@ struct unitest_io {
 		my_assert(mio->my_size()  == multi_io_size);
 		my_assert(mio->buf_size() == multi_io_read_length);
 		my_assert(io.params.buf_size() == multi_io_read_length);
-		clean_buf();
-		exec_blocking_io(gusli::G_READ, true, false);
-		my_assert(strcmp(multi_io_read_result, io_buf) == 0);
-		clean_buf();
-		exec_blocking_io(gusli::G_READ, true, true);
-		my_assert(strcmp(multi_io_read_result, io_buf) == 0);
+		for_each_exec_mode(i) {
+			clean_buf();
+			exec(gusli::G_READ, (io_exec_mode)i);
+			my_assert(strcmp(multi_io_read_result, io_buf) == 0);
+		}
 		clean_buf();
 		free(mio);
 	}
@@ -98,23 +114,21 @@ struct bdev_uuid_cache {
 int base_lib_unitests(gusli::global_clnt_context& lib) {
 	struct unitest_io my_io;
 	static constexpr const char *data = "Hello world";
-	strcpy(my_io.io_buf, data);
 
 	log("\tmetadata=%s\n", lib.get_metadata_json());
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_ALREADY_CONNECTED);
 
-	// Submit async/sync write
+	// Submit async/sync/pollable write
 	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
-	my_io.exec_blocking_io(gusli::G_WRITE);					// Async-OK
-	my_io.exec_blocking_io(gusli::G_WRITE, true, false);	//  Sync-OK
-
-	// Submit async read
-	my_io.clean_buf();
-	my_io.exec_blocking_io(gusli::G_READ);					// Async-OK
-	my_assert(strcmp(data, my_io.io_buf) == 0);
-	my_io.clean_buf();
+	for_each_exec_mode(i) {
+		strcpy(my_io.io_buf, data);
+		my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
+		my_io.clean_buf();
+		my_io.exec(gusli::G_READ, (io_exec_mode)i);
+		my_assert(strcmp(data, my_io.io_buf) == 0);
+	}
 
 	// Multi io-read
 	my_io.unitest_multi_range_read();
@@ -125,9 +139,11 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	bdev.set_from(UUID.AUTO_FAIL);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
-	my_io.exec_blocking_io(gusli::G_NOP,   false);			// Async-Fail
-	my_io.exec_blocking_io(gusli::G_READ,  false);			// Async-Fail
-	my_io.exec_blocking_io(gusli::G_WRITE, false, false);	// Async-Fail
+	for_each_exec_mode(i) {
+		my_io.exec(gusli::G_NOP,   (io_exec_mode)i, false);
+		my_io.exec(gusli::G_READ,  (io_exec_mode)i, false);
+		my_io.exec(gusli::G_WRITE, (io_exec_mode)i, false);
+	}
 	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_NOTCANCELED);
 
 	my_assert(lib.destroy() != 0);							// failed destroy, bdev is still open
@@ -136,7 +152,9 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	bdev.set_from("NonExist_bdev");		// Failed connection to non existing bdev
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
 	my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
-	my_io.exec_blocking_io(gusli::G_READ, false);
+	for_each_exec_mode(i) {
+		my_io.exec(gusli::G_READ, (io_exec_mode)i, false);
+	}
 
 	// Legacy kernel /dev/ block device
 	bdev.set_from(UUID.DEV_ZERO);
@@ -144,9 +162,11 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	gusli::bdev_info bdi; lib.bdev_get_info(bdev, &bdi);
 	my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
 	my_io.io.params.map.data.byte_len = 1 * bdi.block_size;	my_assert(bdi.block_size == 4096);
-	my_io.exec_blocking_io(gusli::G_READ);
-	my_assert(strcmp("", my_io.io_buf) == 0);
-	my_io.exec_blocking_io(gusli::G_WRITE);
+	for_each_exec_mode(i) {
+		my_io.exec(gusli::G_READ, (io_exec_mode)i);
+		my_assert(strcmp("", my_io.io_buf) == 0);
+		my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
+	}
 
 	{ 	// Dummy-Register buffer with kernel bdev
 		std::vector<gusli::io_buffer_t> mem; mem.reserve(2);
@@ -242,7 +262,7 @@ class all_ios_t {
 	int n_max_ios_in_air;
 	uint32_t block_size;
 	sem_t wait;						// Block test until completes
-	static void completion_cb(gusli::io_request *c) {
+	static void __comp_cb(gusli::io_request *c) {
 		my_assert(c->get_error() == 0);
 		const uint64_t n_completed_ios = glbal_all_ios->n_completed_ios.inc();
 		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
@@ -274,7 +294,7 @@ class all_ios_t {
 			p->map.offset_lba_bytes = (i * block_size) + 0x100000;
 			p->map.data.byte_len = 1 * block_size;
 			p->map.data.ptr = (char*)io_buf.ptr + (i * block_size);	// Destination buffer for read
-			p->set_completion(&ios[i], completion_cb);
+			p->set_completion(&ios[i], __comp_cb);
 		}
 		glbal_all_ios = this;
 		n_completed_ios.set(0);
@@ -303,7 +323,7 @@ class all_ios_t {
 	~all_ios_t() { }
 };
 
-static void __io_invalid_arg_completion_cb(const gusli::io_request *io) {
+static void __io_invalid_arg_comp_cb(const gusli::io_request *io) {
 	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 }
 #define n_block(i) (info.block_size * (i))
@@ -314,7 +334,7 @@ void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gus
 	gusli::io_request io;
 	io.params.bdev_descriptor = info.bdev_descriptor;
 	io.submit_io(); my_assert(io.get_error() != 0);			// No completion function
-	io.params.set_completion(&io, __io_invalid_arg_completion_cb);
+	io.params.set_completion(&io, __io_invalid_arg_comp_cb);
 	io.submit_io(); 										// No mapped buffers
 	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)calloc(1, 4096);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
@@ -345,7 +365,6 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
-#include <thread>		// sleep
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	log("-----------------  Remote server init -------------\n");
 	const pid_t child_pid = fork();
@@ -383,9 +402,10 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
 			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 			__print_mio(mio, "clnt");
-			my_io.exec_blocking_io(gusli::G_READ);					// Async-OK
+			my_io.exec(gusli::G_READ, io_exec_mode::BLOCKING, false);	// Sync-Fails - not supported yet
+			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB, true );	// Async-OK
+			my_io.exec(gusli::G_READ, io_exec_mode::POLLABLE, false);	// Pollable-Fails - not supported yet
 		}
-
 
 		if (1) { // Lauch async perf read test
 			log("-----------------  IO-to-srvr-perf %u[Mio]-------------\n", (num_ios_preassure >> 20));
@@ -457,4 +477,5 @@ int main(int argc, char *argv[]) {
 	base_lib_unitests(lib);
 	client_server_test(lib, num_ios_preassure);
 	my_assert(lib.destroy() == 0);
+	log("Done!!! Success\n\n\n");
 }

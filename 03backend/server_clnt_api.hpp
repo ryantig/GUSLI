@@ -21,7 +21,7 @@ struct io_csring_sqe {					// IO submition queue entry
 	void destroy(void) {}
 	void init_from(const context_t& p) {
 		user_data = p;
-		user_data.completion_context = (void*)p.my_io_req();	// Connect submission entry to clients IO pointer
+		user_data.set_completion((void*)p.my_io_req(), NULL);	// Connect submission entry to clients IO pointer, callback function irrelevant
 	}
 	void extract_to(context_t* p) { *p = user_data; }
 } __attribute__((aligned(sizeof(long))));
@@ -160,7 +160,7 @@ inline bool datapath_t::verify_buf_shared(const io_buffer_t &buf) const {
 }
 
 inline bool datapath_t::verify_io_param_valid(const io_request &io) const {
-	if (unlikely(io.params.completion_cb == NULL))
+	if (unlikely(!io.has_callback()))
 		return false;
 	if (!io.params._has_mm)
 		return verify_map_valid(io.params.map);			// 1-range mapping is valid

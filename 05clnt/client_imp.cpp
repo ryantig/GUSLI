@@ -1,8 +1,8 @@
 #include <stdlib.h>
 #include <errno.h>
 #include "00utils/utils.hpp"
-#include "io_executors.hpp"
 #include "client_imp.hpp"
+#include "io_executors.hpp"
 
 namespace gusli {
 
@@ -215,16 +215,19 @@ void io_request::submit_io(void) noexcept {
 		out.rv = io_error_codes::E_INVAL_PARAMS;
 		complete();
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
-		if (params.completion_cb) {					// Async IO
-			aio_request_executor *exec = new aio_request_executor(*this);
-			if (exec)
-				exec->run();	// Will delete exec;
-			else {
-				out.rv = io_error_codes::E_INTERNAL_FAULT;		// We used rv on stack to avoid race condition between 2 writes to out.rv (send rv and completion rv)
-				complete();
+		io_request_executor_base *exec = nullptr;
+		if (!exec) {
+			if (has_callback() || params._async_no_comp) {	// Async IO, with / without completion
+				exec = new aio_request_executor(*this);
+			} else {										// Blocking IO
+				exec = new sync_request_executor(*this);
 			}
-		} else {									// Blocking IO
-			sync_request_executor exec(*this);
+		}
+		if (exec)
+			exec->run();									// Will auto delete exec upon IO finish;
+		else {
+			out.rv = io_error_codes::E_INTERNAL_FAULT;		// Out of memory error
+			complete();
 		}
 	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
 		out.rv = io_error_codes::E_PERM_FAIL_NO_RETRY;		// Here, injection of all possible errors
@@ -246,6 +249,15 @@ void io_request::submit_io(void) noexcept {
 }
 
 enum io_error_codes io_request::get_error(void) const noexcept {
+	if (params._async_no_comp) {
+		if (out.rv == io_error_codes::E_IN_TRANSFER) {
+			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor");
+			if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER)
+				return io_error_codes::E_IN_TRANSFER;
+			delete _exec;	// Disconnect executor from io
+			BUG_ON(_exec, "IO has finished, It should not have any executor anymore");
+		}
+	}
 	if (out.rv > 0) {
 		ASSERT_IN_PRODUCTION(out.rv == (int64_t)params.buf_size());		// No partial io
 		return E_OK;
