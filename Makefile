@@ -173,7 +173,11 @@ $(OBJ_DIR)/$(LIB_SRVR_NAME).a: $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJECTS_SRVR)
 	$(call print_building_target);
 	ld -r $(OBJECTS_SRVR) -o $@
 
-$(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
+$(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_BASE) $(OBJECTS_CLNT)
+	$(call print_building_target);
+	gcc -shared -o $@ $^
+
+$(OBJ_DIR)/$(LIB_SRVR_NAME).so: $(OBJECTS_BASE) $(OBJECTS_SRVR)
 	$(call print_building_target);
 	gcc -shared -o $@ $^
 
@@ -181,9 +185,9 @@ $(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
 #	$(call print_building_target);
 #	$(call link_executable)
 
-$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).so
+$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so
 	$(call print_building_target);
-	$(call link_executable, -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME))
+	$(call link_executable, -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME))
 #LD_LIBRARY_PATH=.
 
 $(OBJ_DIR)/%.o: %.cpp Makefile
@@ -191,11 +195,12 @@ $(OBJ_DIR)/%.o: %.cpp Makefile
 	$(CC) $(CFLAGS) $(INCLUDES) $(DFLAGS) -o $@ -c $<
 	$(call print_executed_rule)
 
-install: $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).a gusli_client_api.hpp gusli_server_api.hpp
+install: $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so gusli_client_api.hpp gusli_server_api.hpp
 	@printf "+-->Install to |\e[1;45m$(INSTALL_DIR)\e[0;0m|\n"
 	@mkdir -p $(INSTALL_DIR)/lib $(INSTALL_DIR)/include;
-	@install -m 644 $(OBJ_DIR)/$(LIB_SRVR_NAME).a  $(INSTALL_DIR)/lib
+#	@install -m 644 $(OBJ_DIR)/$(LIB_SRVR_NAME).a  $(INSTALL_DIR)/lib
 	@install -m 755 $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(INSTALL_DIR)/lib/lib$(LIB_CLNT_NAME).so
+	@install -m 755 $(OBJ_DIR)/$(LIB_SRVR_NAME).so $(INSTALL_DIR)/lib/lib$(LIB_SRVR_NAME).so
 	@install -m 644 gusli_client_api.hpp $(INSTALL_DIR)/include
 	@install -m 644 gusli_server_api.hpp $(INSTALL_DIR)/include
 #	@tree $(INSTALL_DIR)
@@ -203,7 +208,8 @@ install: $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).a gusli_clie
 
 uninstall:
 	@printf "+-->Unistall from |\e[1;45m$(INSTALL_DIR)\e[0;0m|\n"
-	@rm -f $(INSTALL_DIR)/lib/lib$(PROJECT_PREFIX)_* $(INSTALL_DIR)/lib/$(PROJECT_PREFIX)_*
+	@rm -f $(INSTALL_DIR)/lib/lib$(PROJECT_PREFIX)_*
+	@rm -f $(INSTALL_DIR)/lib/$(PROJECT_PREFIX)_*
 	@rm -f $(INSTALL_DIR)/include/$(PROJECT_PREFIX)_*
 #	ldconfig
 # ********** Clean *********
