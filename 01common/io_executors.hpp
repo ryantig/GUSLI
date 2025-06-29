@@ -26,10 +26,7 @@ class io_request_executor_base : no_implicit_constructors {
 		}
 	}
  public:
-	io_request_executor_base(class io_request& _io) : io(_io), total_bytes(0), has_finished_all_async_tasks(false) {
-		if (io.params._async_no_comp)
-			io._exec = this;
-	}
+	io_request_executor_base(class io_request& _io) : io(_io), total_bytes(0), has_finished_all_async_tasks(false) {}
 	virtual ~io_request_executor_base() {
 		io._exec = NULL;		// Disconnect executor from io
 		set_io_rv();
@@ -69,7 +66,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		r->aio_sigevent.sigev_notify_attributes = NULL;
 		r->aio_sigevent.sigev_value.sival_ptr = (void*)this;		// Connect request with io executor
 	}
-	int launch_1_aio_rew(struct aiocb *r) {
+	int launch_1_aio_rw(struct aiocb *r) {
 		const int rv = (io.params.op == G_READ) ? aio_read(r) : aio_write(r); // We used rv on stack to avoid race condition between 2 writes to out.rv (send rv and completion rv)
 		if (rv < 0) {
 			send_error = 1;
@@ -106,7 +103,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 			num_remaining_req.set(num_ranges);
 			const uint32_t n_req_to_run_on_stack = num_ranges;
 			for (uint32_t i = 0; i < n_req_to_run_on_stack; i++) {
-				if (launch_1_aio_rew(&u.reqs[i]) < 0) {
+				if (launch_1_aio_rw(&u.reqs[i]) < 0) {
 					/*if (errno == EAGAIN) { // If we hit the kernel limit, cancel all submitted I/Os and return error
 						for (uint32_t j = 0; j < i; i++) {
 							aio_cancel(io.params.bdev_descriptor, &u.reqs[i]);
@@ -116,7 +113,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 				}
 			}
 		} else {
-			launch_1_aio_rew(&u.req1);
+			launch_1_aio_rw(&u.req1);
 		}
 	}
 	aio_request_executor(class io_request& _io) : io_request_executor_base(_io) {

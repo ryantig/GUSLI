@@ -215,20 +215,20 @@ void io_request::submit_io(void) noexcept {
 		out.rv = io_error_codes::E_INVAL_PARAMS;
 		complete();
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
-		io_request_executor_base *exec = nullptr;
+		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 		#if defined(HAS_URING_LIB)
 			if (!has_callback() && params.try_using_uring_api)	// Uring does not support async callback mode
-				exec = new uring_request_executor(*this);
+				_exec = new uring_request_executor(*this);
 		#endif
-		if (!exec) {
+		if (!_exec) {
 			if (has_callback() || params._async_no_comp) {	// Async IO, with / without completion
-				exec = new aio_request_executor(*this);
+				_exec = new aio_request_executor(*this);
 			} else {										// Blocking IO
-				exec = new sync_request_executor(*this);
+				_exec = new sync_request_executor(*this);
 			}
 		}
-		if (exec)
-			exec->run();									// Will auto delete exec upon IO finish;
+		if (_exec)
+			_exec->run();									// Will auto delete exec upon IO finish;
 		else {
 			out.rv = io_error_codes::E_INTERNAL_FAULT;		// Out of memory error
 			complete();
