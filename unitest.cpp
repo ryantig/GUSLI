@@ -22,17 +22,26 @@ int _log(const char *fmt,...) {
 // Compile gusli with
 //	clear; ll /dev/shm/gs*; rm core.*; make clean all; ./z_gusli_clnt_unitest; ps -eLo pid,ppid,comm,user | grep gusli
 /***************************** Base sync IO test ***************************************/
-enum io_exec_mode { BLOCKING = 0, ASYNC_CB = 1, POLLABLE = 2, N_MODES } mode;
-#define for_each_exec_mode(i) for (int i = io_exec_mode::BLOCKING; i < io_exec_mode::N_MODES; i++)
+enum io_exec_mode { ILLEGAL = 0, SYNC_BLOCKING_1_BY_1, ASYNC_CB, POLLABLE, URING_BLOCKING, URING_POLLABLE, N_MODES } mode;
+static const char* io_exec_mode_str(io_exec_mode m) {
+	switch(m) {
+		case SYNC_BLOCKING_1_BY_1: return "BSync_block";
+		case ASYNC_CB:             return "AC_async_cb";
+		case POLLABLE:             return "APasyncPoll";
+		case URING_BLOCKING:       return "UBringBlock";
+		case URING_POLLABLE:       return "UPring_Poll";
+		default: my_assert(false); return "";
+	}
+}
+#define for_each_exec_mode(i) for (int i = io_exec_mode::SYNC_BLOCKING_1_BY_1; i < io_exec_mode::N_MODES; i++)
 struct unitest_io {
-	static constexpr const char* io_exec_mode_str = "BAP";
 	static constexpr const int buf_size = (1 << 16);	// 64K
 	const int buf_align = sysconf(_SC_PAGESIZE);
 	gusli::io_request io;
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
 	sem_t wait;					// Block sender until io returns
 	int counter = 0;			// Number of executed ios
-	void print_io_comp(void) { log("\t  +cmp[%u] %csync-%c rv=%d\n", counter++, io_exec_mode_str[mode], io.params.op, io.get_error()); }
+	void print_io_comp(void) { log("\t  +cmp[%u] %s-%c rv=%d\n", counter++, io_exec_mode_str(mode), io.params.op, io.get_error()); }
 	static void __comp_cb(struct unitest_io *c) {
 		c->print_io_comp();
 		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter
@@ -43,20 +52,21 @@ struct unitest_io {
 		mode = _mode;
 		const int n_bytes = (int)io.params.buf_size();
 		my_assert(n_bytes < buf_size);
-		log("\tSubmit[%u] %csync-%c %u[b], n_ranges=%u\n", counter, io_exec_mode_str[mode], _op, n_bytes, io.params.num_ranges());
+		log("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", counter, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
 		io.params.op = _op;
 		if (mode == io_exec_mode::ASYNC_CB) {
 			io.params.set_completion(this, __comp_cb);
 			my_assert(sem_init(&wait, 0, 0) == 0);
-		} else if (mode == POLLABLE) {
+		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			io.params.set_async_pollable();
-		} else {
+		} else if ((mode == SYNC_BLOCKING_1_BY_1) || (mode == URING_BLOCKING)) {
 			io.params.set_blocking();
-		}
+		} else {my_assert(false); }
+		io.params.try_using_uring_api = ((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
 		io.submit_io();
 		if (mode == io_exec_mode::ASYNC_CB) {
 			my_assert(sem_wait(&wait) == 0);
-		} else if (mode == POLLABLE) {
+		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			while (io.get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
@@ -402,7 +412,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
 			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 			__print_mio(mio, "clnt");
-			my_io.exec(gusli::G_READ, io_exec_mode::BLOCKING, false);	// Sync-Fails - not supported yet
+			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1, false);	// Sync-Fails - not supported yet
 			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB, true );	// Async-OK
 			my_io.exec(gusli::G_READ, io_exec_mode::POLLABLE, false);	// Pollable-Fails - not supported yet
 		}

@@ -81,12 +81,13 @@ class io_request {								// Data structure for issuing IO
  public:
 	struct params_t {							// Parameters for IO, treated as const by the library
 		int32_t bdev_descriptor;				// Take from bdev_info::bdev_descriptor
-		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity.
+		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
 		io_map_t map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
 		enum io_type op : 8;					// Operation to be performed
 		uint8_t priority: 8;					// [0..100] priority. 100 is highest, 0 lowest
 		uint8_t is_mutable_data : 1;			// Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
 		uint8_t assume_safe_io : 1;				// Set to true if caller verifies correctness of io (fully inside mapped are, etc...), Skips internal checks so IO uses less client side CPU
+		uint8_t try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges
 		uint8_t _has_mm : 1;					// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
 		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
 		void (*completion_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
