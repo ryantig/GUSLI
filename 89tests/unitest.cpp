@@ -147,13 +147,14 @@ class dummy_server {
 		dslog("close: %s, fd=%d, rv=%d, who=%s\n", SERVER_BDEV_NAME, me->fd, rv, who);
 		return 0;
 	}
-	static void exec_io(void *ctx, class gusli::io_request& io) { (void)ctx;
+	static int exec_io(void *ctx, class gusli::io_request& io) { (void)ctx;
 		if (true) {
 			if (io.params.num_ranges() > 1) {
 				const gusli::io_multi_map_t* mio = (const gusli::io_multi_map_t*)io.params.map.data.ptr;
-				log("Serving IO: #rng = %u, buf_size=%lu[b]\n", io.params.num_ranges(), io.params.buf_size());
+				log("%s Serving IO: #rng = %u, buf_size=%lu[b]\n", SERVER_BDEV_NAME, io.params.num_ranges(), io.params.buf_size());
 				__print_mio(mio, "srvr");
 			}
+			return 0;
 		}
 	}
  public:
@@ -331,8 +332,8 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
 			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 			__print_mio(mio, "clnt");
-			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1, false);	// Sync-Fails - not supported yet
-			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB, true );	// Async-OK
+			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Sync-IO-OK
+			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);				// Async-OK
 			my_io.exec(gusli::G_READ, io_exec_mode::POLLABLE, false);	// Pollable-Fails - not supported yet
 		}
 

@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include "server_imp.hpp"
+#include "io_executors.hpp"
 
 namespace gusli {
 #include "spdk_api.hpp"
@@ -164,11 +165,13 @@ int global_srvr_context_imp::run(void) {
 				need_wakeup_clnt_io_submitter |= wake;
 				stats.inc(io);
 				#if SUPPORT_SPDK
-					__spdk_exec_io(io);
+					auto *_exec = new spdk_request_executor(io);
 				#else
-					par.vfuncs.exec_io(par.vfuncs.caller_context, io);	// Execute IO on backend, syncronously....
+				{
+					server_side_executor exec = server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
+					exec.run();
+				}
 				#endif
-				// Assume IO finished with success: io.out.rv = 0;
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);
 				need_wakeup_clnt_comp_reader |= wake;
 				pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params.completion_context, wake);

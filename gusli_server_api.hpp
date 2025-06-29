@@ -15,7 +15,7 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 			void *caller_context;
 			int  (*open)(   void *caller_context, const char* who) = 0;
 			int  (*close)(  void *caller_context, const char* who) = 0;
-			void (*exec_io)(void *caller_context, class io_request& io);
+			int (*exec_io)( void *caller_context, class io_request& io);		// negative on failure, 0 or positive on success
 		} vfuncs;
 	};
 	SYMBOL_EXPORT static global_srvr_context& get(void); 			// Singletone

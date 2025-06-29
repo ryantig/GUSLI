@@ -237,6 +237,11 @@ void io_request::submit_io(void) noexcept {
 		out.rv = io_error_codes::E_PERM_FAIL_NO_RETRY;		// Here, injection of all possible errors
 		complete();
 	} else if (bdev->conf.type == NVMESH_UM) {
+		if (unlikely(this->is_blocking_io())) {
+			_exec = new remote_aio_blocker(*this);
+			if (_exec)
+				_exec->run();
+		}
 		bool need_wakeup_srvr;
 		const int rv = bdev->b.dp.clnt_send_io(*this, &need_wakeup_srvr);
 		if (rv >= 0) {
@@ -246,6 +251,8 @@ void io_request::submit_io(void) noexcept {
 		} else {
 			complete();	// Todo: Put in a waiting queue and wait for server notification that it consumed some submition entries
 		}
+		if (_exec)
+			_exec->is_still_running();		// Blocking wait;
 	} else {
 		out.rv = io_error_codes::E_INVAL_PARAMS;
 		complete();

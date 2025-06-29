@@ -3,6 +3,7 @@
 #include "00utils/atomics.hpp"
 #include <aio.h>
 #include <signal.h>
+#include <semaphore.h>		// Waiting for async io completion
 namespace gusli {
 
 class io_request_executor_base : no_implicit_constructors {
@@ -10,6 +11,7 @@ class io_request_executor_base : no_implicit_constructors {
 	class io_request& io;					// Link to original IO
 	int64_t total_bytes;					// Total transferred bytes accross all io ranges
 	bool has_finished_all_async_tasks;
+	bool was_rv_already_set_by_remote;
 	const io_multi_map_t *get_mm(void) const { return io.get_multi_map(); }
 	void log_io_failed(                                  int64_t rv) const { pr_verb1("io[%c].failed[%ld]: "                            PRINT_EXTERN_ERR_FMT "\n", io.params.op,                         rv, PRINT_EXTERN_ERR_ARGS); }
 	void log_io_succes(                                  int64_t rv) const { pr_verb1("io[%c].n_ranges[%u].completed[%ld[b]]\n",                                   io.params.op, io.params.num_ranges(), rv); }
@@ -17,6 +19,11 @@ class io_request_executor_base : no_implicit_constructors {
 	void log_io_range_succes(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1("io[%c].range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        io.params.op, lba, len,               rv); }
  private:
 	void set_io_rv(void) const {
+		if (was_rv_already_set_by_remote) {
+			// pr_verb1("io rv already_set to %ld\n", io.out.rv);
+			return;	// Nothing to do.
+		}
+		BUG_ON(io.out.rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", io.out.rv);
 		if ((uint64_t)total_bytes == io.params.buf_size()) {
 			log_io_succes(total_bytes);
 			io.out.rv = total_bytes;
@@ -26,7 +33,9 @@ class io_request_executor_base : no_implicit_constructors {
 		}
 	}
  public:
-	io_request_executor_base(class io_request& _io) : io(_io), total_bytes(0), has_finished_all_async_tasks(false) {}
+	io_request_executor_base(class io_request& _io) : io(_io), total_bytes(0), has_finished_all_async_tasks(false), was_rv_already_set_by_remote(false) {
+		io.out.rv = io_error_codes::E_IN_TRANSFER;
+	}
 	virtual ~io_request_executor_base() {
 		io._exec = NULL;		// Disconnect executor from io
 		set_io_rv();
@@ -167,6 +176,49 @@ class sync_request_executor : public io_request_executor_base {	// On stack exec
 	sync_request_executor(class io_request& _io) : io_request_executor_base(_io) {}
 	~sync_request_executor() {}
 };
+
+/*****************************************************************************/
+class remote_aio_blocker : public io_request_executor_base {						// Convert remote async request io to blocking
+	sem_t wait;					// Block sender until io returns
+	static void __cb(remote_aio_blocker *exec) {
+		BUG_ON(sem_post(&exec->wait) != 0, "Cant unblock waiter");
+		pr_verb1("blocked_rio: completion arrived!\n");
+		exec->was_rv_already_set_by_remote = true;
+		// exec->total_bytes = exec->io.params.buf_size(); No need,  exec->io.out.rv already set
+		return; // Wakeup waiter
+	}
+ public:
+	remote_aio_blocker(io_request &_io) : io_request_executor_base(_io) {
+		io.params.set_completion(this, this->__cb);
+	}
+	~remote_aio_blocker() {
+		io.params.set_completion(NULL, NULL);
+	}
+	void run(void) override {
+		ASSERT_IN_PRODUCTION(sem_init(&wait, 0, 0) == 0); //, "Cannot init blocking io");
+	}
+	enum io_error_codes is_still_running(void) {
+		ASSERT_IN_PRODUCTION(sem_wait(&wait) == 0); //, "Cannot wait for blocking io");
+		pr_verb1("blocked_rio: un-block, finish\n");
+		mark_done_with_all_async_work();
+		return io_error_codes::E_OK;
+	}
+};
+
+/*****************************************************************************/
+class server_side_executor : public io_request_executor_base {						// Convert remote async request io to blocking
+	int (*fn)(void *ctx, class io_request& io);
+	void* ctx;
+ public:
+	server_side_executor(int (*_fn)(void *, class io_request&), void *_ctx, io_request &_io) : io_request_executor_base(_io), fn(_fn), ctx(_ctx) {}
+	~server_side_executor() { }
+	void run(void) override {
+		const int exec_rv = fn(ctx, io);
+		pr_verb1("Server io: run, rv=%d\n", exec_rv);
+		total_bytes = (exec_rv >= 0) ? (int64_t)io.params.buf_size() : (int64_t)exec_rv;
+	}
+};
+
 
 /*****************************************************************************/
 class spdk_request_executor : public io_request_executor_base {						// Execute async io with spdk

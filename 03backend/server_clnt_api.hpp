@@ -160,7 +160,7 @@ inline bool datapath_t::verify_buf_shared(const io_buffer_t &buf) const {
 }
 
 inline bool datapath_t::verify_io_param_valid(const io_request &io) const {
-	if (unlikely(!io.has_callback()))
+	if (unlikely(io.params._async_no_comp))				// Polling mode not supported yet
 		return false;
 	if (!io.params._has_mm)
 		return verify_map_valid(io.params.map);			// 1-range mapping is valid

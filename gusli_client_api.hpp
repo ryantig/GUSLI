@@ -117,6 +117,7 @@ class io_request {								// Data structure for issuing IO
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;
 	bool has_callback(void) const { return (params.completion_cb != NULL); }
+	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
 	const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
 	void complete(void) { if (has_callback()) params.completion_cb(params.completion_context); }
 };
