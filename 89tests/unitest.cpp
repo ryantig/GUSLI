@@ -80,30 +80,6 @@ struct unitest_io {
 		my_assert(io_succeeded == expect_success);
 	}
 	void clean_buf(void) { memset(io_buf, 0, buf_align); memset(io_buf, 'C', 16); }
-	void unitest_multi_range_read(void) {
-		static constexpr const char *multi_io_read_result = "orelloHew";
-		static constexpr const int multi_io_read_length = strlen(multi_io_read_result);
-		static constexpr const int n_ranges = 4;
-		static constexpr const size_t multi_io_size = sizeof(gusli::io_multi_map_t) + n_ranges * sizeof(gusli::io_map_t);
-		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
-		mio->n_entries = n_ranges;
-		mio->reserved = 'r';
-		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = &io_buf[0], .byte_len = 2, }, .offset_lba_bytes = 7};	// "Hello world" -> "or"
-		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = &io_buf[2], .byte_len = 4, }, .offset_lba_bytes = 1};	// "Hello world" -> "ello"
-		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = &io_buf[6], .byte_len = 2, }, .offset_lba_bytes = 0};	// "Hello world" -> "He"
-		mio->entries[3] = (gusli::io_map_t){.data = {.ptr = &io_buf[8], .byte_len = 1, }, .offset_lba_bytes = 6};	// "Hello world" -> "w"
-		io.params.init_multi(gusli::G_READ, io.params.bdev_descriptor, *mio);
-		my_assert(mio->my_size()  == multi_io_size);
-		my_assert(mio->buf_size() == multi_io_read_length);
-		my_assert(io.params.buf_size() == multi_io_read_length);
-		for_each_exec_mode(i) {
-			clean_buf();
-			exec(gusli::G_READ, (io_exec_mode)i);
-			my_assert(strcmp(multi_io_read_result, io_buf) == 0);
-		}
-		clean_buf();
-		free(mio);
-	}
 };
 
 static int32_t __get_connected_bdev_descriptor(const gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
@@ -140,9 +116,31 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 		my_assert(strcmp(data, my_io.io_buf) == 0);
 	}
 
-	// Multi io-read
-	my_io.unitest_multi_range_read();
-
+	if (1) {	// Multi range read
+		static constexpr const char *multi_io_read_result = "orelloHew";		// Expected permutation of 'data' buffer
+		static constexpr const int multi_io_read_length = strlen(multi_io_read_result);
+		static constexpr const int n_ranges = 4;
+		static constexpr const size_t multi_io_size = sizeof(gusli::io_multi_map_t) + n_ranges * sizeof(gusli::io_map_t);
+		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
+		char *p = my_io.io_buf;
+		mio->n_entries = n_ranges;
+		mio->reserved = 'r';
+		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = &p[0], .byte_len = 2, }, .offset_lba_bytes = 7};	// "Hello world" -> "or"
+		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = &p[2], .byte_len = 4, }, .offset_lba_bytes = 1};	// "Hello world" -> "ello"
+		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = &p[6], .byte_len = 2, }, .offset_lba_bytes = 0};	// "Hello world" -> "He"
+		mio->entries[3] = (gusli::io_map_t){.data = {.ptr = &p[8], .byte_len = 1, }, .offset_lba_bytes = 6};	// "Hello world" -> "w"
+		my_io.io.params.init_multi(gusli::G_READ, my_io.io.params.bdev_descriptor, *mio);
+		my_assert(mio->my_size()  == multi_io_size);
+		my_assert(mio->buf_size() == multi_io_read_length);
+		my_assert(my_io.io.params.buf_size() == multi_io_read_length);
+		for_each_exec_mode(i) {
+			my_io.clean_buf();
+			my_io.exec(gusli::G_READ, (io_exec_mode)i);
+			my_assert(strcmp(multi_io_read_result, p) == 0);
+		}
+		my_io.clean_buf();
+		free(mio);
+	}
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 
 	// Failed read
