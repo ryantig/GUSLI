@@ -27,10 +27,11 @@ INCLUDES :=
 INCLUDES += -I/usr/include -I. -I./00utils -I./01common -I./03backend -I./05clnt
 
 # ********** *.cpp sources *********
-SOURCES_COMMON = 00utils/utils.cpp
+SOURCES_BASE = 00utils/utils.cpp
 SOURCES_CLNT = 05clnt/client_imp.cpp
 SOURCES_SRVR = 03backend/server_imp.cpp
-SOURCES_ALL = $(SOURCES_COMMON) $(SOURCES_CLNT) $(SOURCES_SRVR)
+SOURCES_TEST = 89tests/unitest.cpp
+SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST)
 
 # ********** All objects will reside in separate directory **********
 OBJ_DIR_ROOT=99bin
@@ -41,14 +42,14 @@ else
 endif
 
 $(shell mkdir -p $(OBJ_DIR))
-OBJECTS_COMMON = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_COMMON))
-OBJECTS_CLNT =   $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_CLNT))
-OBJECTS_SRVR =   $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SRVR))
-OBJECTS_UNITEST += $(OBJ_DIR)/unitest.o # Unitest code for library
-OBJECTS_ALL = $(OBJECTS_COMMON) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
+OBJECTS_BASE = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_BASE))
+OBJECTS_CLNT = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_CLNT))
+OBJECTS_SRVR = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SRVR))
+OBJECTS_TEST = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_TEST))
+OBJECTS_ALL = $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR) $(OBJECTS_TEST)
 
-# Include dependency files if they exist, causes .cpp files to depend on their .hpp files
-DEPEND_FILES_ALL = $(OBJECTS_ALL:.o=.d) $(OBJECTS_UNITEST:.o=.d)
+# Include dependency files if they exist, causes recompilation .cpp files when .hpp files cahnge
+DEPEND_FILES_ALL = $(OBJECTS_ALL:.o=.d)
 DFLAGS = -MP -MMD
 
 # Compilation output (Lib/Exe)
@@ -160,9 +161,9 @@ define link_executable
 	$(call print_executed_rule,"=Executable\\n");
 endef
 
-$(OBJ_DIR)/$(LIB_COMN_NAME).a: help $(OBJECTS_COMMON)
+$(OBJ_DIR)/$(LIB_COMN_NAME).a: help $(OBJECTS_BASE)
 	$(call print_building_target);
-	ld -r $(OBJECTS_COMMON) -o $@
+	ld -r $(OBJECTS_BASE) -o $@
 
 $(OBJ_DIR)/$(LIB_CLNT_NAME).a: $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJECTS_CLNT)
 	$(call print_building_target);
@@ -172,15 +173,15 @@ $(OBJ_DIR)/$(LIB_SRVR_NAME).a: $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJECTS_SRVR)
 	$(call print_building_target);
 	ld -r $(OBJECTS_SRVR) -o $@
 
-$(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_COMMON) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
+$(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR)
 	$(call print_building_target);
 	gcc -shared -o $@ $^
 
-#$(UNITEST_EXE): $(OBJECTS_UNITEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
+#$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
 #	$(call print_building_target);
 #	$(call link_executable)
 
-$(UNITEST_EXE): $(OBJECTS_UNITEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).so
+$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).so
 	$(call print_building_target);
 	$(call link_executable, -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME))
 #LD_LIBRARY_PATH=.
