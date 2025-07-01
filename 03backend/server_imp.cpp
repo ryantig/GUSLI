@@ -167,9 +167,13 @@ int global_srvr_context_imp::run(void) {
 				#if SUPPORT_SPDK
 					auto *_exec = new spdk_request_executor(io);
 				#else
-				{
-					server_side_executor exec = server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
-					exec.run();
+				{	nvTODO("Unify with client execute io code");
+					server_side_executor *_exec = new server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
+					if (_exec) {
+						_exec->run();									// Will auto delete exec upon IO finish;
+					} else {
+						io_autofail_executor(io, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
+					}
 				}
 				#endif
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);

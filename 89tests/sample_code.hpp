@@ -22,7 +22,7 @@ int _log(const char *fmt,...) {
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
 
 
-enum io_exec_mode { ILLEGAL = 0, SYNC_BLOCKING_1_BY_1, ASYNC_CB, POLLABLE, URING_BLOCKING, URING_POLLABLE, N_MODES } mode;
+enum io_exec_mode { ILLEGAL = 0, POLLABLE, ASYNC_CB, URING_POLLABLE, URING_BLOCKING, SYNC_BLOCKING_1_BY_1, N_MODES } mode;
 static const char* io_exec_mode_str(io_exec_mode m) {
 	switch(m) {
 		case SYNC_BLOCKING_1_BY_1: return "BSync_block";
@@ -33,28 +33,56 @@ static const char* io_exec_mode_str(io_exec_mode m) {
 		default: my_assert(false); return "";
 	}
 }
-#define for_each_exec_mode(i) for (int i = io_exec_mode::SYNC_BLOCKING_1_BY_1; i < io_exec_mode::N_MODES; i++)
+#define for_each_exec_mode(i)       for (int i = ((int)io_exec_mode::ILLEGAL + 1); i < io_exec_mode::N_MODES;        i++)
+#define for_each_exec_async_mode(i) for (int i = ((int)io_exec_mode::POLLABLE   ); i < io_exec_mode::URING_BLOCKING; i++)
 
 /***************************** Example of io usage ***************************************/
-struct unitest_io {
-	static constexpr const int buf_size = (1 << 16);	// 64K
+class unitest_io {
+	static constexpr const int buf_len = (1 << 16);	// 64K
 	const int buf_align = sysconf(_SC_PAGESIZE);
+	sem_t wait;					// Block sender until io returns
+	bool has_callback_arrived;
+	bool _expect_success = true;
+	bool _verbose = true;
+	bool _should_try_cancel = false;
+ public:
+	unsigned int n_ios = 0;		// Number of executed ios
+	unsigned int n_cancl = 0;	// Number of canceled ios
+ private:
+	static void __comp_cb(struct unitest_io *c) {
+		const gusli::io_error_codes io_rv = c->io.get_error();
+		my_assert(io_rv != gusli::io_error_codes::E_IN_TRANSFER);							// When callback is is done and cannot be in air
+		my_assert(io_rv != gusli::io_error_codes::E_CANCELED_BY_CALLER);					// If canceled by caller, callback cannot arrive
+		c->has_callback_arrived = true;
+		c->print_io_comp();
+		if (c->_should_try_cancel)
+			my_assert(c->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
+		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter. Must be last expression to prevent the callback from running while io is retried.
+	}
+	void assert_rv(void) {
+		const gusli::io_error_codes io_rv = io.get_error();
+		my_assert(has_callback_arrived == false);
+		if (io_rv == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
+			n_cancl++;
+		} else {
+			const bool io_succeeded = (io_rv == gusli::io_error_codes::E_OK);
+			my_assert(io_succeeded == _expect_success);
+		}
+		_should_try_cancel = false;
+	}
+	void print_io_comp(void) { n_ios++; if (_verbose) log("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op, io.get_error()); }
+ public:
 	gusli::io_request io;
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
-	sem_t wait;					// Block sender until io returns
-	int counter = 0;			// Number of executed ios
-	void print_io_comp(void) { log("\t  +cmp[%u] %s-%c rv=%d\n", counter++, io_exec_mode_str(mode), io.params.op, io.get_error()); }
-	static void __comp_cb(struct unitest_io *c) {
-		c->print_io_comp();
-		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter
-	}
-	unitest_io() { my_assert(posix_memalign((void**)&io_buf, buf_align, buf_size) == 0);	}
+	unitest_io() { my_assert(posix_memalign((void**)&io_buf, buf_align, buf_len) == 0);	}
 	~unitest_io() { if (io_buf) free(io_buf); }
-	void exec(gusli::io_type _op, io_exec_mode _mode, bool expect_success = true) {
+	uint64_t buf_size(void) const { return buf_len; }
+	const unitest_io& exec(gusli::io_type _op, io_exec_mode _mode) {
 		mode = _mode;
+		has_callback_arrived = false;
 		const int n_bytes = (int)io.params.buf_size();
-		my_assert(n_bytes < buf_size);
-		log("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", counter, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
+		my_assert(n_bytes < buf_len);
+		if (_verbose) log("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", n_ios, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
 		io.params.op = _op;
 		if (mode == io_exec_mode::ASYNC_CB) {
 			io.params.set_completion(this, __comp_cb);
@@ -66,20 +94,37 @@ struct unitest_io {
 		} else {my_assert(false); }
 		io.params.try_using_uring_api = ((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
 		io.submit_io();
+		if (_should_try_cancel) {
+			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
+			io.try_cancel();
+		}
 		if (mode == io_exec_mode::ASYNC_CB) {
-			my_assert(sem_wait(&wait) == 0);
+			if (io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
+				print_io_comp();
+			} else {
+				my_assert(sem_wait(&wait) == 0);			// Otherwise callback will not come
+				my_assert(has_callback_arrived == true);
+				has_callback_arrived = false;
+			}
 		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			while (io.get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				std::this_thread::sleep_for(std::chrono::nanoseconds(100));
 			}
 			print_io_comp();
 		} else {
 			print_io_comp();
 		}
 		if (_op == gusli::G_READ)
-			io_buf[n_bytes] = 0;		// Null termination for prints
-		const bool io_succeeded = (io.get_error() == gusli::io_error_codes::E_OK);
-		my_assert(io_succeeded == expect_success);
+			io_buf[n_bytes] = 0;		// Null termination for prints of buffer content
+		assert_rv();
+		return *this;
 	}
+	void exec_cancel(gusli::io_type _op, io_exec_mode _mode) {
+		_should_try_cancel = true;
+		exec(_op, _mode);
+	}
+	unitest_io& expect_success(bool val) { _expect_success = val; return *this; }
+	unitest_io& clear_stats(void) { n_ios = n_cancl = 0; return *this; }
+	unitest_io& enable_prints(bool val) { _verbose = val; return *this; }
 	void clean_buf(void) { memset(io_buf, 0, buf_align); memset(io_buf, 'C', 16); }
 };

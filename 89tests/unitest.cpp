@@ -1,8 +1,15 @@
 #include "sample_code.hpp"
 
+#define log_line(fmt, ...) log("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define UNITEST_CLNT_NAME "[_test_]"
 // Compile gusli with: 		clear; ll /dev/shm/gs*; rm core.*; make clean all; ./z_gusli_clnt_unitest; ps -eLo pid,ppid,comm,user | grep gusli
 /***************************** Base sync IO test ***************************************/
+uint64_t get_cur_timestamp_unix(void) {
+	struct timeval tp;
+	gettimeofday(&tp, nullptr);
+	return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
+}
+
 static int32_t __get_connected_bdev_descriptor(const gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
 	lib.bdev_get_info(bdev, &i);
@@ -21,20 +28,54 @@ struct bdev_uuid_cache {
 int base_lib_unitests(gusli::global_clnt_context& lib) {
 	struct unitest_io my_io;
 	static constexpr const char *data = "Hello world";
+	static constexpr const uint64_t data_len = strlen(data);
 
 	log("\tmetadata=%s\n", lib.get_metadata_json());
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_ALREADY_CONNECTED);
 
-	// Submit async/sync/pollable write
-	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
-	for_each_exec_mode(i) {
-		strcpy(my_io.io_buf, data);
-		my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
-		my_io.clean_buf();
-		my_io.exec(gusli::G_READ, (io_exec_mode)i);
-		my_assert(strcmp(data, my_io.io_buf) == 0);
+	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, data_len, my_io.io_buf);
+	if (1) {
+		log_line("Submit async/sync/pollable write");
+		for_each_exec_mode(i) {
+			strcpy(my_io.io_buf, data);
+			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
+			my_io.clean_buf();
+			my_io.exec(gusli::G_READ, (io_exec_mode)i);
+			my_assert(strcmp(data, my_io.io_buf) == 0);
+			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already succeeded, cannot cancel
+		}
+	}
+	if (1) {
+		log_line("Cancel while io is in air all modes");
+		my_io.clear_stats();
+		for_each_exec_mode(i) {
+			my_io.clean_buf();
+			my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
+			if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
+				my_assert(strcmp(data, my_io.io_buf) == 0);
+		}
+	}
+	if (1) {
+		int n_iters = 10000;
+		log_line("Race-Cancel in-air-io test %d[iters]", n_iters);
+		my_io.enable_prints(false).clear_stats();
+		for_each_exec_async_mode(i) {
+			const uint64_t time_start = get_cur_timestamp_unix();
+			for (int n = 0; n < n_iters; n++) {
+				my_io.clean_buf();
+				my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
+				if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
+					my_assert(strcmp(data, my_io.io_buf) == 0);
+			}
+			const uint64_t time_end = get_cur_timestamp_unix();
+			const uint64_t n_micro_sec = (time_end - time_start);
+			log("Test summary[%s]: canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+			my_io.clear_stats();
+		}
+		my_io.enable_prints(true).clear_stats();
+		fflush(stderr);
 	}
 
 	if (1) {	// Multi range read
@@ -64,52 +105,57 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	}
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 
-	// Failed read
-	bdev.set_from(UUID.AUTO_FAIL);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
-	for_each_exec_mode(i) {
-		my_io.exec(gusli::G_NOP,   (io_exec_mode)i, false);
-		my_io.exec(gusli::G_READ,  (io_exec_mode)i, false);
-		my_io.exec(gusli::G_WRITE, (io_exec_mode)i, false);
+	if (1) { // Failed read
+		bdev.set_from(UUID.AUTO_FAIL);
+		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
+		my_io.expect_success(false);
+		for_each_exec_mode(i) {
+			my_io.exec(gusli::G_NOP,   (io_exec_mode)i);
+			my_io.exec(gusli::G_READ,  (io_exec_mode)i);
+			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
+			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already Failed, cannot cancel
+		}
+		my_assert(lib.destroy() != 0);							// failed destroy, bdev is still open
+		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 	}
-	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_NOTCANCELED);
-
-	my_assert(lib.destroy() != 0);							// failed destroy, bdev is still open
-	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
-
-	bdev.set_from("NonExist_bdev");		// Failed connection to non existing bdev
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
-	my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
-	for_each_exec_mode(i) {
-		my_io.exec(gusli::G_READ, (io_exec_mode)i, false);
-	}
-
-	// Legacy kernel /dev/ block device
-	bdev.set_from(UUID.DEV_ZERO);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-	gusli::bdev_info bdi; lib.bdev_get_info(bdev, &bdi);
-	my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
-	my_io.io.params.map.data.byte_len = 1 * bdi.block_size;	my_assert(bdi.block_size == 4096);
-	for_each_exec_mode(i) {
-		my_io.exec(gusli::G_READ, (io_exec_mode)i);
-		my_assert(strcmp("", my_io.io_buf) == 0);
-		my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
+	if (1) {
+		bdev.set_from("NonExist_bdev");		// Failed connection to non existing bdev
+		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
+		my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
+		my_io.expect_success(false);
+		for_each_exec_mode(i) {
+			my_io.exec(gusli::G_READ, (io_exec_mode)i);
+		}
 	}
 
-	{ 	// Dummy-Register buffer with kernel bdev
-		std::vector<gusli::io_buffer_t> mem; mem.reserve(2);
-		mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size });
-		mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size });
-		my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
-		my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
-	}
+	if (1) {// Legacy kernel /dev/ block device
+		bdev.set_from(UUID.DEV_ZERO);
+		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+		gusli::bdev_info bdi; lib.bdev_get_info(bdev, &bdi);
+		my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
+		my_io.io.params.map.data.byte_len = 1 * bdi.block_size;	my_assert(bdi.block_size == 4096);
+		my_io.expect_success(true);
+		for_each_exec_mode(i) {
+			my_io.exec(gusli::G_READ, (io_exec_mode)i);
+			my_assert(strcmp("", my_io.io_buf) == 0);
+			my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
+		}
 
-	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
-	my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Double disconnect
-	my_assert(lib.bdev_connect(   bdev) == gusli::C_OK);			// Verify can connect and disconnect again
-	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		{ 	// Dummy-Register buffer with kernel bdev
+			std::vector<gusli::io_buffer_t> mem; mem.reserve(2);
+			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+			my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
+			my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
+			my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
+		}
+
+		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Double disconnect
+		my_assert(lib.bdev_connect(   bdev) == gusli::C_OK);			// Verify can connect and disconnect again
+		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+	}
 	return 0;
 }
 
@@ -204,11 +250,6 @@ class all_ios_t {
 		if (still_in_air == 0)
 			my_assert(sem_post(&glbal_all_ios->wait) == 0);				// Unblock waiter
 	}
-	uint64_t get_cur_timestamp_unix(void) const {
-		struct timeval tp;
-		gettimeofday(&tp, nullptr);
-		return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
-	}
  public:
 	all_ios_t(const gusli::io_buffer_t io_buf, const gusli::bdev_info& info) {
 		block_size = info.block_size;
@@ -253,7 +294,7 @@ class all_ios_t {
 	~all_ios_t() { }
 };
 
-static void __io_invalid_arg_comp_cb(const gusli::io_request *io) {
+static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
 	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 }
 #define n_block(i) (info.block_size * (i))
@@ -334,7 +375,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			__print_mio(mio, "clnt");
 			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Sync-IO-OK
 			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);				// Async-OK
-			my_io.exec(gusli::G_READ, io_exec_mode::POLLABLE, false);	// Pollable-Fails - not supported yet
+			my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
 		}
 
 		if (1) { // Lauch async perf read test

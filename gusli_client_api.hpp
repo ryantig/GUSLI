@@ -41,13 +41,13 @@ enum io_type {									// Request type
 
 enum io_error_codes {							// Exhaustive list of error codes
 	E_OK = 0, 									// Op success
-	E_IN_TRANSFER = 			- 0x1,			// IO is still in execution. Returned when error code is tested too early (before IO completed).
-	E_INTERNAL_FAULT = 			-0x11,			// Consult with developers. Internal library problem
-	E_BACKEND_FAULT = 			-0x15,			// Underlying block device could not execute the io
-	E_TIMED_OUT = 				-0x10,			// IO Operation timed out.
-	E_THROTTLE_RETRY_LATER = 	-0x12,			// IO Operation cannot be submittedd
-	E_PERM_FAIL_NO_RETRY = 		-0x13,			// IO Operation, Probably data loss, cannot execute request and no point in retrying it
-	E_INVAL_PARAMS = 			-0x14,			// Invalid parameters/op/block-device for execution
+	E_IN_TRANSFER = 			 -1,			// IO is still in execution. Returned when error code is tested too early (before IO completed).
+	E_INTERNAL_FAULT = 			-11,			// Consult with developers. Internal library problem
+	E_BACKEND_FAULT = 			-15,			// Underlying block device could not execute the io
+	E_CANCELED_BY_CALLER = 		-10,			// IO Operation was explicitly canceled by caller.
+	E_THROTTLE_RETRY_LATER = 	-12,			// IO Operation cannot be submittedd
+	E_PERM_FAIL_NO_RETRY = 		-13,			// IO Operation, Probably data loss, cannot execute request and no point in retrying it
+	E_INVAL_PARAMS = 			-14,			// Invalid parameters/op/block-device for execution
 };
 
 struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, same as 'struct iovec'
@@ -92,9 +92,9 @@ class io_request {								// Data structure for issuing IO
 		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
 		void (*completion_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *completion_context;				// Callers Completion context passed to the function above
-		template<class C, typename F> void set_completion(C ctx, F cb) { completion_context = (void*)ctx, completion_cb = (void (*)(void*))cb; }
-									  void set_blocking(void) {          completion_context = NULL;       completion_cb = NULL; _async_no_comp = false; }
-									  void set_async_pollable(void) {    completion_context = NULL;       completion_cb = NULL; _async_no_comp = true; }
+		template<class C, typename F> void set_completion(C ctx, F cb) { completion_context = (void*)ctx, completion_cb = (void (*)(void*))cb; _async_no_comp = false; }
+									  void set_blocking(void) {          completion_context = NULL;       completion_cb = NULL;                _async_no_comp = false; }
+									  void set_async_pollable(void) {    completion_context = NULL;       completion_cb = NULL;                _async_no_comp = true; }
 		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf, len, lba); }
 		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0); }
 		uint64_t buf_size(void) const {   return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
@@ -102,17 +102,16 @@ class io_request {								// Data structure for issuing IO
 		const class io_request *my_io_req(void) const { return (io_request*)this; }
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
-	SYMBOL_EXPORT void submit_io(void) noexcept;				// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
-	SYMBOL_EXPORT enum io_error_codes get_error(void) const noexcept;
-
-	// Cancelation points
-	enum cancel_rv { G_CANCELED = 'V', G_NOTCANCELED = 'X', G_ALLREADY_DONE = 'D' };	// Return values of the aio_cancel function.
-	SYMBOL_EXPORT enum cancel_rv try_cancel(void) noexcept;				// Try to cancel asynchronous I/O request
-	// enum cancel_rv try_cancel_all_to_bdev(void) noexcept;	// Try to cancel all asynchronous I/O request to given block device
+	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
+	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
+	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
+	SYMBOL_EXPORT enum cancel_rv try_cancel(void) noexcept;				// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
  protected:
 	friend class io_request_executor_base;		// Execution of io via third-party block device driver
 	friend class datapath_t;					// Server-Client datapath
+	friend class io_autofail_executor;
 	class io_request_executor_base* _exec;		// During execution executor attaches to IO
+	io_request_executor_base* __disconnect_executor_atomic(void);
 	struct output_t {
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;

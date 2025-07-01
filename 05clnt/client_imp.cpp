@@ -212,8 +212,7 @@ void io_request::submit_io(void) noexcept {
 	out.rv = io_error_codes::E_IN_TRANSFER;
 	if (unlikely(!bdev)) {
 		pr_err1("Error: Invalid bdev descriptor of io=%d\n", this->params.bdev_descriptor);
-		out.rv = io_error_codes::E_INVAL_PARAMS;
-		complete();
+		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 		#if defined(HAS_URING_LIB)
@@ -221,7 +220,7 @@ void io_request::submit_io(void) noexcept {
 				_exec = new uring_request_executor(*this);
 		#endif
 		if (!_exec) {
-			if (has_callback() || params._async_no_comp) {	// Async IO, with / without completion
+			if (!this->is_blocking_io()) {					// Async IO, with / without completion
 				_exec = new aio_request_executor(*this);
 			} else {										// Blocking IO
 				_exec = new sync_request_executor(*this);
@@ -230,12 +229,10 @@ void io_request::submit_io(void) noexcept {
 		if (_exec)
 			_exec->run();									// Will auto delete exec upon IO finish;
 		else {
-			out.rv = io_error_codes::E_INTERNAL_FAULT;		// Out of memory error
-			complete();
+			io_autofail_executor(*this, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
 		}
 	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
-		out.rv = io_error_codes::E_PERM_FAIL_NO_RETRY;		// Here, injection of all possible errors
-		complete();
+		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
 	} else if (bdev->conf.type == NVMESH_UM) {
 		if (unlikely(this->is_blocking_io())) {
 			_exec = new remote_aio_blocker(*this);
@@ -254,30 +251,51 @@ void io_request::submit_io(void) noexcept {
 		if (_exec)
 			_exec->is_still_running();		// Blocking wait;
 	} else {
-		out.rv = io_error_codes::E_INVAL_PARAMS;
-		complete();
+		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	}
 }
 
-enum io_error_codes io_request::get_error(void) const noexcept {
-	if (params._async_no_comp) {
-		if (out.rv == io_error_codes::E_IN_TRANSFER) {
+io_request_executor_base* io_request::__disconnect_executor_atomic(void) {
+	if (!_exec)
+		return nullptr;
+	uint64_t *ptr = (uint64_t *)&_exec;
+	return (io_request_executor_base*)__atomic_exchange_n(ptr, NULL, __ATOMIC_SEQ_CST);
+}
+
+enum io_error_codes io_request::get_error(void) noexcept {
+	if (out.rv == io_error_codes::E_IN_TRANSFER) {
+		DEBUG_ASSERT(!is_blocking_io());
+		if (params._async_no_comp) {
 			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor");
 			if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER)
 				return io_error_codes::E_IN_TRANSFER;
-			delete _exec;	// Disconnect executor from io
-			BUG_ON(_exec, "IO has finished, It should not have any executor anymore");
+		} else {
+			return io_error_codes::E_IN_TRANSFER;	// Cannot touch async executor
 		}
 	}
+	auto* orig_exec = __disconnect_executor_atomic();	// IO finished
+	if (orig_exec)
+		orig_exec->detach_io();	// Disconnect executor from io
 	if (out.rv > 0) {
-		ASSERT_IN_PRODUCTION(out.rv == (int64_t)params.buf_size());		// No partial io
+		DEBUG_ASSERT(out.rv == (int64_t)params.buf_size());					// No partial io
 		return E_OK;
 	}
 	return (enum io_error_codes)out.rv;
 }
 
 enum io_request::cancel_rv io_request::try_cancel(void) noexcept {
-	return io_request::cancel_rv::G_NOTCANCELED;
+	if (out.rv == io_error_codes::E_IN_TRANSFER) {
+		DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
+		auto* orig_exec = __disconnect_executor_atomic();		// IO finished / Canceled
+		if (orig_exec) {		// Executor still running
+			const enum cancel_rv crv = orig_exec->cancel();
+			if (crv == cancel_rv::G_CANCELED) {
+				out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
+				return io_request::cancel_rv::G_CANCELED;
+			} // Else: Already done
+		}
+	}
+	return io_request::cancel_rv::G_ALLREADY_DONE;
 }
 }	// namespace
 /************************* communicate with server *****************************************/
@@ -341,7 +359,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* _
 	info.bdev_descriptor = sock.fd();
 	{
 		const int err = pthread_create(&io_listener_tid, NULL, (void* (*)(void*))io_completions_listener, this);
-		ASSERT_IN_PRODUCTION(err == 0);
+		ASSERT_IN_PRODUCTION(err <= 0);
 	}
 	is_control_path_ok = true;
 _out:
