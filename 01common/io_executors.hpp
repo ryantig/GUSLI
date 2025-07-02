@@ -305,8 +305,9 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	prep_func_t prep_op;  // Pointer to prep function
 	bool init_uring_queue(void) {
 		io_uring_params p = {};
-		if (io_uring_queue_init_params(num_ranges, &uring, &p) < 0) {
-			pr_err1("Failed to initialize io_uring " PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS);
+		const int urv = io_uring_queue_init_params(num_ranges, &uring, &p);
+		if (urv < 0) {
+			pr_err1("exec[%p].o[%p] Failed to initialize io_uring[%u], rv=%d(%s) " PRINT_EXTERN_ERR_FMT "\n", this, io, num_ranges, urv, strerror(-urv), PRINT_EXTERN_ERR_ARGS);
 			had_failure = true;
 		} else if (false) {
 			char buf[256];
@@ -322,7 +323,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	bool prep_uringio(const io_map_t& map) {
 		struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
 		if (!sqe) {
-			pr_err1("Error get io_uring.sqe, io_ranges=%u\n", num_ranges);
+			pr_err1("exec[%p].o[%p] Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
 			had_failure = true;
 		} else {
 			prep_op(sqe, io->params.bdev_descriptor, map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
@@ -364,7 +365,7 @@ public:
 			struct io_uring_cqe *cqe;
 			const int wait_rv = io_uring_wait_cqe(&uring, &cqe);
 			if (wait_rv < 0) {
-				pr_err1("Failed to get cqe" PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS);
+				pr_err1("exec[%p].o[%p] Failed to get cqe" PRINT_EXTERN_ERR_FMT "\n", this, io, PRINT_EXTERN_ERR_ARGS);
 				return send_async_work_failed();
 			}
 			__analyze_1_range(cqe);
