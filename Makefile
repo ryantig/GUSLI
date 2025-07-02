@@ -146,9 +146,8 @@ help:
 	@printf "\n\n\n\n"
 
 all: $(SOURCES_ALL) install $(UNITEST_EXE)
+	$(call print_compilation_info);
 	$(info +--->Done!)
-
-#rebuild: clean all
 
 define print_building_target
 	@printf "+--->Building |\e[0;32m$@\e[0;0m|\n"
