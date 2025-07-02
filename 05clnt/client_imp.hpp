@@ -114,8 +114,11 @@ struct bdevs_hash { 					// Hash table of connected servers
 	}
 	bool has_any_bdev_open(void) const {
 		for (int i = 0; i < N_MAX_BDEVS; i++ )
-			if (arr[i].is_alive())
+			if (arr[i].is_alive()) {
+				const auto* bdev = &arr[i];
+				pr_info1("Still open: bdev uuid=%.16s, type=%c, path=%s\n", bdev->id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
 				return true;
+			}
 		return false;
 	}
 	bool should_skip_comment(char* &p) const {
