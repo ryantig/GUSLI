@@ -136,9 +136,9 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
  protected: global_clnt_context() = default;
  public:
 	struct init_params {							// All params are optional
-		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
+		FILE* log = stdout;							// Redirect logs of the library to this file (must be already properly opened)
 		const char* config_file = NULL;				// Path to config file or content of config file starting with "# version=".
-		const char* client_name = "client1";		// For debug, client identifier
+		const char* client_name = NULL;				// For debug, client identifier
 		unsigned int max_num_simultaneous_requests = 256;
 	};
 
@@ -149,7 +149,7 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 
 	SYMBOL_EXPORT enum connect_rv bdev_connect(      const backend_bdev_id& id);	// Open block device, must be done before submitting io
 	SYMBOL_EXPORT enum connect_rv bdev_get_info(     const backend_bdev_id& id, struct bdev_info *ret_val) const __nonnull ((1));
-	SYMBOL_EXPORT enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);
+	SYMBOL_EXPORT enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);	// Register shared memory buffers which will store the content of future io
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);
 	SYMBOL_EXPORT enum connect_rv bdev_disconnect(   const backend_bdev_id& id);
 };

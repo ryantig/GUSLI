@@ -428,23 +428,30 @@ int main(int argc, char *argv[]) {
 	}
 
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
-	gusli::global_clnt_context::init_params p;
-	p.client_name = UNITEST_CLNT_NAME;
-#if 0
-	p.config_file = "./gusli.conf";			// Can use external file
-#else
-	char conf_buf[512];
-	sprintf(conf_buf,
-		"# version=1, Config file for gusli client lib\n"
-		"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n"
-		"%s f X N ./store.bin sec=0x31\n"
-		"%s X X N __NONE__    sec=0x51\n"
-		"%s K X N /dev/zero   sec=0x71\n"
-		"%s S W D nvme0n1     sec=0x81\n"
-		"%s N X D 127.0.0.1   sec=0x91\n", UUID.LOCAL_FILE, UUID.AUTO_FAIL, UUID.DEV_ZERO, UUID.DEV_NVME, UUID.REMOTE_BDEV);
-	p.config_file = &conf_buf[0];
-#endif
-	my_assert(lib.init(p) == 0);
+	{	// Init the library
+		gusli::global_clnt_context::init_params p;
+		char clnt_name[32], conf_buf[512];
+		strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
+		p.client_name = clnt_name;
+		sprintf(conf_buf,
+			"# version=1, Config file for gusli client lib\n"
+			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n"
+			"%s f X N ./store.bin sec=0x31\n"
+			"%s X X N __NONE__    sec=0x51\n"
+			"%s K X N /dev/zero   sec=0x71\n"
+			"%s S W D nvme0n1     sec=0x81\n"
+			"%s N X D 127.0.0.1   sec=0x91\n", UUID.LOCAL_FILE, UUID.AUTO_FAIL, UUID.DEV_ZERO, UUID.DEV_NVME, UUID.REMOTE_BDEV);
+		#if 0
+			p.config_file = "./gusli.conf";			// Can use external file
+		#else
+			p.config_file = &conf_buf[0];
+		#endif
+		my_assert(lib.init(p) == 0);
+		// Trap usage by gusly library of params memory after initialization
+		memset((void*)&p, 0xCC, sizeof(p));
+		memset(conf_buf,  0xCC, sizeof(conf_buf));
+		memset(clnt_name, 0xCC, sizeof(clnt_name));
+	}
 	base_lib_unitests(lib);
 	client_server_test(lib, num_ios_preassure);
 	my_assert(lib.destroy() == 0);
