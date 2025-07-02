@@ -25,7 +25,7 @@
 #define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int : (-!!(e)); }))
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
-#define __must_check    __attribute__((warn_unused_result))
+#define __must_check    __attribute__((warn_unused_result)) //[[nodiscard]]
 #define __maybe_unused  __attribute__((unused))       // [[maybe_unused]]
 
 #define __stringify_1(x) #x

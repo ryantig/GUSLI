@@ -36,6 +36,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_ALREADY_CONNECTED);
 
 	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, data_len, my_io.io_buf);
+	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	if (1) {
 		log_line("Submit async/sync/pollable write");
 		for_each_exec_mode(i) {
@@ -44,7 +45,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 			my_io.clean_buf();
 			my_io.exec(gusli::G_READ, (io_exec_mode)i);
 			my_assert(strcmp(data, my_io.io_buf) == 0);
-			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already succeeded, cannot cancel
+			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
 		}
 	}
 	if (1) {

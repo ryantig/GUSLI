@@ -96,7 +96,7 @@ class unitest_io {
 		io.submit_io();
 		if (_should_try_cancel) {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
-			io.try_cancel();
+			(void)io.try_cancel();
 		}
 		if (mode == io_exec_mode::ASYNC_CB) {
 			if (io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER) {

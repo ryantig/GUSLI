@@ -105,13 +105,13 @@ class io_request {								// Data structure for issuing IO
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
-	SYMBOL_EXPORT enum cancel_rv try_cancel(void) noexcept;				// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
+	SYMBOL_EXPORT [[nodiscard]] enum cancel_rv try_cancel(void) noexcept;	// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
  protected:
 	friend class io_request_executor_base;		// Execution of io via third-party block device driver
 	friend class datapath_t;					// Server-Client datapath
 	friend class io_autofail_executor;
 	class io_request_executor_base* _exec;		// During execution executor attaches to IO
-	io_request_executor_base* __disconnect_executor_atomic(void);
+	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void);
 	struct output_t {
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;
