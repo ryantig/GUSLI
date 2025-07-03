@@ -102,6 +102,7 @@ class io_request {								// Data structure for issuing IO
 		const class io_request *my_io_req(void) const { return (io_request*)this; }
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
+	bool has_callback(void) const { return (params.completion_cb != NULL); }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
@@ -115,7 +116,6 @@ class io_request {								// Data structure for issuing IO
 	struct output_t {
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;
-	bool has_callback(void) const { return (params.completion_cb != NULL); }
 	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
 	const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
 	void complete(void) { if (has_callback()) params.completion_cb(params.completion_context); }
