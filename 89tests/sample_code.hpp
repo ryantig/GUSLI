@@ -108,7 +108,7 @@ class unitest_io {
 			}
 		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			while (io.get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
-				std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+				//std::this_thread::sleep_for(std::chrono::nanoseconds(100));
 			}
 			print_io_comp();
 		} else {

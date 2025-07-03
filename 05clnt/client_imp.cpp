@@ -268,16 +268,21 @@ enum io_error_codes io_request::get_error(void) noexcept {
 	if (out.rv == io_error_codes::E_IN_TRANSFER) {
 		DEBUG_ASSERT(!is_blocking_io());
 		if (params._async_no_comp) {
-			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor");
+			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor, rv=%ld", out.rv);
 			if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER)
+				return io_error_codes::E_IN_TRANSFER;
+			// Here executor terminated but maybe did not update the io rv yet, so check it again.
+			if (out.rv == io_error_codes::E_IN_TRANSFER)
 				return io_error_codes::E_IN_TRANSFER;
 		} else {
 			return io_error_codes::E_IN_TRANSFER;	// Cannot touch async executor
 		}
 	}
 	auto* orig_exec = __disconnect_executor_atomic();	// IO finished
-	if (orig_exec)
+	if (orig_exec) {
+		ASSERT_IN_PRODUCTION(out.rv != io_error_codes::E_IN_TRANSFER);	// IO has finished
 		orig_exec->detach_io();	// Disconnect executor from io
+	}
 	if (out.rv > 0) {
 		DEBUG_ASSERT(out.rv == (int64_t)params.buf_size());					// No partial io
 		return E_OK;

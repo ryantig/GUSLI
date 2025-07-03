@@ -60,6 +60,22 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 	}
 	if (1) {
 		int n_iters = 10000;
+		log_line("Race-Pollable in-air-io test %d[iters]", n_iters);
+		my_io.enable_prints(false).expect_success(true).clear_stats();
+		const uint64_t time_start = get_cur_timestamp_unix();
+		for (int n = 0; n < n_iters; n++) {
+			my_io.clean_buf();
+			my_io.exec(gusli::G_READ, POLLABLE);
+			my_assert(my_io.io.get_error() == gusli::io_error_codes::E_OK);
+			my_assert(strcmp(data, my_io.io_buf) == 0);
+		}
+		const uint64_t time_end = get_cur_timestamp_unix();
+		const uint64_t n_micro_sec = (time_end - time_start);
+		log("Test summary[%s]: time=%5lu.%03u[msec]\n", io_exec_mode_str(POLLABLE), n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+		my_io.enable_prints(true).clear_stats();
+	}
+	if (1) {
+		int n_iters = 10000;
 		log_line("Race-Cancel in-air-io test %d[iters]", n_iters);
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
