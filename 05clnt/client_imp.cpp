@@ -75,11 +75,10 @@ int global_clnt_context::destroy(void) {
 #include <sys/ioctl.h>
 enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& id) {
 	const global_clnt_context_imp* g = _impl(this);
-	struct server_bdev *bdev = g->bdevs.find_by(id);
+	server_bdev *bdev = g->bdevs.find_by(id);
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
-	if (!bdev) {
+	if (!bdev)
 		return C_NO_DEVICE;
-	}
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
 	pr_info1("Open bdev uuid=%.16s, type=%c, path=%s, flag=0x%x\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path, o_flag);
 	if (bdev->is_alive())
@@ -131,13 +130,15 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 }
 
 enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) {
-	struct server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.type == NVMESH_UM) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (size_t i = 0; i < bufs.size(); i++) {
-			int map_rv = bdev->b.map_buf(id, bufs[i]);
+			const int map_rv = bdev->b.map_buf(id, bufs[i]);
 			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
@@ -150,13 +151,15 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 }
 
 enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) {
-	struct server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.type == NVMESH_UM) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (int i = (int)bufs.size()-1; i >= 0; i--) {
-			int map_rv = bdev->b.map_buf_un(id, bufs[i]);
+			const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
 			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
@@ -170,8 +173,8 @@ enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& i
 	}
 }
 
-enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) {
-	struct server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
+	const struct backend_bdev_id& id = bdev->id;
 	enum connect_rv rv;
 	if (!bdev->is_alive()) {
 		rv = C_NO_RESPONSE;
@@ -190,7 +193,8 @@ enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_i
 		const int n_mapped_bufs = (int)bdev->b.dp.shm_io_bufs.size();
 		if (n_mapped_bufs != 0) { pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, n_mapped_bufs); return C_WRONG_ARGUMENTS; }
 		bdev->b.close(id);
-		bdev->b.suicide_stop_all();
+		if (do_suicide)
+			bdev->b.suicide_stop_all();
 		rv = C_OK;
 	} else {
 		rv = C_NO_DEVICE;
@@ -200,11 +204,27 @@ enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_i
 	return rv;
 }
 
+enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) {
+	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	if (bdev)
+		return __bdev_disconnect(bdev, false);
+	return C_NO_DEVICE;
+}
+
+void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) {
+	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
+	if (bdev && bdev->is_alive())
+		__bdev_disconnect(bdev, true);
+}
+
 enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) const {
-	const struct server_bdev *bdev = _impl(this)->bdevs.find_by(id);
-	ASSERT_IN_PRODUCTION(bdev->is_alive());
-	*ret_val = bdev->b.info;
-	return C_OK;
+	const server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	if (bdev && bdev->is_alive()) {
+		*ret_val = bdev->b.info;
+		return C_OK;
+	}
+	return C_NO_DEVICE;
 }
 
 /*****************************************************************************/

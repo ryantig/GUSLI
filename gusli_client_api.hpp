@@ -152,5 +152,6 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);	// Register shared memory buffers which will store the content of future io
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);
 	SYMBOL_EXPORT enum connect_rv bdev_disconnect(   const backend_bdev_id& id);
+	SYMBOL_EXPORT void bdev_report_data_corruption(  const backend_bdev_id& id, uint64_t offset_lba_bytes);
 };
 } // namespace gusli

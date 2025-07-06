@@ -25,6 +25,26 @@ struct bdev_uuid_cache {
 	static constexpr const char* REMOTE_BDEV = "0bcdefab01234567";
 } UUID;
 
+void test_non_existing_bdev(gusli::global_clnt_context& lib) {
+	std::vector<gusli::io_buffer_t> mem;
+	mem.emplace_back(gusli::io_buffer_t{ .ptr = NULL, .byte_len = (1UL << 30) });
+	gusli::backend_bdev_id bdev;
+	bdev.set_from("NonExist_bdev");
+	gusli::bdev_info bdi;
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
+	my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_NO_DEVICE);
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
+	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
+	lib.bdev_report_data_corruption(bdev, (1UL << 13));
+	struct unitest_io my_io;
+	my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
+	my_io.expect_success(false);
+	for_each_exec_mode(i) {
+		my_io.exec(gusli::G_READ, (io_exec_mode)i);
+	}
+}
+
 int base_lib_unitests(gusli::global_clnt_context& lib) {
 	struct unitest_io my_io;
 	static constexpr const char *data = "Hello world";
@@ -136,16 +156,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 		my_assert(lib.destroy() != 0);							// failed destroy, bdev is still open
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 	}
-	if (1) {
-		bdev.set_from("NonExist_bdev");		// Failed connection to non existing bdev
-		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
-		my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
-		my_io.expect_success(false);
-		for_each_exec_mode(i) {
-			my_io.exec(gusli::G_READ, (io_exec_mode)i);
-		}
-	}
-
+	if (1) test_non_existing_bdev(lib);
 	if (1) {// Legacy kernel /dev/ block device
 		bdev.set_from(UUID.DEV_ZERO);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
@@ -411,7 +422,8 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		log("-----------------  Disconnect from server -------------\n");
-		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		//my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
 		for (gusli::io_buffer_t& buf : io_bufs)
 			free(buf.ptr);
 		io_bufs.clear();
