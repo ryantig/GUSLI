@@ -95,20 +95,20 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 
 struct bdevs_hash { 					// Hash table of connected servers
 	static constexpr int N_MAX_BDEVS = 8;
-	struct server_bdev arr[N_MAX_BDEVS];
+	server_bdev arr[N_MAX_BDEVS];
 	int n_devices = 0;
 	bdevs_hash() { }
-	struct server_bdev *find_by(int fd) const {
+	server_bdev *find_by(int fd) const {
 		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
 			if (fd == arr[i].get_fd())
-				return (struct server_bdev *)&arr[i];
+				return (server_bdev *)&arr[i];
 		}
 		return NULL;
 	}
-	struct server_bdev *find_by(const struct backend_bdev_id& id) const {
+	server_bdev *find_by(const struct backend_bdev_id& id) const {
 		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
 			if (id == arr[i].id)
-				return (struct server_bdev *)&arr[i];
+				return (server_bdev *)&arr[i];
 		}
 		return NULL;
 	}
@@ -132,12 +132,17 @@ struct bdevs_hash { 					// Hash table of connected servers
 	}
 
 	int parse_conf(char *buf, char* buf_end) {
-		for (char *p = buf, *line_end; (p < buf_end); p = line_end + 1 ) {
+		int line_no = 0;
+		int version = 0;
+		for (char *p = buf, *line_end; (p < buf_end); p = line_end + 1, line_no++ ) {
 			line_end = strchr(p, '\n');
 			if (line_end)
 				*line_end = 0;						// Split lines
 			else
 				line_end = buf_end;					// Last line in a file
+			if (line_no == 0) {						// Parse the config version
+				sscanf(p, "# version=%d", &version);
+			}
 			if (should_skip_comment(p))
 				continue;
 			int argc = 0, n_args_read = 0;
@@ -149,15 +154,17 @@ struct bdevs_hash { 					// Hash table of connected servers
 				while (char_is_visible(*p)) p++;	// Skip the argument itself
 				if (*p == 0) break;
 			}
-			struct server_bdev *b = &arr[n_devices];
-			n_args_read += sscanf(argv[0], "%s", b->id.set_invalid()->uuid);
-			n_args_read += sscanf(argv[1], "%c", &c); b->conf.type = (enum bdev_type)c;
-			n_args_read += sscanf(argv[2], "%c", &c); b->conf.how = (bdev_config::connect_how)c;
-			n_args_read += sscanf(argv[3], "%c", &c); b->conf.is_direct_io = (bool)((c == 'D')||(c == 'd'));
-			n_args_read += sscanf(argv[4], "%s", (char*)&b->conf.conn);
-			n_args_read += sscanf(argv[5], "%s", (char*)&b->b.security_cookie);
-			if (n_args_read != argc)
-				return -3;
+			server_bdev *b = &arr[n_devices];
+			if (version == 1) {
+				n_args_read += sscanf(argv[0], "%s", b->id.set_invalid()->uuid);
+				n_args_read += sscanf(argv[1], "%c", &c); b->conf.type = (enum bdev_type)c;
+				n_args_read += sscanf(argv[2], "%c", &c); b->conf.how = (bdev_config::connect_how)c;
+				n_args_read += sscanf(argv[3], "%c", &c); b->conf.is_direct_io = (bool)((c == 'D')||(c == 'd'));
+				n_args_read += sscanf(argv[4], "%s", (char*)&b->conf.conn);
+				n_args_read += sscanf(argv[5], "%s", (char*)&b->b.security_cookie);
+				if (n_args_read != argc)
+					return -3;
+			}
 			n_devices++;
 		}
 		return 0;
