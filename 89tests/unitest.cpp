@@ -45,7 +45,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	}
 }
 
-int base_lib_unitests(gusli::global_clnt_context& lib) {
+int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
 	struct unitest_io my_io;
 	static constexpr const char *data = "Hello world";
 	static constexpr const uint64_t data_len = strlen(data);
@@ -79,7 +79,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 		}
 	}
 	if (1) {
-		int n_iters = 10000;
+		const int n_iters = n_iter_race_tests;
 		log_line("Race-Pollable in-air-io test %d[iters]", n_iters);
 		my_io.enable_prints(false).expect_success(true).clear_stats();
 		const uint64_t time_start = get_cur_timestamp_unix();
@@ -95,7 +95,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib) {
 		my_io.enable_prints(true).clear_stats();
 	}
 	if (1) {
-		int n_iters = 10000;
+		const int n_iters = n_iter_race_tests;
 		log_line("Race-Cancel in-air-io test %d[iters]", n_iters);
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
@@ -443,14 +443,16 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 /*****************************************************************************/
 #include <getopt.h>
 int main(int argc, char *argv[]) {
-	int opt, num_ios_preassure = (1 << 23);
-	while ((opt = getopt(argc, argv, "n:h")) != -1) {
+	int opt, num_ios_preassure = (1 << 23), n_iter_race_tests = 10000;
+	while ((opt = getopt(argc, argv, "n:c:h")) != -1) {
 		switch (opt) {
 			case 'n': num_ios_preassure = std::stoi(  optarg); break;
+			case 'c': n_iter_race_tests = std::stoi(  optarg); break;
 			case 'h':
 			default:
-				log("Usage: %s [-n num_ios_preassure] [-h]\n", argv[0]);
+				log("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-h]\n", argv[0]);
 				log("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
+				log("  -c n_iter_race_tests, (default: %d)\n", n_iter_race_tests);
 				log("  -h                    Show this help message\n");
 				return (opt == 'h') ? 0 : 1;
 		}
@@ -481,7 +483,7 @@ int main(int argc, char *argv[]) {
 		memset(conf_buf,  0xCC, sizeof(conf_buf));
 		memset(clnt_name, 0xCC, sizeof(clnt_name));
 	}
-	base_lib_unitests(lib);
+	base_lib_unitests(lib, n_iter_race_tests);
 	client_server_test(lib, num_ios_preassure);
 	my_assert(lib.destroy() == 0);
 	log("Done!!! Success\n\n\n");

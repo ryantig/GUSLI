@@ -7,7 +7,7 @@
 			"request": "launch",
 			"cwd": "${workspaceFolder}",
 			"program": "${workspaceFolder}/z_gusli_clnt_unitest",
-			"args": ["-n", "8"],
+			"args": ["-n", "8", "-c", "64"],
 			"stopAtEntry": false,
 			"environment": [],
 			"externalConsole": false,
