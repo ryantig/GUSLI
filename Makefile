@@ -20,6 +20,13 @@ else
 	$(error Unknown OS/Host)
 endif
 
+VERBOSE?=0
+ifeq ($(VERBOSE), 1)
+	ECHO_CMD =
+else
+	ECHO_CMD = @
+endif
+
 # ********** Included directories of H files *********
 # Main project directory. (relative to this Makefile)
 SSDA = $(NVMESH_ROOT_DIR)
@@ -89,19 +96,16 @@ ifeq ($(COMMIT_ID),)
 endif
 
 # ********** Define Linker flags *********
-LDFLAGS = -lpthread -rdynamic -no-pie
-
+LFLAGS_ALL = -lpthread -rdynamic
+LFLAGS_EXT =
 # ********** External libraries ********* heck for lib using pkg-config and update flags appropriately
 EXTLIB=liburing
 ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
 	CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
-	LDFLAGS += $(shell pkg-config --libs $(EXTLIB))
-	LIBURING_AVAILABLE := Y
-else
-	LIBURING_AVAILABLE := N
+	LFLAGS_EXT = $(shell pkg-config --libs $(EXTLIB))
 endif
 
-# ********** Define compiler and compilation flags *********
+# ********** Define compilation/Linker flags *********
 CFLAGS += -DCOMPILATION_DATE=${COMPILATION_DATE} -DCOMMIT_ID=0x$(COMMIT_ID)UL -DVER_TAGID=$(VER_TAGID) -DBRANCH_NAME=$(BRANCH_NAME)
 CFLAGS += -Wall -Werror -Wextra -Wshadow -Werror=strict-aliasing -Wno-nonnull-compare -falign-functions=8 -std=c++2a
 CFLAGS += -fPIC -fvisibility=hidden
@@ -116,25 +120,41 @@ else
 endif
 ifeq ($(USE_SANITIZERS),1)
 	CFLAGS += -fsanitize=leak -fsanitize=address -fsanitize=undefined
-	LDFLAGS += -fsanitize=leak -fsanitize=address -fsanitize=undefined
+	LFLAGS_ALL += -fsanitize=leak -fsanitize=address -fsanitize=undefined
 endif
 
 ifeq ($(USE_THREAD_SANITIZER),1)
 	CFLAGS += -fsanitize=thread
-	LDFLAGS += -fsanitize=thread
+	LFLAGS_ALL += -fsanitize=thread
 endif
 CFLAGS += -DTRACE_LEVEL=$(TRACE_LEVEL)
+LFLAGS__SO = -shared $(LFLAGS_EXT) -Wl,--no-undefined $(LFLAGS_ALL)
+LFLAGS_EXE = -no-pie $(LFLAGS_ALL)
+LFLAGS_EXE__STATIC = $(LFLAGS_EXT)
+LFLAGS_EXE_DYNAMIC = -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME)
 CC=g++
 
 # ********** Actions *********
 define print_compilation_info
+	@printf "===========================================\n"
 	@printf "Compilation info, Release=$(BUILD_RELEASE), COMMIT_ID=$(COMMIT_ID), $(CC), TRACE_LEVEL=$(TRACE_LEVEL) HT=$(HT)|\n"
 	@printf "\t* CFLAGS  | $(CFLAGS)\n"
 	@printf "\t* INCLUDS | $(INCLUDES)\n"
 	@printf "\t* DFLAGS  | $(DFLAGS)\n"
-	@printf "\t* LDLAGS  | $(LDFLAGS)\n"
-	@printf "\t* Depend  | $(EXTLIB)=$(LIBURING_AVAILABLE)\n"
+	@printf "\t* L-FLexe | $(LFLAGS_EXE)\n"
+	@printf "\t* L-FL.so | $(LFLAGS__SO)\n"
+	@printf "\t* LDynExe | $(LFLAGS_EXE_DYNAMIC)\n"
+	@printf "\t* LStaExe | $(LFLAGS_EXE__STATIC)\n"
 	@printf "\t* INSTALL | $(INSTALL_DIR)\n"
+	@printf "===========================================\n"
+endef
+
+define print_synamic_dependencies
+	@printf "Dynamic dependencies analysis:\n"
+	ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
+	ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
+	ldd $(UNITEST_EXE)_st
+	ldd $(UNITEST_EXE)
 	@printf "===========================================\n"
 endef
 
@@ -145,9 +165,10 @@ help:
 	@printf "Usage |\e[0;32mmake all\e[0;0m| for building libs + executable unitest\n"
 	@printf "\n\n\n\n"
 
-all: $(SOURCES_ALL) install $(UNITEST_EXE)
-	$(call print_compilation_info);
-	$(info +--->Done!)
+all: $(SOURCES_ALL) install $(UNITEST_EXE) $(UNITEST_EXE)_st
+	$(if $(filter 1,$(VERBOSE)),$(call print_compilation_info))
+	$(if $(filter 1,$(VERBOSE)),$(call print_synamic_dependencies))
+	$(info +--->100% Done!)
 
 define print_building_target
 	@printf "+--->Building |\e[0;32m$@\e[0;0m|\n"
@@ -156,42 +177,43 @@ define print_executed_rule
 	@printf "   +--->: |\e[0;32m$@\e[0;0m|${1}\n"
 endef
 define link_executable
-	$(CC) -o $@ $^ $(LDFLAGS) ${1} ${2} ${3} ${4};
+	$(ECHO_CMD) $(CC) -o $@ $^ $(LFLAGS_EXE) ${1} ${2} ${3} ${4};
 	$(call print_executed_rule,"=Executable\\n");
 endef
 
-$(OBJ_DIR)/$(LIB_COMN_NAME).a: help $(OBJECTS_BASE)
+$(OBJ_DIR)/$(LIB_COMN_NAME).a: $(OBJECTS_BASE)
 	$(call print_building_target);
-	ld -r $(OBJECTS_BASE) -o $@
+	$(ECHO_CMD) ld -r $(OBJECTS_BASE) -o $@
 
 $(OBJ_DIR)/$(LIB_CLNT_NAME).a: $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJECTS_CLNT)
 	$(call print_building_target);
-	ld -r $(OBJECTS_CLNT) -o $@
+	$(ECHO_CMD) ld -r $(OBJECTS_CLNT) -o $@
 
 $(OBJ_DIR)/$(LIB_SRVR_NAME).a: $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJECTS_SRVR)
 	$(call print_building_target);
-	ld -r $(OBJECTS_SRVR) -o $@
+	$(ECHO_CMD) ld -r $(OBJECTS_SRVR) -o $@
 
 $(OBJ_DIR)/$(LIB_CLNT_NAME).so: $(OBJECTS_BASE) $(OBJECTS_CLNT)
 	$(call print_building_target);
-	gcc -shared -o $@ $^
+	$(ECHO_CMD) $(CC) -o $@ $^ $(LFLAGS__SO)
 
 $(OBJ_DIR)/$(LIB_SRVR_NAME).so: $(OBJECTS_BASE) $(OBJECTS_SRVR)
 	$(call print_building_target);
-	gcc -shared -o $@ $^
+	$(ECHO_CMD) $(CC) -o $@ $^ $(LFLAGS__SO)
 
-#$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
-#	$(call print_building_target);
-#	$(call link_executable)
-
-$(UNITEST_EXE): $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so
+$(UNITEST_EXE)_st: $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
 	$(call print_building_target);
-	$(call link_executable, -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME))
-#LD_LIBRARY_PATH=.
+	$(call link_executable, $(LFLAGS_EXE__STATIC))
+	@printf "+-->Run Exe: \e[1;45m./$@ -h\e[0;0m\n"
+
+$(UNITEST_EXE): $(OBJECTS_TEST)
+	$(call print_building_target);
+	$(call link_executable, $(LFLAGS_EXE_DYNAMIC))
+	@printf "+-->Run Exe: \e[1;45mLD_LIBRARY_PATH=$(INSTALL_DIR)/lib ./$@ -h\e[0;0m\n"
 
 $(OBJ_DIR)/%.o: %.cpp Makefile
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(DFLAGS) -o $@ -c $<
+	$(ECHO_CMD) $(CC) $(CFLAGS) $(INCLUDES) $(DFLAGS) -o $@ -c $<
 	$(call print_executed_rule)
 
 install: $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so gusli_client_api.hpp gusli_server_api.hpp
@@ -217,8 +239,9 @@ define clean_compilation_intermediate
 	@find ./${1} -type f -name '*.[oda]' -delete
 endef
 define clean_compilation_output
-	@printf "+-->Cleaning |\e[1;45mLib / CrashDumps\e[0;0m|\n"
-	@rm -f $(UNITEST_EXE) $(OBJ_DIR)/*.so
+	@printf "+-->Cleaning |\e[1;45mExe / Lib.so / CrashDumps\e[0;0m|\n"
+	@find ./${1} -type f -name '*.so' -delete
+	@rm -f $(UNITEST_EXE) $(OBJ_DIR)/*.so core.*
 endef
 
 clean: uninstall
@@ -226,5 +249,5 @@ clean: uninstall
 	$(call clean_compilation_intermediate,$(OBJ_DIR_ROOT))
 	$(call clean_compilation_output)
 
-.PHONY: depend clean
+.PHONY: depend clean uninstall
 -include $(DEPEND_FILES_ALL)
