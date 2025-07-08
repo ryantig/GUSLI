@@ -393,7 +393,6 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		const int err = pthread_create(&io_listener_tid, NULL, (void* (*)(void*))io_completions_listener, this);
 		ASSERT_IN_PRODUCTION(err <= 0);
 	}
-	is_control_path_ok = true;
 _out:
 	return info.bdev_descriptor;
 }
@@ -529,7 +528,7 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
 	}
-	while (bdev->is_control_path_ok) {
+	for (bdev->is_control_path_ok = true; bdev->is_control_path_ok; ) {
 		bdev->check_incoming();
 	}
 	pr_info1("\t\t\tListener end\n");
