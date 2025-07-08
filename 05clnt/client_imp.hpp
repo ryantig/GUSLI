@@ -28,6 +28,7 @@ struct bdev_config {
 	union connection_type {
 		char local_bdev_path[32];					//	Kernel block device /dev/....
 		char local_file_path[32];					//	Local file path like /tmp/my_file.txt
+		char remot_sock_addr[32];					//	Remote (server) uds/udp/tcp socket
 	} conn;
 	bdev_config() { memset(this, 0, sizeof(*this)); }
 	void init_dev_fail(void) { type = DUMMY_DEV_FAIL; how = EXCLUSIVE_RW; strcpy(conn.local_file_path, ""); }

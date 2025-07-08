@@ -121,7 +121,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 			return C_NO_DEVICE;
 		}
 	} else if (bdev->conf.type == NVMESH_UM) {
-		bdev->b.hand_shake(id, bdev->conf.conn.local_bdev_path, g->par.client_name);
+		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, g->par.client_name);
 		if (info->bdev_descriptor > 0)
 			return C_OK;
 		return C_WRONG_ARGUMENTS;
@@ -347,13 +347,18 @@ void bdev_backend_api::suicide_stop_all(void) {
 	sock.nice_close();
 }
 
-int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* _ip, const char *clnt_name) {
-	ip = _ip;
+int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* addr, const char *clnt_name) {
+	const sock_t::type s_type = MGMT::get_com_type(addr);
+	ip = addr;
 	(void)id;
-	if (     MGMT::com_type == sock_t::type::S_UDP) sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, ip,          ca);
-	else if (MGMT::com_type == sock_t::type::S_TCP) sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, ip,          ca, true);
-	else if (MGMT::com_type == sock_t::type::S_UDS) sock.clnt_connect_to_srvr_uds(MGMT::COMM_UNIX_DOMAIN_SOCK , ca);
-	else BUG_NOT_IMPLEMENTED();
+	if (     s_type == sock_t::type::S_UDP) sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, ip, ca);
+	else if (s_type == sock_t::type::S_TCP) sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, ip, ca, true);
+	else if (s_type == sock_t::type::S_UDS) sock.clnt_connect_to_srvr_uds(                 ip, ca);
+	else {
+		pr_err1("unsupported server address |%s|\n", addr);
+		info.bdev_descriptor = -__LINE__;
+		return info.bdev_descriptor;
+	}
 	is_msg_processing_stopped = false;
 	is_control_path_ok = false;
 	io_listener_tid = 0;

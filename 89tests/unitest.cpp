@@ -18,11 +18,16 @@ static int32_t __get_connected_bdev_descriptor(const gusli::global_clnt_context&
 }
 
 struct bdev_uuid_cache {
-	static constexpr const char* LOCAL_FILE =  "050e8400050e8407";
-	static constexpr const char* AUTO_FAIL =   "168867d168867d7";	// Check last byte is 0
-	static constexpr const char* DEV_ZERO =    "2b3f28dc2b3f28d7";
-	static constexpr const char* DEV_NVME =    "3a1e92b3a1e92b7";
-	static constexpr const char* REMOTE_BDEV = "0bcdefab01234567";
+	static constexpr const char* LOCAL_FILE =   "050e8400050e8407";
+	static constexpr const char* AUTO_FAIL =    "168867d168867d7";	// Check last byte is 0
+	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
+	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
+	static constexpr const char* REMOTE_BDEV0 = "5bcdefab01234567";
+	static constexpr const char* REMOTE_BDEV1 = "6765432123456789";
+	static constexpr const char* REMOTE_BDEV2 = "7b56fa4c9f3316";
+	static constexpr const char* SERVER_PATH0 = "/dev/shm/gs472f4b04_uds";
+	static constexpr const char* SERVER_PATH1 = "u127.0.0.1";	// udp
+	static constexpr const char* SERVER_PATH2 = "t127.0.0.1";	// tdp
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -193,7 +198,6 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 #include <fcntl.h>		// open()
 
 #include "gusli_server_api.hpp"
-#define SERVER_BDEV_NAME "dummy_srvr"
 static void __print_mio(const gusli::io_multi_map_t* mio, const char* prefix) {
 	log("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
 	for (uint32_t i = 0; i < mio->n_entries; i++) {
@@ -202,44 +206,50 @@ static void __print_mio(const gusli::io_multi_map_t* mio, const char* prefix) {
 	}
 }
 
-#define dslog(fmt, ...) ({ _log(SERVER_BDEV_NAME ": " fmt,          ##__VA_ARGS__); fflush(stderr); })
+#define dslog(s, fmt, ...) ({ _log("%s: " fmt, (s)->p.binfo.name, ##__VA_ARGS__); fflush(stderr); })
 class dummy_server {
+	gusli::global_srvr_context::init_params p;
 	int fd;
 	static int open1(void *ctx, const char* who) {
 		dummy_server *me = (dummy_server*)ctx;
-		me->fd = open(SERVER_BDEV_NAME, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRWXU | S_IXGRP));
+		me->fd = open(me->p.binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
 		my_assert(me->fd > 0);
-		dslog("open: %s, fd=%d, who=%s\n", SERVER_BDEV_NAME, me->fd, who);
+		dslog(me, "open: %s, fd=%d, who=%s\n", me->p.binfo.name, me->fd, who);
 		my_assert(strcmp(who, UNITEST_CLNT_NAME) == 0);
 		return 0;
 	}
 	static int close1(void *ctx, const char* who) {
 		dummy_server *me = (dummy_server*)ctx;
 		close(me->fd); me->fd = 0;
-		const int rv = remove(SERVER_BDEV_NAME);
+		const int rv = remove(me->p.binfo.name);
 		my_assert(rv >= 0);
-		dslog("close: %s, fd=%d, rv=%d, who=%s\n", SERVER_BDEV_NAME, me->fd, rv, who);
+		dslog(me, "close: %s, fd=%d, rv=%d, who=%s\n", me->p.binfo.name, me->fd, rv, who);
 		return 0;
 	}
-	static int exec_io(void *ctx, class gusli::io_request& io) { (void)ctx;
+	static int exec_io(void *ctx, class gusli::io_request& io) {
+		dummy_server *me = (dummy_server *)ctx;
 		if (true) {
 			if (io.params.num_ranges() > 1) {
 				const gusli::io_multi_map_t* mio = (const gusli::io_multi_map_t*)io.params.map.data.ptr;
-				log("%s Serving IO: #rng = %u, buf_size=%lu[b]\n", SERVER_BDEV_NAME, io.params.num_ranges(), io.params.buf_size());
+				log("%s Serving IO: #rng = %u, buf_size=%lu[b]\n", me->p.binfo.name, io.params.num_ranges(), io.params.buf_size());
 				__print_mio(mio, "srvr");
 			}
 			return 0;
 		}
 	}
  public:
-	static void run(void) {
+ 	static constexpr bool launch_as_processes(void) { return true; }
+	dummy_server(const char* _name, const char* listen_addr) {
+		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address));
+		p.log = stderr,
+		p.binfo = gusli::bdev_info{ .bdev_descriptor = 1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = 255, .reserved = 'r' };
+		p.vfuncs = {.caller_context = this, .open = dummy_server::open1, .close = dummy_server::close1, .exec_io = dummy_server::exec_io };
+		snprintf(p.binfo.name, sizeof(p.binfo.name), "z_gusli_%s", _name);
+	}
+	void run(void) {
 		gusli::global_srvr_context& srvr = gusli::global_srvr_context::get();
-		dummy_server ds;
-		gusli::global_srvr_context::init_params p = {.log = stderr,
-			.binfo = { .bdev_descriptor = 1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = SERVER_BDEV_NAME, .num_max_inflight_io = 255, .reserved = 'r' },
-			.vfuncs = {.caller_context = &ds, .open = dummy_server::open1, .close = dummy_server::close1, .exec_io = dummy_server::exec_io },
-		};
-		const int rename_rv = pthread_setname_np(pthread_self(), "z_gusli_srvr");	my_assert(rename_rv == 0);
+		const int rename_rv = pthread_setname_np(pthread_self(), p.binfo.name);
+		my_assert(rename_rv == 0);
 		my_assert(srvr.run(p) == 0);
 		exit(0);
 	}
@@ -366,19 +376,24 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 #include <sys/wait.h>
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	log("-----------------  Remote server init -------------\n");
-	const pid_t child_pid = fork();
-	my_assert(child_pid >= 0);
-	if (child_pid == 0) {	// Child process
-		dummy_server::run();
-	} else {
-		int status;
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV);
+	union {
+		pthread_t tid;								// Thread  id when server is lauched as thread
+		__pid_t   pid;								// Process id when server is lauched as process via fork()
+	} child[2];										// 2 Servers
+	int n_servers = 0;
+	child[0].pid = fork(); my_assert(child[0].pid >= 0);	n_servers++;
+	if (child[0].pid == 0) {	// Child process
+		dummy_server ds("srvr0", UUID.SERVER_PATH0);
+		ds.run();
+	}
+	{
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV0);
+		gusli::bdev_info info;
 		std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for server to be up
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
-		gusli::bdev_info info;
 		lib.bdev_get_info(bdev, &info);
-		my_assert(strcmp(info.name, SERVER_BDEV_NAME) == 0);
+		my_assert(strcmp(info.name, "z_gusli_srvr0") == 0);
 
 		// Map app buffers for read operations
 		log("-----------------  Remote server map bufs-------------\n");
@@ -422,20 +437,37 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		log("-----------------  Disconnect from server -------------\n");
-		//my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		if (0) {
+			my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+			log("-----------------  Connect2 to server -------------\n");
+			my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+			__get_connected_bdev_descriptor(lib, bdev);
+			lib.bdev_get_info(bdev, &info);
+			log("-----------------  Disconnect2 from server -------------\n");
+		}
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
 		for (gusli::io_buffer_t& buf : io_bufs)
 			free(buf.ptr);
 		io_bufs.clear();
+	}
 
-		// Wait for server process to finish
-		while (-1 == waitpid(child_pid, &status, 0));
-		if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
-			log("\t server_done rv=%d\n", WEXITSTATUS(status));
-		} else if (WIFSIGNALED(status)) {
-			log("\t server_done killed_ by signal=%d\n", WTERMSIG(status));
-		} else {
-			log("\t server_done rv=%d\n", WEXITSTATUS(status));
+	// Wait for server process to finish
+	if (dummy_server::launch_as_processes()) {
+		for (int i = 0; i < n_servers; ++i) {
+			int status;
+			while (-1 == waitpid(child[i].pid, &status, 0));
+			if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
+				log("\t server_done rv=%d\n", WEXITSTATUS(status));
+			} else if (WIFSIGNALED(status)) {
+				log("\t server_done killed_ by signal=%d\n", WTERMSIG(status));
+			} else {
+				log("\t server_done rv=%d\n", WEXITSTATUS(status));
+			}
+		}
+	} else {
+		for (int i = 0; i < n_servers; ++i) {
+			const int err = pthread_join(child[i].tid, NULL);
+			my_assert(err == 0);
 		}
 	}
 }
@@ -461,26 +493,30 @@ int main(int argc, char *argv[]) {
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	{	// Init the library
 		gusli::global_clnt_context::init_params p;
-		char clnt_name[32], conf_buf[512];
+		char clnt_name[32], conf[512];
 		strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
 		p.client_name = clnt_name;
-		sprintf(conf_buf,
-			"# version=1, Config file for gusli client lib\n"
-			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n"
-			"%s f X N ./store.bin sec=0x31\n"
-			"%s X X N __NONE__    sec=0x51\n"
-			"%s K X N /dev/zero   sec=0x71\n"
-			"%s S W D nvme0n1     sec=0x81\n"
-			"%s N X D 127.0.0.1   sec=0x91\n", UUID.LOCAL_FILE, UUID.AUTO_FAIL, UUID.DEV_ZERO, UUID.DEV_NVME, UUID.REMOTE_BDEV);
-		#if 0
-			p.config_file = "./gusli.conf";			// Can use external file
-		#else
-			p.config_file = &conf_buf[0];
-		#endif
+		{	// Generate config
+			int i = sprintf(conf,
+				"# version=1, Config file for gusli client lib\n"
+				"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
+			i += sprintf(&conf[i], "%s f X N ./store.bin sec=0x31\n", UUID.LOCAL_FILE);
+			i += sprintf(&conf[i], "%s X X N __NONE__    sec=0x51\n", UUID.AUTO_FAIL);
+			i += sprintf(&conf[i], "%s K X N /dev/zero   sec=0x71\n", UUID.DEV_ZERO);
+			i += sprintf(&conf[i], "%s S W D nvme0n1     sec=0x81\n", UUID.DEV_NVME);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV0, UUID.SERVER_PATH0);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV1, UUID.SERVER_PATH1);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV2, UUID.SERVER_PATH2);
+			#if 0
+				p.config_file = "./gusli.conf";			// Can use external file
+			#else
+				p.config_file = &conf[0];
+			#endif
+		}
 		my_assert(lib.init(p) == 0);
 		// Trap usage by gusly library of params memory after initialization
 		memset((void*)&p, 0xCC, sizeof(p));
-		memset(conf_buf,  0xCC, sizeof(conf_buf));
+		memset(conf,      0xCC, sizeof(conf));
 		memset(clnt_name, 0xCC, sizeof(clnt_name));
 	}
 	base_lib_unitests(lib, n_iter_race_tests);

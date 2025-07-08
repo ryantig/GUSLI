@@ -8,7 +8,8 @@ namespace gusli {
 class global_srvr_context : no_implicit_constructors {	// Singletone: Library context
  protected: global_srvr_context() = default;
  public:
-	struct init_params {							// All params are optional
+	struct init_params {							// Most params are optional
+		char listen_address[32];					// Mandatory
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
 		struct bdev_info binfo;
 		struct srvr_backend_callbacks {

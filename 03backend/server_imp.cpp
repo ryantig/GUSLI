@@ -208,13 +208,17 @@ int global_srvr_context_imp::init(void) {
 		abort_exe_init_on_err()
 	if (this->start() != 0)
 		abort_exe_init_on_err()
-	if (     MGMT::com_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false     , ca);
-	else if (MGMT::com_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true      , ca);
-	else if (MGMT::com_type == sock_t::type::S_UDS) rv = sock.srvr_listen(MGMT::COMM_UNIX_DOMAIN_SOCK, ca);
-	else BUG_NOT_IMPLEMENTED();
+	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
+	if (     s_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false, ca);
+	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca);
+	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca);
+	else {
+		pr_err1("unsupported listen address |%s|\n", par.listen_address);
+		abort_exe_init_on_err()
+	}
 	if (rv < 0)
 		abort_exe_init_on_err();
-	pr_note1("initialized: conn=%c, {port=%u/uds=%s}, rv=%d\n", sock.get_type(), MGMT::COMM_PORT, MGMT::COMM_UNIX_DOMAIN_SOCK, rv);
+	pr_info1("initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
 	return 0;
 }
 
@@ -227,7 +231,9 @@ int global_srvr_context::run(const struct init_params& _par) {
 	spdk_init();
 	rv = g->run();
 	pr_flush();
-	unlink(MGMT::COMM_UNIX_DOMAIN_SOCK);
+	pr_info1("terminate: conn=%c, {%s:%u}\n", g->sock.get_type(), g->par.listen_address, MGMT::COMM_PORT);
+	if (g->sock.get_type() == sock_t::type::S_UDS)
+		unlink(g->par.listen_address);
 	g->sock.nice_close();
 	return g->finish(NV_COL_PURPL, 0);
 }
