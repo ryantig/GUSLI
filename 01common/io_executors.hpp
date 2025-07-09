@@ -234,10 +234,9 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
  public:
 	remote_aio_blocker(io_request &_io) : blocking_request_executor(_io) {
 		io->params.set_completion(this, this->__cb);
-	}
-	void run(void) override {
 		BUG_ON(sem_init(&wait, 0, 0) != 0, "Cannot init blocking io");
 	}
+	void run(void) override {}
 	enum io_error_codes is_still_running(void) override {
 		BUG_ON(sem_wait(&wait) != 0, "Cannot wait for blocking io");
 		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
