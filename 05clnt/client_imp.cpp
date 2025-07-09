@@ -517,7 +517,7 @@ int bdev_backend_api::dp_wakeup_server(void) {
 void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	{	// Rename thread
 		char name[32];
-		static constexpr const char* new_name = "z_gusli_ciol";
+		static constexpr const char* new_name = "gusli_ciol";
 		pthread_getname_np(pthread_self(), name, sizeof(name));
 		pr_info1("\t\t\tListener started, renaming %s->%s\n", name, new_name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);

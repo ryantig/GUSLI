@@ -2,7 +2,6 @@
 
 #define log_line(fmt, ...) log("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define UNITEST_CLNT_NAME "[_test_]"
-// Compile gusli with: 		clear; ll /dev/shm/gs*; rm core.*; make clean all; ./z_gusli_clnt_unitest; ps -eLo pid,ppid,comm,user | grep gusli
 /***************************** Base sync IO test ***************************************/
 uint64_t get_cur_timestamp_unix(void) {
 	struct timeval tp;
@@ -241,7 +240,7 @@ class dummy_server {
 		p.log = stderr,
 		p.binfo = gusli::bdev_info{ .bdev_descriptor = 1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = 255, .reserved = 'r' };
 		p.vfuncs = {.caller_context = this, .open = dummy_server::open1, .close = dummy_server::close1, .exec_io = dummy_server::exec_io };
-		snprintf(p.binfo.name, sizeof(p.binfo.name), "z_gusli_%s", _name);
+		snprintf(p.binfo.name, sizeof(p.binfo.name), "gusli_%s", _name);
 	}
 	void run(void) {
 		gusli::global_srvr_context& srvr = gusli::global_srvr_context::get();
@@ -490,7 +489,7 @@ int main(int argc, char *argv[]) {
 				return (opt == 'h') ? 0 : 1;
 		}
 	}
-	(void)pthread_setname_np(pthread_self(), "z_gusli_unit");
+	(void)pthread_setname_np(pthread_self(), "gusli_unit");
 
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	{	// Init the library
