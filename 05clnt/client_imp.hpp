@@ -55,7 +55,7 @@ class bdev_backend_api {									// API to server 1 block device
 	sock_t sock;											// Socket through which clnt talks to server
 	connect_addr ca;										// Connected server address
 	time_t last_keepalive;
-	const char* ip;
+	const char* srv_addr;
 	struct bdev_stats_clnt stats;
 
 	uint32_t periodic_msec_passed;	// Amount of msec passed from previous periodic control path processing

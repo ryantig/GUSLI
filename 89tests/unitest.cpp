@@ -27,7 +27,7 @@ struct bdev_uuid_cache {
 	static constexpr const char* REMOTE_BDEV2 = "7b56fa4c9f3316";
 	static constexpr const char* SERVER_PATH0 = "/dev/shm/gs472f4b04_uds";
 	static constexpr const char* SERVER_PATH1 = "u127.0.0.1";	// udp
-	static constexpr const char* SERVER_PATH2 = "t127.0.0.1";	// tdp
+	static constexpr const char* SERVER_PATH2 = "t127.0.0.2";	// tdp
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {

@@ -328,20 +328,20 @@ namespace gusli {
 
 int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	if (msg.is(MGMT::msg::dp_submit))
-		pr_verb1(" >> %s: %s\n", ip, msg.raw());
+		pr_verb1(" >> %s: %s\n", srv_addr, msg.raw());
 	else
-		pr_info1(" >> %s: %s\n", ip, msg.raw());
+		pr_info1(" >> %s: %s\n", srv_addr, msg.raw());
 	//ssize_t send_rv = sock.send_msg(msg.raw(), n_bytes, ca);
 	return (ios_ok == __send_1_full_message(sock, msg, false, n_bytes, ca, LIB_NAME)) ? 0 : -1;
 }
 
 int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* addr, const char *clnt_name) {
 	const sock_t::type s_type = MGMT::get_com_type(addr);
-	ip = addr;
+	srv_addr = addr;
 	(void)id;
-	if (     s_type == sock_t::type::S_UDP) sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, ip, ca);
-	else if (s_type == sock_t::type::S_TCP) sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, ip, ca, true);
-	else if (s_type == sock_t::type::S_UDS) sock.clnt_connect_to_srvr_uds(                 ip, ca);
+	if (     s_type == sock_t::type::S_UDP) sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca);
+	else if (s_type == sock_t::type::S_TCP) sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, true);
+	else if (s_type == sock_t::type::S_UDS) sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca);
 	else {
 		pr_err1("unsupported server address |%s|\n", addr);
 		info.bdev_descriptor = -__LINE__;
