@@ -70,13 +70,12 @@ void global_srvr_context_imp::__clnt_close(const MGMT::msg_content& msg, const c
 	(void)msg; (void)addr;
 }
 
-int global_srvr_context_imp::run(void) {
-	MGMT::msg_content msg;
-	connect_addr addr = this->ca;
-	int rv = 0, client_fd = -1;
+void global_srvr_context_imp::client_accept(connect_addr& addr) {
 	if (sock.uses_connection()) {
-		if ((client_fd = sock.srvr_accept_clnt(addr)) < 0) {
-			pr_info1("accept failed: " PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS);
+		const int client_fd = sock.srvr_accept_clnt(addr);
+		if (client_fd < 0) {
+			pr_info1("accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
+			return;
 		}
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
@@ -87,9 +86,22 @@ int global_srvr_context_imp::run(void) {
 		io_sock = sock;
 	}
 	io_sock.set_io_buffer_size(1<<19, 1<<19);
+}
+
+void global_srvr_context_imp::client_reject(void) {
+	if (sock.uses_connection() && sock.is_alive()) {
+		io_sock.nice_close();
+	}
+}
+
+int global_srvr_context_imp::run(void) {
+	MGMT::msg_content msg;
+	connect_addr addr = this->ca;
+	client_accept(addr);
 	while (!shutting_down) {
-		if (__read_1_full_message(io_sock, msg, true, false, addr) != ios_ok) {
-			pr_err1("receive type=%c, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), PRINT_EXTERN_ERR_ARGS);
+		const enum io_state io_st = __read_1_full_message(io_sock, msg, true, false, addr);
+		if (io_st != ios_ok) {
+			pr_err1("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
 			/*if ((errno == EAGAIN || errno == EINTR)) {	// Woke up after 1 second, without incomming message
 				if (!addr.is_empty()) {
 					const size_t n_send_bytes = msg.build_ping();
@@ -97,9 +109,12 @@ int global_srvr_context_imp::run(void) {
 					if (send_to(msg, n_send_bytes, addr) < 0)
 						return -1;
 				}
-				continue;
 			}*/
-			return rv;
+			if (!shutting_down) {
+				client_reject();
+				client_accept(addr);
+			}
+			continue;
 		}
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
@@ -203,7 +218,7 @@ int global_srvr_context_imp::run(void) {
 				return -1;
 		}
 	}
-	if (client_fd > 0) close(client_fd);
+	client_reject();
 	return 0;
 }
 

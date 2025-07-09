@@ -37,6 +37,8 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 		spdk_device_config spdk_dev;  		// SPDK-specific fields, move into backend api
 	#endif
 	bdev_stats_srvr stats;
+	void client_accept(connect_addr& addr);
+	void client_reject(void);
 	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
 	int  __clnt_bufs_unregist(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
 	void __clnt_close(        const MGMT::msg_content &msg, const connect_addr& addr);

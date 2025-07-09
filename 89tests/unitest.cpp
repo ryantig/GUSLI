@@ -437,12 +437,13 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		log("-----------------  Disconnect from server -------------\n");
-		if (0) {
+		if (1) {
 			my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 			log("-----------------  Connect2 to server -------------\n");
 			my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 			__get_connected_bdev_descriptor(lib, bdev);
 			lib.bdev_get_info(bdev, &info);
+			my_assert(strcmp(info.name, "z_gusli_srvr0") == 0);
 			log("-----------------  Disconnect2 from server -------------\n");
 		}
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
@@ -489,6 +490,7 @@ int main(int argc, char *argv[]) {
 				return (opt == 'h') ? 0 : 1;
 		}
 	}
+	(void)pthread_setname_np(pthread_self(), "z_gusli_unit");
 
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	{	// Init the library
