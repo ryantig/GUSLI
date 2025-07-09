@@ -59,7 +59,6 @@ class bdev_backend_api {									// API to server 1 block device
 	struct bdev_stats_clnt stats;
 
 	uint32_t periodic_msec_passed;	// Amount of msec passed from previous periodic control path processing
-	bool is_msg_processing_stopped;
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
 	sem_t wait_control_path;
@@ -75,13 +74,10 @@ class bdev_backend_api {									// API to server 1 block device
 	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
-	int close(     const backend_bdev_id& id);
+	int close(     const backend_bdev_id& id, const bool do_kill_server = false);
 	int dp_wakeup_server(void);
 	static void* io_completions_listener(bdev_backend_api *_self);
 	uint32_t suggested_control_past_rate(void) const { return minimal_delay * (is_control_path_ok ? 10 : 1); } // Slower ping to DS in steady state of good path, faster response to disaster recovery
-
-	bool are_all_msgs_stopped(void) const { return is_msg_processing_stopped; }
-	void suicide_stop_all(void);
 };
 
 struct server_bdev {					// Reflection of server (how to communicate with it)

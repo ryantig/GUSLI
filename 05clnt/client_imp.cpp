@@ -192,9 +192,7 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 	} else if (bdev->conf.type == NVMESH_UM) {
 		const int n_mapped_bufs = (int)bdev->b.dp.shm_io_bufs.size();
 		if (n_mapped_bufs != 0) { pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, n_mapped_bufs); return C_WRONG_ARGUMENTS; }
-		bdev->b.close(id);
-		if (do_suicide)
-			bdev->b.suicide_stop_all();
+		bdev->b.close(id, do_suicide);
 		rv = C_OK;
 	} else {
 		rv = C_NO_DEVICE;
@@ -214,7 +212,7 @@ enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_i
 void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
-	if (bdev && bdev->is_alive())
+	if (bdev)
 		__bdev_disconnect(bdev, true);
 }
 
@@ -337,16 +335,6 @@ int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	return (ios_ok == __send_1_full_message(sock, msg, false, n_bytes, ca, LIB_NAME)) ? 0 : -1;
 }
 
-void bdev_backend_api::suicide_stop_all(void) {
-	MGMT::msg_content msg;
-	const size_t size = msg.build_die();
-	if (send_to(msg, size) >= 0) {
-		is_msg_processing_stopped = false;		// Reenable message receival to receive suicide acks as fast as possible
-		check_incoming();						// Receive ACKS of death, within 1[sec]. Just for debugging/Logging.
-	}
-	sock.nice_close();
-}
-
 int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* addr, const char *clnt_name) {
 	const sock_t::type s_type = MGMT::get_com_type(addr);
 	ip = addr;
@@ -359,7 +347,6 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		info.bdev_descriptor = -__LINE__;
 		return info.bdev_descriptor;
 	}
-	is_msg_processing_stopped = false;
 	is_control_path_ok = false;
 	io_listener_tid = 0;
 	MGMT::msg_content msg;
@@ -436,11 +423,16 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 	}
 }
 
-int bdev_backend_api::close(const struct backend_bdev_id& id) {
-	MGMT::msg_content msg;
+int bdev_backend_api::close(const struct backend_bdev_id& id, const bool do_kill_server) {
 	if (io_listener_tid) {
-		const size_t size = msg.build_close();
-		msg.pay.c_close.volume = id;
+		MGMT::msg_content msg;
+		size_t size;
+		if (do_kill_server) {
+			size = msg.build_die();
+		} else {
+			size = msg.build_close();
+			msg.pay.c_close.volume = id;
+		}
 		ASSERT_IN_PRODUCTION(send_to(msg, size) >= 0);
 		pr_info1("going to join listener_thread tid=0x%lx\n", (long)io_listener_tid);
 		const int err = pthread_join(io_listener_tid, NULL);
@@ -449,7 +441,8 @@ int bdev_backend_api::close(const struct backend_bdev_id& id) {
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_info1("stats{%s}\n", str);
-	is_msg_processing_stopped = true;
+	dp.destroy();
+	sock.nice_close();
 	return 0;
 }
 
@@ -467,7 +460,7 @@ bool bdev_backend_api::check_incoming() {
 		pr_verb1("<< |%s|\n", msg.raw());
 	else
 		pr_info1("<< |%s| from %s\n", msg.raw(), server_path);
-	if (!are_all_msgs_stopped()) {	// Drain incomming messages but do not reply
+	if (true) {
 		on_keep_alive_received(); // Every message is considered a keep alive
 		if (msg.is(MGMT::msg::keepalive)) {
 			return false;	// Nothing special to do
@@ -488,9 +481,9 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::close_ack)) {
 			pr_info1("\t%s remote closed\n", this->info.name);
 			is_control_path_ok = false;
-			dp.destroy();
 		} else if (msg.is(MGMT::msg::die_ack)) {
-			// pr_info1("\t%s disconnected from server\n", this->info.name);
+			pr_info1("\t%s Server dies, reason:%s\n", this->info.name, msg.pay.s_die.extra_info);
+			is_control_path_ok = false;
 		} else if (msg.is(MGMT::msg::dp_complete)) {
 			bool need_wakeup_srvr;
 			int idx = dp.clnt_receive_completion(&need_wakeup_srvr);

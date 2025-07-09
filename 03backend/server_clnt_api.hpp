@@ -327,7 +327,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 			} s_close;
 			struct t_keep_alive  {
 				char extra_info[32];					// Debug info
-			} c_log, s_kal, s_kick, c_die;
+			} c_log, s_kal, s_kick, c_die, s_die;
 			struct t_wrong_cmd  {
 				char extra_info[32];					// Information about wrong command
 			} wrong_cmd;
@@ -350,7 +350,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		size_t build_close(void) {   hdr.init(MGMT::msg::close_nice);	pay.c_close.reserved = 0UL; BUIL_MSG_RET }
 		size_t build_cl_ack(void) {  hdr.init(MGMT::msg::close_ack);	BUIL_MSG_RET }
 		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.extra_info[0] = 0; BUIL_MSG_RET }
-		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.c_die.extra_info[0] = 0; BUIL_MSG_RET }
+		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.extra_info[0] = 0; BUIL_MSG_RET }
 		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	BUIL_MSG_RET }
 		size_t build_skick(void) {   hdr.init(MGMT::msg::server_kick);	BUIL_MSG_RET }
 		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	BUIL_MSG_RET }
