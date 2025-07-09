@@ -227,9 +227,9 @@ class sync_request_executor : public blocking_request_executor {
 class remote_aio_blocker : public blocking_request_executor {						// Convert remote async request io to blocking
 	sem_t wait;					// Block sender until io returns
 	static void __cb(remote_aio_blocker *exec) {
-		BUG_ON(sem_post(&exec->wait) != 0, "Cant unblock waiter");
 		pr_verb1("exec[%p].o[%p].blocked_rio: completion arrived\n", exec, exec->io);
 		exec->was_rv_already_set_by_remote = true;
+		BUG_ON(sem_post(&exec->wait) != 0, "Cant unblock waiter");		// Must be last line because after unblock executor can get free
 	}
  public:
 	remote_aio_blocker(io_request &_io) : blocking_request_executor(_io) {
