@@ -22,12 +22,9 @@ struct bdev_uuid_cache {
 	static constexpr const char* AUTO_FAIL =    "168867d168867d7";	// Check last byte is 0
 	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
-	static constexpr const char* REMOTE_BDEV0 = "5bcdefab01234567";
-	static constexpr const char* REMOTE_BDEV1 = "6765432123456789";
-	static constexpr const char* REMOTE_BDEV2 = "7b56fa4c9f3316";
-	static constexpr const char* SERVER_PATH0 = "/dev/shm/gs472f4b04_uds";
-	static constexpr const char* SERVER_PATH1 = "u127.0.0.1";	// udp
-	static constexpr const char* SERVER_PATH2 = "t127.0.0.2";	// tdp
+	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
+	static constexpr const char* SRVR_NAME[] = { "Srvr0", "Srvr1", "Srvr2"};
+	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tdp*/ };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -240,7 +237,7 @@ class dummy_server {
  public:
  	static constexpr bool launch_as_processes(void) { return true; }
 	dummy_server(const char* _name, const char* listen_addr) {
-		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address));
+		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address)-1);
 		p.log = stderr,
 		p.binfo = gusli::bdev_info{ .bdev_descriptor = 1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = 255, .reserved = 'r' };
 		p.vfuncs = {.caller_context = this, .open = dummy_server::open1, .close = dummy_server::close1, .exec_io = dummy_server::exec_io };
@@ -251,7 +248,6 @@ class dummy_server {
 		const int rename_rv = pthread_setname_np(pthread_self(), p.binfo.name);
 		my_assert(rename_rv == 0);
 		my_assert(srvr.run(p) == 0);
-		exit(0);
 	}
 };
 
@@ -270,7 +266,7 @@ typedef atomic<uint64_t> atomic_uint64_t;
 class all_ios_t *glbal_all_ios = NULL;
 class all_ios_t {
 	gusli::io_request ios[512];
-	atomic_uint64_t n_completed_ios;	//
+	atomic_uint64_t n_completed_ios;
 	atomic_uint64_t n_in_air_ios;
 	uint64_t n_ios_todo;
 	int n_max_ios_in_air;
@@ -375,28 +371,34 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
-	log("-----------------  Remote server init -------------\n");
-	union {
-		pthread_t tid;								// Thread  id when server is lauched as thread
-		__pid_t   pid;								// Process id when server is lauched as process via fork()
-	} child[2];										// 2 Servers
-	int n_servers = 0;
-	child[0].pid = fork(); my_assert(child[0].pid >= 0);	n_servers++;
-	if (child[0].pid == 0) {	// Child process
-		dummy_server ds("srvr0", UUID.SERVER_PATH0);
-		ds.run();
+	static constexpr const int n_servers = 3;
+	log("-----------------  Remote %d server launch -------------\n", n_servers);
+	struct {
+		union {
+			pthread_t tid;								// Thread  id when server is lauched as thread
+			__pid_t   pid;								// Process id when server is lauched as process via fork()
+		};
+	 } child[n_servers];
+	for (int i = 0; i < n_servers; i++) {
+		child[i].pid = fork();
+		my_assert(child[i].pid >= 0);
+		if (child[i].pid == 0) {	// Child process
+			dummy_server ds(UUID.SRVR_NAME[i], UUID.SERVER_PATH[i]);
+			ds.run();
+			exit(0);
+		}
 	}
-	{
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV0);
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for servers to be up
+	for (int s = 0; s < n_servers; s++) {
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
 		gusli::bdev_info info;
-		std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for server to be up
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
 		lib.bdev_get_info(bdev, &info);
-		my_assert(strcmp(info.name, "z_gusli_srvr0") == 0);
+		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 
 		// Map app buffers for read operations
-		log("-----------------  Remote server map bufs-------------\n");
+		log("-----------------  Remote server %s: map bufs-------------\n", UUID.SRVR_NAME[s]);
 		std::vector<gusli::io_buffer_t> io_bufs;
 		io_bufs.reserve(2);
 		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffers for mass io tests
@@ -406,7 +408,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 		if (1) _remote_server_bad_path_unitests(lib, info, map);
 		if (1) {
-			log("-----------------  IO-to-srvr-multi-range -------------\n");
+			log("----------------- %s: IO-to-srvr-multi-range -------------\n", UUID.SRVR_NAME[s]);
 			struct unitest_io my_io;
 			gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(1);
 			mio->n_entries = 3;
@@ -428,24 +430,22 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 				ios.launch_perf_reads(num_ios_preassure);
 		}
 
-		log("-----------------  Unmap bufs -------------\n");
+		log("----------------- %s: Unmap bufs -------------\n", UUID.SRVR_NAME[s]);
 		// Unmap buffers and disconnect from server
 		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Non existent buffers
-		log("-----------------  Rereg-Unreg bufs again -------------\n");
+		log("----------------- %s: Rereg-Unreg bufs again -------------\n", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
-		log("-----------------  Disconnect from server -------------\n");
-		if (1) {
-			my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
-			log("-----------------  Connect2 to server -------------\n");
-			my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-			__get_connected_bdev_descriptor(lib, bdev);
-			lib.bdev_get_info(bdev, &info);
-			my_assert(strcmp(info.name, "z_gusli_srvr0") == 0);
-			log("-----------------  Disconnect2 from server -------------\n");
-		}
+		log("----------------- %s: Disconnect from server -------------\n", UUID.SRVR_NAME[s]);
+		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		log("----------------- %s: Connect again  -------------\n", UUID.SRVR_NAME[s]);
+		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+		__get_connected_bdev_descriptor(lib, bdev);
+		lib.bdev_get_info(bdev, &info);
+		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
+		log("----------------- %s: Disconnect & Kill -------------\n", UUID.SRVR_NAME[s]);
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
 		for (gusli::io_buffer_t& buf : io_bufs)
 			free(buf.ptr);
@@ -506,9 +506,9 @@ int main(int argc, char *argv[]) {
 			i += sprintf(&conf[i], "%s X X N __NONE__    sec=0x51\n", UUID.AUTO_FAIL);
 			i += sprintf(&conf[i], "%s K X N /dev/zero   sec=0x71\n", UUID.DEV_ZERO);
 			i += sprintf(&conf[i], "%s S W D nvme0n1     sec=0x81\n", UUID.DEV_NVME);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV0, UUID.SERVER_PATH0);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV1, UUID.SERVER_PATH1);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV2, UUID.SERVER_PATH2);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV[0], UUID.SERVER_PATH[0]);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV[1], UUID.SERVER_PATH[1]);
+			i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV[2], UUID.SERVER_PATH[2]);
 			#if 0
 				p.config_file = "./gusli.conf";			// Can use external file
 			#else
