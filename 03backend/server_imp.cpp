@@ -45,7 +45,7 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) 
 	return rv;
 }
 
-int global_srvr_context_imp::send_to(sock_t& io_sock, MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const {
+int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const {
 	ssize_t send_rv;
 	if (msg.is(MGMT::msg::dp_complete))
 		pr_verb1(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
@@ -57,10 +57,22 @@ int global_srvr_context_imp::send_to(sock_t& io_sock, MGMT::msg_content &msg, si
 	return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
 }
 
+void global_srvr_context_imp::__clnt_close(const MGMT::msg_content& msg, const connect_addr& addr) {
+	#if SUPPORT_SPDK
+		this->spdk_dev.close();
+	#else
+		par.vfuncs.close(par.vfuncs.caller_context, "????");
+	#endif
+	char str[256];
+	stats.print_stats(str, sizeof(str));
+	pr_info1("stats{%s}\n", str);
+	dp.destroy();
+	(void)msg; (void)addr;
+}
+
 int global_srvr_context_imp::run(void) {
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
-	sock_t io_sock;
 	int rv = 0, client_fd = -1;
 	if (sock.uses_connection()) {
 		if ((client_fd = sock.srvr_accept_clnt(addr)) < 0) {
@@ -82,7 +94,7 @@ int global_srvr_context_imp::run(void) {
 				if (!addr.is_empty()) {
 					const size_t n_send_bytes = msg.build_ping();
 					strcpy(msg.pay.s_kal.extra_info, "??");
-					if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+					if (send_to(msg, n_send_bytes, addr) < 0)
 						return -1;
 				}
 				continue;
@@ -110,39 +122,33 @@ int global_srvr_context_imp::run(void) {
 			if (rv_open != 0)
 				msg.pay.s_hello_ack.info.bdev_descriptor = -1;
 			// Todo: Initialize datapath of consumer here
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::register_buf)) {
 			const int reg_rv = __clnt_bufs_register(msg);
 			const size_t n_send_bytes = msg.build_reg_ack();
 			msg.pay.s_register_ack.server_pointer = 0x0;		// Not needed
 			msg.pay.s_register_ack.rv = reg_rv;		// Leave other fields untouched
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::unreg_buf)) {
 			const int reg_rv = __clnt_bufs_unregist(msg);
 			const size_t n_send_bytes = msg.build_unr_ack();
 			msg.pay.s_unreg_ack.server_pointer = 0x0;		// Not needed
 			msg.pay.s_unreg_ack.rv = reg_rv;		// Leave other fields untouched
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::close_nice)) {
-			#if SUPPORT_SPDK
-				this->spdk_dev.close();
-			#else
-				par.vfuncs.close(par.vfuncs.caller_context, "????");
-			#endif
-			char str[256];
-			stats.print_stats(str, sizeof(str));
-			pr_info1("stats{%s}\n", str);
+			__clnt_close(msg, addr);
 			const size_t n_send_bytes = msg.build_cl_ack();
-			dp.destroy();
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::die_now)) {
 			this->shutting_down = true;
+			__clnt_close(msg, addr);
 			const size_t n_send_bytes = msg.build_die_ack();
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			strcpy(msg.pay.s_die.extra_info, "cdie");
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::log)) {
 			const char*p = msg.pay.c_log.extra_info;
@@ -151,7 +157,7 @@ int global_srvr_context_imp::run(void) {
 			pr_alert("\n\n\n%s\n", p);
 			const size_t n_send_bytes = msg.build_ping();
 			strcpy(msg.pay.s_kal.extra_info, " LOG-OK");
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::dp_submit)) {
 			io_request io;
@@ -187,13 +193,13 @@ int global_srvr_context_imp::run(void) {
 				p->sender_added_new_work = need_wakeup_clnt_comp_reader;
 				p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
 				stats.inc(*p);
-				if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+				if (send_to(msg, n_send_bytes, addr) < 0)
 					return -1;
 			}
 		} else {
 			strncpy(msg.pay.wrong_cmd.extra_info, msg.raw(), sizeof(msg.hdr));		// Copy header of wrong message
 			const size_t n_send_bytes = msg.build_wrong();
-			if (send_to(io_sock, msg, n_send_bytes, addr) < 0)
+			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		}
 	}

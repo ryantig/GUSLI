@@ -29,16 +29,18 @@ struct bdev_stats_srvr {
 
 class global_srvr_context_imp : public global_srvr_context, public base_library  {
 	struct init_params par;				// Underlying bdev configuration
-	sock_t sock;						// Control path communication socket with client if UDP - passes msgs, else io_sock passes messages
+	sock_t sock;						// Control path accept-client socket
+	sock_t io_sock;						// Communication socket with client
 	connect_addr ca;					// Connected client address
 	class datapath_t dp;
 	#if SUPPORT_SPDK
 		spdk_device_config spdk_dev;  		// SPDK-specific fields, move into backend api
 	#endif
 	bdev_stats_srvr stats;
-	int __clnt_bufs_register(const MGMT::msg_content &msg);
-	int __clnt_bufs_unregist(const MGMT::msg_content &msg);
-	int  send_to(sock_t& io_sock, MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const __attribute__((warn_unused_result));
+	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
+	int  __clnt_bufs_unregist(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
+	void __clnt_close(        const MGMT::msg_content &msg, const connect_addr& addr);
+	int  send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const __attribute__((warn_unused_result));
 	int  init(void);	// Must be called first
 	friend class global_srvr_context;
 
