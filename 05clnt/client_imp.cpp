@@ -90,14 +90,14 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 		info->bdev_descriptor = 2;
 		info->block_size = 4096;
 		strcpy(info->name, "FAIL_DEV");
-		info->num_total_blocks = 0x10;
+		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
 		return C_OK;
 	} else if (bdev->conf.type == FS_FILE) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_file_path, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			info->block_size = 1;
 			strcpy(info->name, "LocalFile");
-			info->num_total_blocks = (1 << 20);	// 1[MB] file
+			info->num_total_blocks = (1 << 30);	// 1[GB] file
 			return C_OK;
 		} else
 			return C_WRONG_ARGUMENTS;
@@ -122,7 +122,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 		}
 	} else if (bdev->conf.type == NVMESH_UM) {
 		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, g->par.client_name);
-		if (info->bdev_descriptor > 0)
+		if (info->is_valid())
 			return C_OK;
 		return C_WRONG_ARGUMENTS;
 	}
@@ -359,6 +359,8 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		else
 			goto _out;
 	} {
+		if (!info.is_valid())
+			goto _out;
 		const size_t size = msg.build_reg_buf();
 		auto *pr = &msg.pay.c_register_buf;
 		// Initialize datapath of producer
@@ -443,6 +445,7 @@ int bdev_backend_api::close(const struct backend_bdev_id& id, const bool do_kill
 	pr_info1("stats{%s}\n", str);
 	dp.destroy();
 	sock.nice_close();
+	info.clear();
 	return 0;
 }
 

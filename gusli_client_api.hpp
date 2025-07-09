@@ -46,6 +46,7 @@ struct bdev_info {							// After connection to bdev established, this info can 
 	uint32_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side
 	uint32_t reserved;
 	void clear(void) { memset(this, 0, sizeof(*this)); }
+	bool is_valid(void) const { return (block_size > 0) && (bdev_descriptor > 0); }
 } __attribute__((aligned(sizeof(long))));
 
 /******************************** io request context ***********************/
