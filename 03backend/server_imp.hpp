@@ -6,6 +6,10 @@ namespace gusli {
 
 #define LIB_NAME "GUSLIs"
 #define LIB_COLOR NV_COL_PURPL
+#define pr_infoS(fmt, ...) pr_info1( "[%s] " fmt, par.binfo.name, ##__VA_ARGS__)
+#define pr_errS( fmt, ...) pr_err1(  "[%s] " fmt, par.binfo.name, ##__VA_ARGS__)
+#define pr_noteS(fmt, ...) pr_note1( "[%s] " fmt, par.binfo.name, ##__VA_ARGS__)
+#define pr_verbS(fmt, ...) pr_verb1( "[%s] " fmt, par.binfo.name, ##__VA_ARGS__)
 
 struct bdev_stats_srvr {
 	uint64_t n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp;
@@ -50,7 +54,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
  public:
 	global_srvr_context_imp() : base_library(LIB_NAME) { }
 	int run(void);
-	void destroy(void);
+	int destroy(void);
 };
 
 global_srvr_context& global_srvr_context::get(void) {

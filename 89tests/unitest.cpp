@@ -22,7 +22,7 @@ struct bdev_uuid_cache {
 	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
 	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
-	static constexpr const char* SRVR_NAME[] = { "Srvr0", "Srvr1", "Srvr2"};
+	static constexpr const char* SRVR_NAME[] = { "Srv0", "Srv1", "Srv2"};
 	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tdp*/ };
 } UUID;
 
@@ -422,7 +422,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
 		}
 
-		if (1) { // Lauch async perf read test
+		if (s == 0) { // Lauch async perf read test on first server only
 			log("-----------------  IO-to-srvr-perf %u[Mio]-------------\n", (num_ios_preassure >> 20));
 			all_ios_t ios(map, info);
 			for (int i = 0; i < 4; i++)
@@ -451,7 +451,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		io_bufs.clear();
 	}
 
-	// Wait for server process to finish
+	// Wait for all servers process to finish
 	if (dummy_server::launch_as_processes()) {
 		for (int i = 0; i < n_servers; ++i) {
 			int status;

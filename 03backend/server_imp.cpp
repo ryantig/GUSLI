@@ -26,7 +26,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) 
 	}
 	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes};
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
-	pr_info1("Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS("Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
 	BUG_ON(rv, "Todo: instead of relying that clnt/server addresses are identical, IO should talk in buffer indices");
 	return rv;
 }
@@ -41,16 +41,16 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) 
 	const int rv = 0;
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
 	dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
-	pr_info1("UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS("UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
 int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const {
 	ssize_t send_rv;
 	if (msg.is(MGMT::msg::dp_complete))
-		pr_verb1(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
+		pr_verbS(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	else
-		pr_info1(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
+		pr_infoS(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	send_rv = io_sock.send_msg(msg.raw(), n_bytes, addr);
 	if (send_rv != (ssize_t)n_bytes)
 		pr_emerg("%s: Send Error rv=%ld, n_bytes=%lu, msg=%s\n", LIB_NAME, send_rv, n_bytes, msg.raw());
@@ -65,7 +65,7 @@ void global_srvr_context_imp::__clnt_close(const MGMT::msg_content& msg, const c
 	#endif
 	char str[256];
 	stats.print_stats(str, sizeof(str));
-	pr_info1("stats{%s}\n", str);
+	pr_infoS("stats{%s}\n", str);
 	dp.destroy();
 	(void)msg; (void)addr;
 }
@@ -74,12 +74,12 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 	if (sock.uses_connection()) {
 		const int client_fd = sock.srvr_accept_clnt(addr);
 		if (client_fd < 0) {
-			pr_info1("accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
+			pr_infoS("accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
 			return;
 		}
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
-		pr_info1("accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
+		pr_infoS("accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
 		io_sock = sock_t(client_fd, sock.get_type());
 		io_sock.set_blocking(false);
 	} else {
@@ -101,7 +101,7 @@ int global_srvr_context_imp::run(void) {
 	while (!shutting_down) {
 		const enum io_state io_st = __read_1_full_message(io_sock, msg, true, false, addr);
 		if (io_st != ios_ok) {
-			pr_err1("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
+			pr_errS("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
 			/*if ((errno == EAGAIN || errno == EINTR)) {	// Woke up after 1 second, without incomming message
 				if (!addr.is_empty()) {
 					const size_t n_send_bytes = msg.build_ping();
@@ -119,9 +119,9 @@ int global_srvr_context_imp::run(void) {
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
 		if (msg.is(MGMT::msg::dp_submit))
-			pr_verb1("<< |%s|\n", msg.raw());
+			pr_verbS("<< |%s|\n", msg.raw());
 		else
-			pr_info1("<< |%s| from %s\n", msg.raw(), clnt_path);
+			pr_infoS("<< |%s| from %s\n", msg.raw(), clnt_path);
 		if (msg.is(MGMT::msg::hello)) {
 			const auto *p = &msg.pay.c_hello;
 			char cid[sizeof(p->client_id)+1];
@@ -179,7 +179,7 @@ int global_srvr_context_imp::run(void) {
 			bool need_wakeup_clnt_io_submitter = false, need_wakeup_clnt_comp_reader = false, wake = false;
 			int idx = dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
 			if (idx < 0) {
-				//pr_info1("...ignore comp\n");
+				//pr_infoS("...ignore comp\n");
 				continue;
 			}
 			for (; idx >= 0; idx = dp.srvr_receive_io(io, &wake)) {
@@ -199,7 +199,7 @@ int global_srvr_context_imp::run(void) {
 				#endif
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);
 				need_wakeup_clnt_comp_reader |= wake;
-				pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params.completion_context, wake);
+				pr_verbS(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params.completion_context, wake);
 			}
 			if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
 				// Send wakeup completion to client on all executed IO's
@@ -224,7 +224,7 @@ int global_srvr_context_imp::run(void) {
 
 int global_srvr_context_imp::init(void) {
 	int rv = 0;
-	#define abort_exe_init_on_err() { pr_err1("Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
+	#define abort_exe_init_on_err() { pr_errS("Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
 	if (!io_csring::is_big_enough_for(par.binfo.num_max_inflight_io))
 		abort_exe_init_on_err()
 	if (this->start() != 0)
@@ -234,13 +234,22 @@ int global_srvr_context_imp::init(void) {
 	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca);
 	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca);
 	else {
-		pr_err1("unsupported listen address |%s|\n", par.listen_address);
+		pr_errS("unsupported listen address |%s|\n", par.listen_address);
 		abort_exe_init_on_err()
 	}
 	if (rv < 0)
 		abort_exe_init_on_err();
-	pr_info1("initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
+	pr_infoS("initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
 	return 0;
+}
+
+int global_srvr_context_imp::destroy(void) {
+	pr_flush();
+	pr_infoS("terminate: conn=%c, {%s:%u}\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT);
+	if (sock.get_type() == sock_t::type::S_UDS)
+		unlink(par.listen_address);
+	sock.nice_close();
+	return finish(NV_COL_PURPL, 0);
 }
 
 /********************************************************/
@@ -251,12 +260,7 @@ int global_srvr_context::run(const struct init_params& _par) {
 	rv = g->init(); if (rv < 0) return rv;
 	spdk_init();
 	rv = g->run();
-	pr_flush();
-	pr_info1("terminate: conn=%c, {%s:%u}\n", g->sock.get_type(), g->par.listen_address, MGMT::COMM_PORT);
-	if (g->sock.get_type() == sock_t::type::S_UDS)
-		unlink(g->par.listen_address);
-	g->sock.nice_close();
-	return g->finish(NV_COL_PURPL, 0);
+	return g->destroy();
 }
 
 } // namespace gusli
