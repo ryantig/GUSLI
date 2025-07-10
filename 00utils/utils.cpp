@@ -578,7 +578,7 @@ int base_library::finish(const char* prefix, int rv) {
 		pr_emerg("%s: Error: library initialized from pid %u but destroyed from pid=%u\n", lib_name, pid, cur_pid);
 		rv = -5;
 	}
-	pr_note("%s%s: destroyed, pid=%u " NV_COL_R "rv=%d\n", prefix, lib_name, pid, rv);
+	pr_note("%s%s: destroyed, pid=%u " NV_COL_R "rv=%d\n\n", prefix, lib_name, pid, rv);
 	return rv;
 }
 

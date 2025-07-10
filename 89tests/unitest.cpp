@@ -369,7 +369,7 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 #include <sys/wait.h>
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	static constexpr const int n_servers = 3;
-	log("-----------------  Remote %d server launch -------------\n", n_servers);
+	log_line("Remote %d server launch", n_servers);
 	struct {
 		union {
 			pthread_t tid;								// Thread  id when server is lauched as thread
@@ -395,7 +395,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 
 		// Map app buffers for read operations
-		log("-----------------  Remote server %s: map bufs-------------\n", UUID.SRVR_NAME[s]);
+		log_line("Remote server %s: map bufs", UUID.SRVR_NAME[s]);
 		std::vector<gusli::io_buffer_t> io_bufs;
 		io_bufs.reserve(2);
 		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffers for mass io tests
@@ -405,7 +405,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 		if (1) _remote_server_bad_path_unitests(lib, info, map);
 		if (1) {
-			log("----------------- %s: IO-to-srvr-multi-range -------------\n", UUID.SRVR_NAME[s]);
+			log_line("%s: IO-to-srvr-multi-range", UUID.SRVR_NAME[s]);
 			struct unitest_io my_io;
 			gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(1);
 			mio->n_entries = 3;
@@ -421,28 +421,28 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		}
 
 		if (s == 0) { // Lauch async perf read test on first server only
-			log("-----------------  IO-to-srvr-perf %u[Mio]-------------\n", (num_ios_preassure >> 20));
+			log_line("IO-to-srvr-perf %u[Mio]", (num_ios_preassure >> 20));
 			all_ios_t ios(map, info);
 			for (int i = 0; i < 4; i++)
 				ios.launch_perf_reads(num_ios_preassure);
 		}
 
-		log("----------------- %s: Unmap bufs -------------\n", UUID.SRVR_NAME[s]);
+		log_line("%s: Unmap bufs", UUID.SRVR_NAME[s]);
 		// Unmap buffers and disconnect from server
 		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Non existent buffers
-		log("----------------- %s: Rereg-Unreg bufs again -------------\n", UUID.SRVR_NAME[s]);
+		log_line("%s: Rereg-Unreg bufs again", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
-		log("----------------- %s: Disconnect from server -------------\n", UUID.SRVR_NAME[s]);
+		log_line("%s: Disconnect from server", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
-		log("----------------- %s: Connect again  -------------\n", UUID.SRVR_NAME[s]);
+		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
 		lib.bdev_get_info(bdev, &info);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
-		log("----------------- %s: Disconnect & Kill -------------\n", UUID.SRVR_NAME[s]);
+		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
 		for (gusli::io_buffer_t& buf : io_bufs)
 			free(buf.ptr);
@@ -470,6 +470,63 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	}
 }
 
+void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
+	log_line("Uninitialized library tests");
+	my_assert(&lib == &gusli::global_clnt_context::get());		// Double get returns same result
+	my_assert(lib.get_metadata_json()[0] == (char)0);			// Empty
+	my_assert(lib.destroy() == 0);								// Does nothing so succeeds
+	my_assert(lib.destroy() == 0);								// Does nothing so succeeds
+	gusli::backend_bdev_id bdev; bdev.set_from("something");
+	gusli::bdev_info bdi;
+	std::vector<gusli::io_buffer_t> mem;
+	const gusli::connect_rv rv = gusli::connect_rv::C_NO_DEVICE;
+	my_assert(rv == lib.bdev_connect(bdev));
+	my_assert(rv == lib.bdev_get_info(bdev, &bdi));
+	my_assert(rv == lib.bdev_bufs_register(bdev, mem));
+	my_assert(rv == lib.bdev_bufs_unregist(bdev, mem));
+	my_assert(rv == lib.bdev_disconnect(bdev));
+	lib.bdev_report_data_corruption(bdev, 0);
+	struct unitest_io my_io;	// Write 100 bytes
+	my_io.expect_success(false).enable_prints(false);
+	my_io.io.params.init_1_rng(gusli::G_WRITE,  0, 5, 100, NULL);
+	my_io.exec(gusli::G_WRITE, ASYNC_CB);
+	my_io.io.params.init_1_rng(gusli::G_READ,  -1, 8, 999, NULL);
+	my_io.exec(gusli::G_READ,  SYNC_BLOCKING_1_BY_1);
+}
+
+void lib_initialize_unitests(gusli::global_clnt_context& lib) {
+	gusli::global_clnt_context::init_params p;
+	char clnt_name[32], conf[512];
+	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
+	p.client_name = clnt_name;
+	{	// Generate config
+		int i = sprintf(conf,
+			"# version=1, Config file for gusli client lib\n"
+			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
+		i += sprintf(&conf[i], "%s f X N ./store.bin sec=0x31\n", UUID.LOCAL_FILE);
+		i += sprintf(&conf[i], "%s X X N __NONE__    sec=0x51\n", UUID.AUTO_FAIL);
+		i += sprintf(&conf[i], "%s K X N /dev/zero   sec=0x71\n", UUID.DEV_ZERO);
+		i += sprintf(&conf[i], "%s S W D nvme0n1     sec=0x81\n", UUID.DEV_NVME);
+		i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV[0], UUID.SERVER_PATH[0]);
+		i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV[1], UUID.SERVER_PATH[1]);
+		i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV[2], UUID.SERVER_PATH[2]);
+		#if 0
+			p.config_file = "./gusli.conf";			// Can use external file
+		#else
+			p.config_file = &conf[0];
+		#endif
+	}
+	my_assert(lib.init(p) == 0);
+	my_assert(lib.destroy() == 0);
+	my_assert(lib.init(p) == 0);
+	memset((void*)&p, 0xCC, sizeof(p));						// Trap usage by gusli library of params memory after initialization
+	my_assert(lib.init(p) == 0);							// Second initialization, even with garbage params is also OK
+	log("\tmetadata= %s\n", lib.get_metadata_json());
+	my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
+	memset(conf,      0xCC, sizeof(conf));
+	memset(clnt_name, 0xCC, sizeof(clnt_name));
+}
+
 /*****************************************************************************/
 #include <getopt.h>
 int main(int argc, char *argv[]) {
@@ -490,36 +547,8 @@ int main(int argc, char *argv[]) {
 	(void)pthread_setname_np(pthread_self(), "gusli_unit");
 
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
-	{	// Init the library
-		gusli::global_clnt_context::init_params p;
-		char clnt_name[32], conf[512];
-		strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
-		p.client_name = clnt_name;
-		{	// Generate config
-			int i = sprintf(conf,
-				"# version=1, Config file for gusli client lib\n"
-				"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
-			i += sprintf(&conf[i], "%s f X N ./store.bin sec=0x31\n", UUID.LOCAL_FILE);
-			i += sprintf(&conf[i], "%s X X N __NONE__    sec=0x51\n", UUID.AUTO_FAIL);
-			i += sprintf(&conf[i], "%s K X N /dev/zero   sec=0x71\n", UUID.DEV_ZERO);
-			i += sprintf(&conf[i], "%s S W D nvme0n1     sec=0x81\n", UUID.DEV_NVME);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV[0], UUID.SERVER_PATH[0]);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV[1], UUID.SERVER_PATH[1]);
-			i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV[2], UUID.SERVER_PATH[2]);
-			#if 0
-				p.config_file = "./gusli.conf";			// Can use external file
-			#else
-				p.config_file = &conf[0];
-			#endif
-		}
-		my_assert(lib.init(p) == 0);
-		// Trap usage by gusly library of params memory after initialization
-		memset((void*)&p, 0xCC, sizeof(p));
-		memset(conf,      0xCC, sizeof(conf));
-		memset(clnt_name, 0xCC, sizeof(clnt_name));
-		log("\tmetadata= %s\n", lib.get_metadata_json());
-		my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
-	}
+	lib_uninitialized_invalid_unitests(lib);
+	lib_initialize_unitests(lib);
 	base_lib_unitests(lib, n_iter_race_tests);
 	client_server_test(lib, num_ios_preassure);
 	my_assert(lib.destroy() == 0);
