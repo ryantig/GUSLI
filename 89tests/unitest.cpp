@@ -31,6 +31,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	mem.emplace_back(gusli::io_buffer_t{ .ptr = NULL, .byte_len = (1UL << 30) });
 	gusli::backend_bdev_id bdev;
 	bdev.set_from("NonExist_bdev");
+	log_line("test wrong bdev %s", bdev.uuid);
 	gusli::bdev_info bdi;
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_NO_DEVICE);
@@ -114,7 +115,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		fflush(stderr);
 	}
 
-	if (1) {	// Multi range read
+	if (1) {
+		log_line("Multi-Range-Read");
 		static constexpr const char *multi_io_read_result = "orelloHew";		// Expected permutation of 'data' buffer
 		static constexpr const int multi_io_read_length = strlen(multi_io_read_result);
 		static constexpr const int n_ranges = 4;
@@ -141,7 +143,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	}
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 
-	if (1) { // Failed read
+	if (1) {
+		log_line("Failed read");
 		bdev.set_from(UUID.AUTO_FAIL);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
@@ -156,7 +159,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 	}
 	if (1) test_non_existing_bdev(lib);
-	if (1) {// Legacy kernel /dev/ block device
+	if (1) {
+		log_line("Legacy /dev/zero tests");
 		bdev.set_from(UUID.DEV_ZERO);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		gusli::bdev_info bdi; lib.bdev_get_info(bdev, &bdi);
