@@ -57,7 +57,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	int destroy(void);
 };
 
-global_srvr_context& global_srvr_context::get(void) {
+global_srvr_context& global_srvr_context::get(void) noexcept {
 	static class global_srvr_context_imp gs_ctx;
 	return gs_ctx;
 }

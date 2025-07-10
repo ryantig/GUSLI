@@ -36,8 +36,8 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 			int (*exec_io)( void *caller_context, class io_request& io);		// negative on failure, 0 or positive on success
 		} vfuncs;
 	};
-	SYMBOL_EXPORT static global_srvr_context& get(void); 						// Singletone
-	SYMBOL_EXPORT [[nodiscard]] int run(const struct init_params& par);			// Must be called first
+	SYMBOL_EXPORT static global_srvr_context& get(void) noexcept; 				// Singletone
+	SYMBOL_EXPORT [[nodiscard]] int run(const struct init_params& par) noexcept;// Must be called first
 };
 
 /******************************** io zero copy ***********************/

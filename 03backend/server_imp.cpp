@@ -253,7 +253,7 @@ int global_srvr_context_imp::destroy(void) {
 }
 
 /********************************************************/
-int global_srvr_context::run(const struct init_params& _par) {
+int global_srvr_context::run(const struct init_params& _par) noexcept {
 	global_srvr_context_imp* g = _impl(this);
 	g->par = _par;
 	int rv;

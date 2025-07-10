@@ -43,7 +43,7 @@ int global_clnt_context_imp::parse_conf(void) {
 	return parse_rv;
 }
 
-int global_clnt_context::init(struct init_params _par) {
+int global_clnt_context::init(struct init_params _par) noexcept {
 	global_clnt_context_imp* g = _impl(this);
 	if (g->is_initialized()) {
 		pr_err1("already initialized: %u[devices], doing nothing\n", g->bdevs.n_devices);
@@ -63,11 +63,11 @@ int global_clnt_context::init(struct init_params _par) {
 	return rv;
 }
 
-const char *global_clnt_context::get_metadata_json(void) const {
+const char *global_clnt_context::get_metadata_json(void) const noexcept {
 	return _impl(this)->lib_info_json;
 }
 
-int global_clnt_context::destroy(void) {
+int global_clnt_context::destroy(void) noexcept {
 	global_clnt_context_imp* g = _impl(this);
 	if (!g->is_initialized()) {
 		pr_err1("not initialized, nothing to destroy\n");
@@ -84,7 +84,7 @@ int global_clnt_context::destroy(void) {
 
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& id) {
+enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& id) noexcept {
 	const global_clnt_context_imp* g = _impl(this);
 	server_bdev *bdev = g->bdevs.find_by(id);
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
@@ -141,7 +141,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 	return C_NO_DEVICE;
 }
 
-enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) {
+enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
@@ -163,7 +163,7 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 	}
 }
 
-enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) {
+enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
@@ -216,7 +216,7 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 	return rv;
 }
 
-enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) {
+enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) noexcept {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
@@ -224,7 +224,7 @@ enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_i
 	return __bdev_disconnect(bdev, false);
 }
 
-void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) {
+void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	if (bdev) {
@@ -233,7 +233,7 @@ void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id,
 	}
 }
 
-enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) {
+enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) noexcept {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev) return C_NO_DEVICE;
 	if (!bdev->is_alive()) return C_NO_RESPONSE;
@@ -294,7 +294,7 @@ void io_request::submit_io(void) noexcept {
 	}
 }
 
-io_request_executor_base* io_request::__disconnect_executor_atomic(void) {
+io_request_executor_base* io_request::__disconnect_executor_atomic(void) noexcept {
 	if (!_exec)
 		return nullptr;
 	uint64_t *ptr = (uint64_t *)&_exec;

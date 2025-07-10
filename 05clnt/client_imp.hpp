@@ -185,7 +185,7 @@ class global_clnt_context_imp : public global_clnt_context, public base_library 
 	int parse_conf(void);
 };
 
-global_clnt_context& global_clnt_context::get(void) {
+global_clnt_context& global_clnt_context::get(void) noexcept {
 	static class global_clnt_context_imp gc_ctx;
 	return gc_ctx;
 }
