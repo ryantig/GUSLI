@@ -536,7 +536,7 @@ void pr_start_lib(const char *exe_name, int argc, const char* const argv[], unsi
 		static constexpr const char *opt_level = "DEBUG";
 	#endif
 	static constexpr const char *comp_date = __stringify(COMPILATION_DATE);
-	pr_note("%s: %s, git=%s(%s:0x%lx), TraceLevel=%d, opt=%s, pid=%u ", exe_name, comp_date, __stringify(VER_TAGID), __stringify(BRANCH_NAME), COMMIT_ID, TRACE_LEVEL, opt_level, pid);
+	pr_note("%s: %s, git=%s(" /*"%s:"*/ "0x%lx), TraceLevel=%d, opt=%s, pid=%u ", exe_name, comp_date, __stringify(VER_TAGID), /*__stringify(BRANCH_NAME),*/ COMMIT_ID, TRACE_LEVEL, opt_level, pid);
 	const bool is_sandbox_make_file = (comp_date[0] == 0x1b);	// Red warning
 	const bool is_sandbox_cpph_file = is_running_in_sandbox();
 	BUG_ON(is_sandbox_make_file != is_sandbox_cpph_file, "Sandbox Compilation error, do clean rebuild! {Makefile=%u cpp=%u, 1char=%u}\n", is_sandbox_make_file, is_sandbox_cpph_file, comp_date[0]);
