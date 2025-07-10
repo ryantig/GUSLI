@@ -49,7 +49,7 @@ int global_clnt_context::init(struct init_params _par) {
 	g->par = _par;
 	tDbg::log_file_set(g->par.log);
 	g->par.client_name = _par.client_name ? strdup(_par.client_name) : strdup("client1");	// dup client name string
-	sprintf(g->lib_info_json, "\"" LIB_NAME "\":{tag=%s commit=0x%lx}}", __stringify(VER_TAGID) , COMMIT_ID);
+	sprintf(g->lib_info_json, this->metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, this->BREAKING_VERSION);
 	if (!io_csring::is_big_enough_for(g->par.max_num_simultaneous_requests))
 		abort_exe_init_on_err()
 	if (g->start() != 0)

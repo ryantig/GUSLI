@@ -50,8 +50,6 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	struct unitest_io my_io;
 	static constexpr const char *data = "Hello world";
 	static constexpr const uint64_t data_len = strlen(data);
-
-	log("\tmetadata=%s\n", lib.get_metadata_json());
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_ALREADY_CONNECTED);
@@ -519,6 +517,8 @@ int main(int argc, char *argv[]) {
 		memset((void*)&p, 0xCC, sizeof(p));
 		memset(conf,      0xCC, sizeof(conf));
 		memset(clnt_name, 0xCC, sizeof(clnt_name));
+		log("\tmetadata= %s\n", lib.get_metadata_json());
+		my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
 	}
 	base_lib_unitests(lib, n_iter_race_tests);
 	client_server_test(lib, num_ios_preassure);

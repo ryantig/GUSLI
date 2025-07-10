@@ -151,6 +151,7 @@ struct no_implicit_constructors {	// No copy/move/assign operations to prevent a
 
 class global_clnt_context : no_implicit_constructors {					// Singletone: Library context
  protected: global_clnt_context() = default;
+	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"breaking_api_version\" : %u}}";
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stdout;							// Redirect logs of the library to this file (must be already properly opened)
@@ -158,10 +159,10 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 		const char* client_name = NULL;				// For debug, client identifier
 		unsigned int max_num_simultaneous_requests = 256;
 	};
-
-	SYMBOL_EXPORT static global_clnt_context& get(void); 	// Singletone
-	SYMBOL_EXPORT int  init(struct init_params par);	// Must be called first
-	SYMBOL_EXPORT const char *get_metadata_json(void) const;
+	SYMBOL_EXPORT static global_clnt_context& get(void); 		// Singletone
+	SYMBOL_EXPORT int  init(struct init_params par);			// Must be called first
+	static constexpr const int BREAKING_VERSION = 1;			// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
+	SYMBOL_EXPORT const char *get_metadata_json(void) const;	// Get the version of the library to adapt application dynamically ot library features set.
 	SYMBOL_EXPORT int  destroy(void);							// Must be called last
 
 	SYMBOL_EXPORT enum connect_rv bdev_connect(      const backend_bdev_id& id);	// Open block device, must be done before submitting io
