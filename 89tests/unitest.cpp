@@ -9,7 +9,7 @@ uint64_t get_cur_timestamp_unix(void) {
 	return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
 }
 
-static int32_t __get_connected_bdev_descriptor(const gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
+static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
 	lib.bdev_get_info(bdev, &i);
 	log("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);

@@ -84,7 +84,8 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 	struct backend_bdev_id id;			// Key to find server by it
 	struct bdev_config conf;			// Config of how to connect to this block device
 	bdev_backend_api b;					// Remote connection
-	server_bdev() { }
+	t_lock_mutex_recursive control_path_lock;
+	server_bdev() { control_path_lock.init(); }
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }
 	bool is_alive(void) const { return ((conf.type != DUMMY_DEV_INVAL) && (get_fd() > 0)); }

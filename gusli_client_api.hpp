@@ -166,7 +166,7 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 	SYMBOL_EXPORT int  destroy(void);							// Must be called last
 
 	SYMBOL_EXPORT enum connect_rv bdev_connect(      const backend_bdev_id& id);	// Open block device, must be done before submitting io
-	SYMBOL_EXPORT enum connect_rv bdev_get_info(     const backend_bdev_id& id, struct bdev_info *ret_val) const __nonnull ((1));
+	SYMBOL_EXPORT enum connect_rv bdev_get_info(     const backend_bdev_id& id, struct bdev_info *ret_val) __nonnull ((1));
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);	// Register shared memory buffers which will store the content of future io
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs);
 	SYMBOL_EXPORT enum connect_rv bdev_disconnect(   const backend_bdev_id& id);

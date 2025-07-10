@@ -90,6 +90,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
 	if (!bdev)
 		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
 	pr_info1("Open bdev uuid=%.16s, type=%c, path=%s, flag=0x%x\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path, o_flag);
 	if (bdev->is_alive())
@@ -144,6 +145,7 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.type == NVMESH_UM) {
@@ -165,6 +167,7 @@ enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& i
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.type == NVMESH_UM) {
@@ -215,34 +218,39 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 
 enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
-	if (bdev)
-		return __bdev_disconnect(bdev, false);
-	return C_NO_DEVICE;
+	if (!bdev)
+		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
+	return __bdev_disconnect(bdev, false);
 }
 
 void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) {
 	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
 	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
-	if (bdev)
+	if (bdev) {
+		t_lock_guard l(bdev->control_path_lock);
 		__bdev_disconnect(bdev, true);
+	}
 }
 
-enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) const {
-	const server_bdev *bdev = _impl(this)->bdevs.find_by(id);
-	if (bdev && bdev->is_alive()) {
-		*ret_val = bdev->b.info;
-		return C_OK;
-	}
-	return C_NO_DEVICE;
+enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) {
+	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+	if (!bdev) return C_NO_DEVICE;
+	if (!bdev->is_alive()) return C_NO_RESPONSE;
+	t_lock_guard l(bdev->control_path_lock);
+	*ret_val = bdev->b.info;
+	return C_OK;
 }
 
 /*****************************************************************************/
 void io_request::submit_io(void) noexcept {
-	server_bdev *bdev = ((global_clnt_context_imp*)&global_clnt_context::get())->bdevs.find_by(params.bdev_descriptor);
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
+	server_bdev *bdev = NULL;
+	if (params.bdev_descriptor > 0)
+		bdev = ((global_clnt_context_imp*)&global_clnt_context::get())->bdevs.find_by(params.bdev_descriptor);
 	if (unlikely(!bdev)) {
-		pr_err1("Error: Invalid bdev descriptor of io=%d\n", this->params.bdev_descriptor);
+		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.bdev_descriptor);
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
