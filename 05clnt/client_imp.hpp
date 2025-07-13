@@ -70,7 +70,7 @@ class bdev_backend_api {									// API to server 1 block device
 	class datapath_t dp;
 	class bdev_no_backend_api f;							// Todo: Properly union with dp and other fields
 	bdev_info info;											// block device information visible for user
-	bdev_backend_api() { }
+	bdev_backend_api() { info.clear(); memset(security_cookie, 0, 16); }
 	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
@@ -162,6 +162,7 @@ struct bdevs_hash { 					// Hash table of connected servers
 				n_args_read += sscanf(argv[3], "%c", &c); b->conf.is_direct_io = (bool)((c == 'D')||(c == 'd'));
 				n_args_read += sscanf(argv[4], "%s", (char*)&b->conf.conn);
 				n_args_read += sscanf(argv[5], "%s", (char*)&b->b.security_cookie);
+				// pr_verb1("+Dev: uuid=%s|%c|%c|%u|con=%s\n", b->id.uuid, b->conf.type,  b->conf.how,  b->conf.is_direct_io,  (char*)&b->conf.conn);
 				if (n_args_read != argc)
 					return -3;
 			}
