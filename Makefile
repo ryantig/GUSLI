@@ -130,7 +130,7 @@ endif
 CFLAGS += -DTRACE_LEVEL=$(TRACE_LEVEL)
 LFLAGS__SO = -shared $(LFLAGS_EXT) -Wl,--no-undefined $(LFLAGS_ALL)
 LFLAGS_EXE = -no-pie $(LFLAGS_ALL)
-LFLAGS_EXE__STATIC = $(LFLAGS_EXT)
+LFLAGS_EXE__STATIC = $(LFLAGS_EXT) # -static   Add this for container compilation to include libc++ and such in the exe
 LFLAGS_EXE_DYNAMIC = -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME)
 CC=g++
 
