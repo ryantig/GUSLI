@@ -89,6 +89,8 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }
 	bool is_alive(void) const { return ((conf.type != DUMMY_DEV_INVAL) && (get_fd() > 0)); }
+	uint32_t get_num_uses(void) const;
+	bool is_still_used(void) const { return get_num_uses() != 0; }
 };
 
 struct bdevs_hash { 					// Hash table of connected servers
@@ -184,13 +186,5 @@ class global_clnt_context_imp : public global_clnt_context, public base_library 
 	void on_event_server_up(void);
 	int parse_conf(void);
 };
-
-global_clnt_context& global_clnt_context::get(void) noexcept {
-	static class global_clnt_context_imp gc_ctx;
-	return gc_ctx;
-}
-
-static inline       global_clnt_context_imp* _impl(      global_clnt_context* g) { return       (global_clnt_context_imp*)g; }
-static inline const global_clnt_context_imp* _impl(const global_clnt_context* g) { return (const global_clnt_context_imp*)g; }
 
 } // namespace gusli

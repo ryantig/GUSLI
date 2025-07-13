@@ -53,7 +53,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	static constexpr const uint64_t data_len = strlen(data);
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_ALREADY_CONNECTED);
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
 
 	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, data_len, my_io.io_buf);
 	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
@@ -178,7 +178,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
 			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
 			my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-			my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
+			my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);			// Cannot disconnect with mapped buffers
 			my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
 		}
 
@@ -478,8 +478,8 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	log_line("Uninitialized library tests");
 	my_assert(&lib == &gusli::global_clnt_context::get());		// Double get returns same result
 	my_assert(lib.get_metadata_json()[0] == (char)0);			// Empty
-	my_assert(lib.destroy() == 0);								// Does nothing so succeeds
-	my_assert(lib.destroy() == 0);								// Does nothing so succeeds
+	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
+	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
 	gusli::backend_bdev_id bdev; bdev.set_from("something");
 	gusli::bdev_info bdi;
 	std::vector<gusli::io_buffer_t> mem;
@@ -498,7 +498,7 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_io.exec(gusli::G_READ,  SYNC_BLOCKING_1_BY_1);
 }
 
-void lib_initialize_unitests(gusli::global_clnt_context& lib) {
+gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib) {
 	gusli::global_clnt_context::init_params p;
 	char clnt_name[32], conf[512];
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
@@ -522,13 +522,49 @@ void lib_initialize_unitests(gusli::global_clnt_context& lib) {
 	}
 	my_assert(lib.init(p) == 0);
 	my_assert(lib.destroy() == 0);
-	my_assert(lib.init(p) == 0);
+	{
+		gusli::global_clnt_raii ggg(p);
+		my_assert(lib.init(p) == EEXIST);
+	}
+	my_assert(lib.destroy() == ENOENT);							// Does nothing, destructor of ggg already destroyed lib. so succeeds
+	{
+		my_assert(lib.init(p) == 0);
+		gusli::global_clnt_raii ggg(p);							// Cosntructor of 'ggg' does nothing, lib already initialized
+	}
+	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
+
+	log_line("Library up");
+	auto *rv = new gusli::global_clnt_raii(p);
 	memset((void*)&p, 0xCC, sizeof(p));						// Trap usage by gusli library of params memory after initialization
-	my_assert(lib.init(p) == 0);							// Second initialization, even with garbage params is also OK
+	my_assert(lib.init(p) == EEXIST);						// Second initialization, even with garbage params is also OK
 	log("\tmetadata= %s\n", lib.get_metadata_json());
 	my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
+	my_assert(rv->BREAKING_VERSION == 1);
 	memset(conf,      0xCC, sizeof(conf));
 	memset(clnt_name, 0xCC, sizeof(clnt_name));
+	return rv;
+}
+
+void unitest_raii_api(const gusli::global_clnt_raii* lib) {
+	log_line("/dev/zero read with auto open/close");
+	struct unitest_io my_io;
+	gusli::backend_bdev_id bdev;
+	bdev.set_from(UUID.DEV_ZERO);
+	// Register buffer with kernel bdev - forces an auto open
+	std::vector<gusli::io_buffer_t> mem0, mem1;
+	mem0.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+	mem1.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+	my_assert(lib->bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
+	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was autoopened open
+	my_assert(lib->bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);
+	my_io.io.params.init_1_rng(gusli::G_NOP, lib->get_bdev_descriptor(bdev), (1 << 14), 4096, my_io.io_buf);
+	my_io.expect_success(true).clean_buf();
+	my_io.exec(gusli::G_READ, SYNC_BLOCKING_1_BY_1);
+	my_assert(strcmp("", my_io.io_buf) == 0);
+	my_assert(lib->bufs_unregist(bdev, mem0) == gusli::connect_rv::C_OK);
+	my_assert(gusli::global_clnt_context::get().bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify still open
+	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_OK);			// Auto closed here
+	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_NO_RESPONSE);	// Verify was autoclosed
 }
 
 /*****************************************************************************/
@@ -552,9 +588,10 @@ int main(int argc, char *argv[]) {
 
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	lib_uninitialized_invalid_unitests(lib);
-	lib_initialize_unitests(lib);
+	gusli::global_clnt_raii* ggg = lib_initialize_unitests(lib);
+	unitest_raii_api(ggg);
 	base_lib_unitests(lib, n_iter_race_tests);
 	client_server_test(lib, num_ios_preassure);
-	my_assert(lib.destroy() == 0);
+	delete ggg;
 	log("Done!!! Success\n\n\n");
 }

@@ -3,9 +3,21 @@
 #include "00utils/utils.hpp"
 #include "client_imp.hpp"
 #include "io_executors.hpp"
+#include <memory>				// unique_ptr static initialization
+#include <mutex>				// unique_ptr static initialization
 
 namespace gusli {
 
+global_clnt_context& global_clnt_context::get(void) noexcept {
+	static std::unique_ptr<global_clnt_context> gc_ctx = nullptr;
+	static std::once_flag once;
+	std::call_once(once, []() { gc_ctx.reset(new global_clnt_context_imp()); });
+	return *gc_ctx;
+}
+static inline       global_clnt_context_imp* _impl(      global_clnt_context* g) { return       (global_clnt_context_imp*)g; }
+static inline const global_clnt_context_imp* _impl(const global_clnt_context* g) { return (const global_clnt_context_imp*)g; }
+
+/************************************ parsing ********************************/
 int global_clnt_context_imp::parse_conf(void) {
 	if (par.config_file == NULL)
 		return -__LINE__;
@@ -43,11 +55,11 @@ int global_clnt_context_imp::parse_conf(void) {
 	return parse_rv;
 }
 
-int global_clnt_context::init(struct init_params _par) noexcept {
+int global_clnt_context::init(const struct init_params& _par) noexcept {
 	global_clnt_context_imp* g = _impl(this);
 	if (g->is_initialized()) {
 		pr_err1("already initialized: %u[devices], doing nothing\n", g->bdevs.n_devices);
-		return 0;
+		return EEXIST;	// Success
 	}
 	#define abort_exe_init_on_err() { pr_err1("Error in line %d\n", __LINE__); g->shutting_down = true; return -__LINE__; }
 	g->par = _par;
@@ -71,7 +83,7 @@ int global_clnt_context::destroy(void) noexcept {
 	global_clnt_context_imp* g = _impl(this);
 	if (!g->is_initialized()) {
 		pr_err1("not initialized, nothing to destroy\n");
-		return 0;
+		return ENOENT;
 	}
 	if (g->bdevs.has_any_bdev_open())
 		return -1;
@@ -94,7 +106,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
 	pr_info1("Open bdev uuid=%.16s, type=%c, path=%s, flag=0x%x\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path, o_flag);
 	if (bdev->is_alive())
-		return C_ALREADY_CONNECTED;
+		return C_REMAINS_OPEN;
 	struct bdev_info *info = &bdev->b.info;
 	info->clear();
 	info->num_max_inflight_io = 256;
@@ -157,6 +169,7 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 		return rv;
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		bdev->b.f.n_mapped_bufs += (uint32_t)bufs.size();
+		pr_info1("Register[%u]bufs, remains[%u] name=%s\n", (uint32_t)bufs.size(), bdev->b.f.n_mapped_bufs, bdev->b.info.name);
 		return C_OK;
 	} else {
 		return C_NO_DEVICE;
@@ -181,33 +194,39 @@ enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& i
 		if (bdev->b.f.n_mapped_bufs < bufs.size())		// Only counter, not really map of buffers
 			return C_WRONG_ARGUMENTS;
 		bdev->b.f.n_mapped_bufs -= (uint32_t)bufs.size();
+		pr_info1("UnRegist[%u]bufs, remains[%u] name=%s\n", (uint32_t)bufs.size(), bdev->b.f.n_mapped_bufs, bdev->b.info.name);
 		return C_OK;
 	} else {
 		return C_NO_DEVICE;
 	}
 }
 
+uint32_t server_bdev::get_num_uses(void) const {
+	nvTODO("Count in air io's, not only registered mem bufs");
+	if ((conf.type == FS_FILE) || (conf.type == KERNEL_BDEV))
+		return b.f.n_mapped_bufs;
+	if (conf.type == NVMESH_UM)
+		return (uint32_t)b.dp.shm_io_bufs.size();
+	return 0;
+}
+
 static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
 	const struct backend_bdev_id& id = bdev->id;
-	enum connect_rv rv;
+	enum connect_rv rv = C_OK;
 	if (!bdev->is_alive()) {
 		rv = C_NO_RESPONSE;
+	} else if (bdev->is_still_used()) {
+		pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->get_num_uses());
+		return C_REMAINS_OPEN;
 	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
-		rv = C_OK;
 	} else if (bdev->conf.type == FS_FILE) {
-		if (bdev->b.f.n_mapped_bufs != 0) { pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->b.f.n_mapped_bufs); return C_WRONG_ARGUMENTS; }
 		close(bdev->get_fd());
 		const int remove_rv = remove(bdev->conf.conn.local_file_path);
 		rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
 	} else if (bdev->conf.type == KERNEL_BDEV) {
-		if (bdev->b.f.n_mapped_bufs != 0) { pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->b.f.n_mapped_bufs); return C_WRONG_ARGUMENTS; }
 		close(bdev->get_fd());
-		rv = C_OK;
 	} else if (bdev->conf.type == NVMESH_UM) {
-		const int n_mapped_bufs = (int)bdev->b.dp.shm_io_bufs.size();
-		if (n_mapped_bufs != 0) { pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, n_mapped_bufs); return C_WRONG_ARGUMENTS; }
 		bdev->b.close(id, do_suicide);
-		rv = C_OK;
 	} else {
 		rv = C_NO_DEVICE;
 	}
@@ -240,6 +259,41 @@ enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id&
 	t_lock_guard l(bdev->control_path_lock);
 	*ret_val = bdev->b.info;
 	return C_OK;
+}
+
+enum connect_rv global_clnt_raii::bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+	global_clnt_context &c = global_clnt_context::get();
+	global_clnt_context_imp* g = _impl(&c);
+	server_bdev *bdev = g->bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
+	if (!bdev->is_alive()) {						// Try to auto open bdev
+		const enum connect_rv rv = c.bdev_connect(id);
+		if (rv != C_OK)
+			return rv;
+	}
+	return global_clnt_context::get().bdev_bufs_register(id, bufs);
+}
+enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+	global_clnt_context &c = global_clnt_context::get();
+	global_clnt_context_imp* g = _impl(&c);
+	server_bdev *bdev = g->bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
+	const enum connect_rv rv = c.bdev_bufs_unregist(id, bufs);
+	if (rv != C_OK)
+		return rv;
+	if (!bdev->is_still_used())
+		(void)__bdev_disconnect(bdev, false);		// User has nothing to do with close failure
+	return C_OK;
+}
+
+int32_t global_clnt_raii::get_bdev_descriptor(const backend_bdev_id& id) noexcept {
+	bdev_info rv;
+	global_clnt_context::get().bdev_get_info(id, &rv);
+	return rv.bdev_descriptor;
 }
 
 /*****************************************************************************/

@@ -20,7 +20,7 @@
 #include <string.h>			// memset, memcmp
 #include <stdint.h>			// uint64_t, uint32_t
 #include <vector>
-#include <string>
+#include <stdexcept>
 
 #define SYMBOL_EXPORT __attribute__((__visibility__("default")))
 namespace gusli {
@@ -34,7 +34,6 @@ struct backend_bdev_id {					// Unique ID of volume
 	}
 	struct backend_bdev_id *set_invalid(void) { memset(uuid, 0, sizeof(uuid)); return this; }
 	void set_from(const char* str) { set_invalid(); const size_t nc = std::min(strlen(str) + 1, sizeof(uuid)); memcpy(uuid, str, nc); }
-	void set_from(const std::string& str) { set_from(str.c_str()); }
 	void set_from(const uint64_t uid) { set_invalid(); snprintf(uuid, sizeof(uuid), "%lu", uid); }
 } __attribute__((aligned(sizeof(long))));
 
@@ -139,7 +138,11 @@ class io_request {								// Data structure for issuing IO
 };
 
 /******************************** Global library context ***********************/
-enum connect_rv { C_OK = 0, C_NO_DEVICE = -100, C_NO_RESPONSE, C_ALREADY_CONNECTED, C_WRONG_ARGUMENTS};
+// API below is more advanced and suitable for more precise manipulation with library singletone
+enum connect_rv { C_OK = 0, C_NO_DEVICE = -100,
+	C_NO_RESPONSE /* Device exists no response from backend*/,
+	C_REMAINS_OPEN /* Already open / Cannot close because in use*/,
+	C_WRONG_ARGUMENTS};
 
 struct no_implicit_constructors {	// No copy/move/assign operations to prevent accidental copying of resources, leaks, double free and performance degradation
 	no_implicit_constructors(           const no_implicit_constructors& ) = delete;
@@ -159,17 +162,34 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 		const char* client_name = NULL;				// For debug, client identifier
 		unsigned int max_num_simultaneous_requests = 256;
 	};
-	SYMBOL_EXPORT static global_clnt_context& get(void) noexcept; 		// Singletone
-	SYMBOL_EXPORT int  init(struct init_params par) noexcept;			// Must be called first
+	SYMBOL_EXPORT static global_clnt_context& get(void) noexcept; 		// Get library for calling functions below
+	SYMBOL_EXPORT int  init(const init_params& par) noexcept;			// Must be called first, returns negative on error, 0 or positive on success
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
 	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically ot library features set.
-	SYMBOL_EXPORT int destroy(void) noexcept;							// Must be called last
+	SYMBOL_EXPORT int destroy(void) noexcept;							// Must be called last, returns negative on error, 0 or positive on success
 
-	SYMBOL_EXPORT enum connect_rv bdev_connect(      const backend_bdev_id& id) noexcept;	// Open block device, must be done before submitting io
+	SYMBOL_EXPORT enum connect_rv bdev_connect(      const backend_bdev_id& id) noexcept;	// Open block device, must be done before register buffers or submitting io
 	SYMBOL_EXPORT enum connect_rv bdev_get_info(     const backend_bdev_id& id, struct bdev_info *ret_val) noexcept __nonnull ((1));
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
 	SYMBOL_EXPORT enum connect_rv bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;
 	SYMBOL_EXPORT enum connect_rv bdev_disconnect(   const backend_bdev_id& id) noexcept;
 	SYMBOL_EXPORT void bdev_report_data_corruption(  const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept;
 };
+
+/******************************** RAII API ***********************/
+// High level more C++ API, Construct which throws exception
+class global_clnt_raii : no_implicit_constructors {		// RAII (Resource Acquisition Is Initialization) to manage the singleton lifecycle
+public:
+	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
+	SYMBOL_EXPORT global_clnt_raii(const global_clnt_context::init_params& par) {
+		auto& instance = global_clnt_context::get();
+		if (instance.init(par) < 0)
+			throw std::runtime_error("Failed to initialize gusli client");
+	}
+	SYMBOL_EXPORT ~global_clnt_raii() noexcept { global_clnt_context::get().destroy(); }
+	SYMBOL_EXPORT static enum connect_rv bufs_register(      const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
+	SYMBOL_EXPORT static enum connect_rv bufs_unregist(      const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;
+	SYMBOL_EXPORT static int32_t         get_bdev_descriptor(const backend_bdev_id& id) noexcept;
+};
+
 } // namespace gusli
