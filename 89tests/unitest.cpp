@@ -196,11 +196,40 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 #include <fcntl.h>		// open()
 
 #include "gusli_server_api.hpp"
-static void __print_mio(const gusli::io_multi_map_t* mio, const char* prefix) {
+#define n_block(i) (info.block_size * (i))
+#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
+static void mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
 	log("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
 	for (uint32_t i = 0; i < mio->n_entries; i++) {
 		const gusli::io_map_t& m = mio->entries[i];
-		log("\t\t%u),%p, len=0x%lx[b], off=0x%lx[b]\n", i, m.data.ptr, m.data.byte_len, m.offset_lba_bytes);
+		log("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
+	}
+}
+static void mmio_fill(const gusli::io_multi_map_t* mio, const gusli::bdev_info& info) {
+	for (uint32_t i = 0; i < mio->n_entries; i++) {
+		const gusli::io_map_t &m = mio->entries[i];
+		for (uint64_t b = 0; b < m.data.byte_len; b += n_block(1)) {
+			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			*dst = (m.offset_lba_bytes + b);
+		}
+	}
+}
+static void mmio_verify(const gusli::io_multi_map_t* mio, const gusli::bdev_info& info) {
+	for (uint32_t i = 0; i < mio->n_entries; i++) {
+		const gusli::io_map_t &m = mio->entries[i];
+		for (uint64_t b = 0; b < m.data.byte_len; b += n_block(1)) {
+			const uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			my_assert(*dst == (m.offset_lba_bytes + b));
+		}
+	}
+}
+static void mmio_clean(const gusli::io_multi_map_t* mio, const gusli::bdev_info& info) {
+	for (uint32_t i = 0; i < mio->n_entries; i++) {
+		const gusli::io_map_t &m = mio->entries[i];
+		for (uint64_t b = 0; b < m.data.byte_len; b += n_block(1)) {
+			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			*dst = -1UL;
+		}
 	}
 }
 
@@ -226,14 +255,14 @@ class dummy_server {
 	}
 	static int exec_io(void *ctx, class gusli::io_request& io) {
 		dummy_server *me = (dummy_server *)ctx;
-		if (true) {
-			if (io.params.num_ranges() > 1) {
-				const gusli::io_multi_map_t* mio = (const gusli::io_multi_map_t*)io.params.map.data.ptr;
-				log("%s Serving IO: #rng = %u, buf_size=%lu[b]\n", me->p.binfo.name, io.params.num_ranges(), io.params.buf_size());
-				__print_mio(mio, "srvr");
-			}
+		if (io.params.num_ranges() <= 1)
 			return 0;
-		}
+		const gusli::io_multi_map_t* mio = (const gusli::io_multi_map_t*)io.params.map.data.ptr;
+		log("%s Serving IO: #rng = %u, buf_size=%lu[b]\n", me->p.binfo.name, io.params.num_ranges(), io.params.buf_size());
+		mmio_print(mio, "srvr");
+		my_assert(io.params.op == gusli::io_type::G_READ);
+		mmio_fill(mio, me->p.binfo);
+		return 0;
 	}
  public:
  	static constexpr bool launch_as_processes(void) { return true; }
@@ -332,8 +361,6 @@ class all_ios_t {
 static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
 	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 }
-#define n_block(i) (info.block_size * (i))
-#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
 
 void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
 	(void)lib;
@@ -418,9 +445,11 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			mio->entries[1] = (gusli::io_map_t){.data = {.ptr = io_bufs[1].ptr  , .byte_len = n_block(2), }, .offset_lba_bytes = n_block(0x11)};
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
 			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-			__print_mio(mio, "clnt");
+			mmio_print(mio, "clnt");
 			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Sync-IO-OK
+			mmio_verify(mio, info); mmio_clean(mio, info);
 			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);				// Async-OK
+			mmio_verify(mio, info); mmio_clean(mio, info);
 			my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
 		}
 
