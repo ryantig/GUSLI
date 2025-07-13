@@ -199,7 +199,7 @@ int global_srvr_context_imp::run(void) {
 				#endif
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);
 				need_wakeup_clnt_comp_reader |= wake;
-				pr_verbS(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params.completion_context, wake);
+				pr_verbS(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params._comp_ctx, wake);
 			}
 			if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
 				// Send wakeup completion to client on all executed IO's

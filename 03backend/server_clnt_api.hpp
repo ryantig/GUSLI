@@ -206,7 +206,7 @@ inline int datapath_t::srvr_receive_io(io_request &io, bool *need_wakeup_clnt) c
 
 inline int datapath_t::srvr_finish_io(io_request &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
-	io_csring_cqe::context_t comp{(io_request *)io.params.completion_context, io.out.rv};
+	io_csring_cqe::context_t comp{(io_request *)io.params._comp_ctx, io.out.rv};
 	int rv = r->cq.insert(comp, need_wakeup_clnt);
 	ASSERT_IN_PRODUCTION(rv >= 0);		// Todo: Server has to block to let client process the completions
 	return rv;

@@ -352,7 +352,7 @@ public:
 	~uring_request_executor() { io_uring_queue_exit(&uring); }
 	void run(void) override {
 		if (unlikely(had_failure)) { return send_async_work_failed(); }
-		BUG_ON(io->params.completion_cb != NULL, "Wrong executor usage, async mode unsupported yet");
+		BUG_ON(io->has_callback(), "Wrong executor usage, async mode unsupported yet");
 		const int n_submit = io_uring_submit(&uring);
 		if (n_submit != num_ranges) {
 			BUG_ON(n_submit > 0, "partial io_uring submission not supported yet: %d/%d", n_submit, num_ranges);

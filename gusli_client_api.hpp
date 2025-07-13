@@ -102,15 +102,17 @@ class io_request {								// Data structure for issuing IO
 		enum io_type op : 8;					// Operation to be performed
 		uint8_t priority: 8;					// [0..100] priority. 100 is highest, 0 lowest
 		uint8_t is_mutable_data : 1;			// Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
-		uint8_t assume_safe_io : 1;				// Set to true if caller verifies correctness of io (fully inside mapped are, etc...), Skips internal checks so IO uses less client side CPU
+		uint8_t assume_safe_io : 1;				// Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
 		uint8_t try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges
+	 // private:								// Fields below are set implicitly, dont touch them directly
 		uint8_t _has_mm : 1;					// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
 		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
-		void (*completion_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
-		void *completion_context;				// Callers Completion context passed to the function above
-		template<class C, typename F> void set_completion(C ctx, F cb) { completion_context = (void*)ctx, completion_cb = (void (*)(void*))cb; _async_no_comp = false; }
-									  void set_blocking(void) {          completion_context = NULL;       completion_cb = NULL;                _async_no_comp = false; }
-									  void set_async_pollable(void) {    completion_context = NULL;       completion_cb = NULL;                _async_no_comp = true; }
+		void (*_comp_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
+		void *_comp_ctx;				// Callers Completion context passed to the function above
+	 public:
+		template<class C, typename F> void set_completion(C ctx, F cb) { _comp_ctx = (void*)ctx, _comp_cb = (void (*)(void*))cb; _async_no_comp = false; }
+									  void set_blocking(void) {          _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = false; }
+									  void set_async_pollable(void) {    _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = true; }
 		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf, len, lba); }
 		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0); }
 		uint64_t buf_size(void) const {   return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
@@ -118,7 +120,7 @@ class io_request {								// Data structure for issuing IO
 		const class io_request *my_io_req(void) const { return (io_request*)this; }
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
-	bool has_callback(void) const { return (params.completion_cb != NULL); }
+	bool has_callback(void) const { return (params._comp_cb != NULL); }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
@@ -134,7 +136,7 @@ class io_request {								// Data structure for issuing IO
 	} out;
 	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
 	const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
-	void complete(void) { if (has_callback()) params.completion_cb(params.completion_context); }
+	void complete(void) { if (has_callback()) params._comp_cb(params._comp_ctx); }
 };
 
 /******************************** Global library context ***********************/
