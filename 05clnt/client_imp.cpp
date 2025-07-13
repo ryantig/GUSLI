@@ -526,8 +526,11 @@ bool bdev_backend_api::check_incoming() {
 	connect_addr addr = this->ca;
 	MGMT::msg_content msg;
 	bool rv = false;
-	if (__read_1_full_message(sock, msg, true, false, addr) != ios_ok) {
-		pr_info1("receive type=%c, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), PRINT_EXTERN_ERR_ARGS);
+	const enum io_state io_st = __read_1_full_message(sock, msg, true, false, addr);
+	if (io_st != ios_ok) {
+		pr_info1("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
+		if (io_state_broken(io_st))
+			is_control_path_ok = false;
 		return rv;
 	}
 	char server_path[32];

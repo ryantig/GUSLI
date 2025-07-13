@@ -261,7 +261,7 @@ enum io_state {
 	ios_block = 2,		// Not enough bytes for IO, has to wait
 	ios_error = 3		// file descriptor got error, stop waiting for io
 };
-static inline int io_state_broken(enum io_state st) { return (st == ios_error || st == ios_close); }
+static inline bool io_state_broken(enum io_state st) { return (st == ios_error || st == ios_close); }
 int readn( int fd,       char *buf, const int n_bytes, enum io_state *output);
 int writen(int fd, const char *buf, const int n_bytes, enum io_state *output);
 
