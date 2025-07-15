@@ -271,7 +271,7 @@ class dummy_server {
 		p.log = stderr,
 		p.binfo = gusli::bdev_info{ .bdev_descriptor = 1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = 255, .reserved = 'r' };
 		p.vfuncs = {.caller_context = this, .open = dummy_server::open1, .close = dummy_server::close1, .exec_io = dummy_server::exec_io };
-		snprintf(p.binfo.name, sizeof(p.binfo.name), "gusli_%s", _name);
+		snprintf(p.binfo.name, sizeof(p.binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
 	}
 	void run(void) {
 		gusli::global_srvr_context& srvr = gusli::global_srvr_context::get();
@@ -613,8 +613,11 @@ int main(int argc, char *argv[]) {
 				return (opt == 'h') ? 0 : 1;
 		}
 	}
-	(void)pthread_setname_np(pthread_self(), "gusli_unit");
-
+	{
+		char thread_name[32];
+		snprintf(thread_name, sizeof(thread_name), "%sunit", gusli::global_clnt_context::thread_names_prefix);
+		(void)pthread_setname_np(pthread_self(), thread_name);
+	}
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
 	lib_uninitialized_invalid_unitests(lib);
 	gusli::global_clnt_raii* ggg = lib_initialize_unitests(lib);

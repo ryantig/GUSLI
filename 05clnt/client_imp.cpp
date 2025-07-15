@@ -592,10 +592,10 @@ int bdev_backend_api::dp_wakeup_server(void) {
 
 void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	{	// Rename thread
-		char name[32];
-		static constexpr const char* new_name = "gusli_ciol";
-		pthread_getname_np(pthread_self(), name, sizeof(name));
-		pr_info1("\t\t\tListener started, renaming %s->%s\n", name, new_name);
+		char old_name[32], new_name[32];
+		snprintf(new_name, sizeof(new_name), "%sciol", global_clnt_context::thread_names_prefix);
+		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
+		pr_info1("\t\t\tListener started, renaming %s->%s\n", old_name, new_name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
