@@ -49,6 +49,7 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 		char listen_address[32];					// Mandatory
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
 		const char* server_name = NULL;				// For debug, server identifier
+		bool has_external_polling_loop = false;		// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
 		struct srvr_backend_callbacks {
 			void *caller_context;
 			bdev_info (*open1)(void *caller_context, const char* who) = 0;
@@ -59,7 +60,7 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
 	SYMBOL_EXPORT static global_srvr_context& get(void) noexcept; 				// Singletone
 	SYMBOL_EXPORT [[nodiscard]] int init(const init_params& par) noexcept;		// Must be called first, returns negative on error, 0 or positive on success
-	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept;
+	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept;							// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
 	SYMBOL_EXPORT [[nodiscard]] int destroy(void) noexcept;						// Must be called last,  returns negative on error, 0 or positive on success
 };
 

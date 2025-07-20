@@ -367,25 +367,24 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	} __attribute__((aligned(sizeof(long))));
 };
 
-inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg, bool blocking, bool with_epoll, connect_addr &addr) { // Todo: Use readn()
+inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg, bool with_epoll, connect_addr &addr) { // Todo: Use readn()
 	socklen_t sinlen = addr.get_len(sock.is_remote());
 	int n_bytes;
 	while (true) {
 		if (with_epoll)
 			sock.epoll_reply_wait("\t->clnt:zzzz_read");
 		if (sock.uses_connection()) {		// If multi-srvr, find server by fd
-			n_bytes = read(sock.fd(), msg.raw(), sizeof(msg));
+			n_bytes = read(    sock.fd(), msg.raw(), sizeof(msg));
 		} else {							// If multi-srvr, find server by addr
-			n_bytes = recvfrom(sock.fd(), msg.raw(), sizeof(msg), (blocking ? 0 : MSG_DONTWAIT), &addr.u.b, &sinlen);
+			n_bytes = recvfrom(sock.fd(), msg.raw(), sizeof(msg), 0 /* | MSG_DONTWAIT*/, &addr.u.b, &sinlen);
 		}
 		if (n_bytes == 0) {	// Socket closed
 			return ios_close;
 		} else if (n_bytes < 0) {
 			if (errno == EINTR) {
 				continue;	// Retry
-			} else if ( (errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-				continue;	// Retry
-				//return ios_block;
+			} else if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) { // Only if socket is non blocking
+				return ios_block;
 			} else {
 				return ios_error;
 			}

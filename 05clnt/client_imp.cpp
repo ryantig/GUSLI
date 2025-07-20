@@ -414,9 +414,10 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 	int conn_rv;
 	srv_addr = addr;
 	(void)id;
-	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca);
-	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, true);
-	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca);
+	const bool blocking_connect = true;
+	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
+	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
+	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca, blocking_connect);
 	else {
 		pr_err1("unsupported server address |%s|\n", addr);
 		info.bdev_descriptor = -__LINE__;
@@ -537,11 +538,12 @@ bool bdev_backend_api::check_incoming() {
 	connect_addr addr = this->ca;
 	MGMT::msg_content msg;
 	bool rv = false;
-	const enum io_state io_st = __read_1_full_message(sock, msg, true, false, addr);
+	const enum io_state io_st = __read_1_full_message(sock, msg, false, addr);
 	if (io_st != ios_ok) {
 		pr_info1("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
 		if (io_state_broken(io_st))
 			is_control_path_ok = false;
+		BUG_ON(io_st == ios_block, "Client listener should have blocking wait for io completion, It has no other job to do");
 		return rv;
 	}
 	char server_path[32];

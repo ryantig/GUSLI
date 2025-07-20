@@ -245,11 +245,11 @@ ssize_t sock_t::send_msg(const void *buf, size_t len, const struct connect_addr&
 #include <fcntl.h>
 void sock_t::set_blocking(bool is_blocking) {
 	const int oldmode = fcntl(_fd, F_GETFL, NULL);
-	const int newmode = (is_blocking ? (oldmode | O_NONBLOCK) : (oldmode & (~O_NONBLOCK)));
+	const int newmode = (is_blocking ? (oldmode & (~O_NONBLOCK)) : (oldmode | O_NONBLOCK));
 	if (oldmode < 0) {
 		pr_err("Error getting fd[%d].blocking=%u, " PRINT_EXTERN_ERR_FMT "\n", _fd, is_blocking, PRINT_EXTERN_ERR_ARGS);
 	} else if (fcntl(_fd, F_SETFL, newmode) < 0) {
-		pr_err("Error setting fd[%d].flags[%u->%u], " PRINT_EXTERN_ERR_FMT "\n", _fd, oldmode, newmode, PRINT_EXTERN_ERR_ARGS);
+		pr_err("Error setting fd[%d].flags0x[%x->%x], " PRINT_EXTERN_ERR_FMT "\n", _fd, oldmode, newmode, PRINT_EXTERN_ERR_ARGS);
 	}
 }
 

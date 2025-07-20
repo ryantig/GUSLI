@@ -240,13 +240,13 @@ class sock_t {
 	void set_blocking(bool is_blocking);
 	void set_io_buffer_size(unsigned rlen, unsigned wlen);
 	void set_optimize_for_latency(bool do_optimize);		//	True - Best latency, False - Best throughput
-	int  srvr_listen(             uint32_t port, bool is_tcp,      struct connect_addr& ca,     bool is_blocking = true);		// TCP / UDP
-	int  srvr_listen(             const char* domain_socket_path,  struct connect_addr& ca,      bool is_blocking = true);		// Unix domain socket
+	int  srvr_listen(             uint32_t port, bool is_tcp,      struct connect_addr& ca,     bool is_blocking);		// TCP / UDP
+	int  srvr_listen(             const char* domain_socket_path,  struct connect_addr& ca,     bool is_blocking);		// Unix domain socket
 	void srvr_set_listen_timeout(uint32_t n_sec);
 	int  srvr_accept_clnt(                                                struct connect_addr& ca) const;
-	int  clnt_connect_to_srvr_udp(uint32_t port, const ip_addr_str ip,    struct connect_addr& ca, bool is_blocking = true);
-	int  clnt_connect_to_srvr_tcp(uint32_t port, const ip_addr_str ip,    struct connect_addr& ca, bool is_blocking = false);
-	int  clnt_connect_to_srvr_uds(const char* domain_socket_path,         struct connect_addr& ca, bool is_blocking = false);
+	int  clnt_connect_to_srvr_udp(uint32_t port, const ip_addr_str ip,    struct connect_addr& ca, bool is_blocking);
+	int  clnt_connect_to_srvr_tcp(uint32_t port, const ip_addr_str ip,    struct connect_addr& ca, bool is_blocking);
+	int  clnt_connect_to_srvr_uds(const char* domain_socket_path,         struct connect_addr& ca, bool is_blocking);
 	void print_address(                        char addr[32]      , const struct connect_addr& src) const;				// Upon incommin msg, extract server address
 	void nice_close(bool force = false);
 	ssize_t send_msg(const void *buf, size_t len,                   const struct connect_addr& ca) const;

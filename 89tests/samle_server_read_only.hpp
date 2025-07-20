@@ -94,6 +94,6 @@ class server_ro_lba {
 		my_assert(rename_rv == 0);
 		gusli::global_srvr_raii srvr(p);
 		my_assert(srvr.BREAKING_VERSION == 1);
-		my_assert(srvr.run() == 0);
+		my_assert(srvr.run() >= 0);
 	}
 };

@@ -40,6 +40,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	class datapath_t dp;
 	bdev_stats_srvr stats;
 	bool is_initialized = false;
+	bool has_conencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(void);
 	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));

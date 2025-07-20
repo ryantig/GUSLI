@@ -75,7 +75,7 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 		sock.print_address(clnt_path, addr);
 		pr_infoS("accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
 		io_sock = sock_t(client_fd, sock.get_type());
-		io_sock.set_blocking(false);
+		io_sock.set_blocking(true);			// Todo: Dont block on incomming io because same thread sends done io completions
 	} else {
 		io_sock = sock;
 	}
@@ -92,19 +92,14 @@ void global_srvr_context_imp::client_reject(void) {
 int global_srvr_context_imp::run_impl(void) {
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
-	client_accept(addr);
+	if (!has_conencted_client()) {
+		client_accept(addr);
+	}
 	while (!shutting_down) {
-		const enum io_state io_st = __read_1_full_message(io_sock, msg, true, false, addr);
+		const enum io_state io_st = __read_1_full_message(io_sock, msg, false, addr);
 		if (io_st != ios_ok) {
+			BUG_ON(io_st == ios_block, "Server listener is blocking");
 			pr_errS("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
-			/*if ((errno == EAGAIN || errno == EINTR)) {	// Woke up after 1 second, without incomming message
-				if (!addr.is_empty()) {
-					const size_t n_send_bytes = msg.build_ping();
-					strcpy(msg.pay.s_kal.extra_info, "??");
-					if (send_to(msg, n_send_bytes, addr) < 0)
-						return -1;
-				}
-			}*/
 			if (!shutting_down) {
 				client_reject();
 				client_accept(addr);
@@ -132,33 +127,33 @@ int global_srvr_context_imp::run_impl(void) {
 			}
 			// Todo: Initialize datapath of consumer here
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::register_buf)) {
 			const int reg_rv = __clnt_bufs_register(msg);
 			const size_t n_send_bytes = msg.build_reg_ack();
 			msg.pay.s_register_ack.server_pointer = 0x0;		// Not needed
 			msg.pay.s_register_ack.rv = reg_rv;		// Leave other fields untouched
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::unreg_buf)) {
 			const int reg_rv = __clnt_bufs_unregist(msg);
 			const size_t n_send_bytes = msg.build_unr_ack();
 			msg.pay.s_unreg_ack.server_pointer = 0x0;		// Not needed
 			msg.pay.s_unreg_ack.rv = reg_rv;		// Leave other fields untouched
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::close_nice)) {
 			__clnt_close("nice_close");
 			const size_t n_send_bytes = msg.build_cl_ack();
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::die_now)) {
 			this->shutting_down = true;
 			__clnt_close("suicide");
 			const size_t n_send_bytes = msg.build_die_ack();
 			strcpy(msg.pay.s_die.extra_info, "cdie");
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::log)) {
 			const char*p = msg.pay.c_log.extra_info;
 			while (*p == ' ') p++;
@@ -167,7 +162,7 @@ int global_srvr_context_imp::run_impl(void) {
 			const size_t n_send_bytes = msg.build_ping();
 			strcpy(msg.pay.s_kal.extra_info, " LOG-OK");
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		} else if (msg.is(MGMT::msg::dp_submit)) {
 			server_io_req io;
 			bool need_wakeup_clnt_io_submitter = false, need_wakeup_clnt_comp_reader = false, wake = false;
@@ -201,17 +196,17 @@ int global_srvr_context_imp::run_impl(void) {
 				p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
 				stats.inc(*p);
 				if (send_to(msg, n_send_bytes, addr) < 0)
-					return -1;
+					return -__LINE__;
 			}
 		} else {
 			strncpy(msg.pay.wrong_cmd.extra_info, msg.raw(), sizeof(msg.hdr));		// Copy header of wrong message
 			const size_t n_send_bytes = msg.build_wrong();
 			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -1;
+				return -__LINE__;
 		}
 	}
 	client_reject();
-	return 0;
+	return shutting_down ? 1 /* Successfully finished */ : 0 /* May continue to run*/;
 }
 
 int global_srvr_context_imp::init_impl(void) {
@@ -220,9 +215,10 @@ int global_srvr_context_imp::init_impl(void) {
 	if (this->start() != 0)
 		abort_exe_init_on_err()
 	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
-	if (     s_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false, ca);
-	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca);
-	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca);
+	const bool blocking_accept = true;
+	if (     s_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false, ca, blocking_accept);
+	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca, blocking_accept);
+	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca, blocking_accept);
 	else {
 		pr_errS("unsupported listen address |%s|\n", par.listen_address);
 		abort_exe_init_on_err()
