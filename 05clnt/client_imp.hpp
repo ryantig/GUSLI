@@ -69,7 +69,7 @@ class bdev_backend_api {									// API to server 1 block device
 	class datapath_t dp;
 	class bdev_no_backend_api f;							// Todo: Properly union with dp and other fields
 	bdev_info info;											// block device information visible for user
-	bdev_backend_api() { info.clear(); memset(security_cookie, 0, 16); }
+	bdev_backend_api() { io_listener_tid = 0; info.clear(); memset(security_cookie, 0, 16); }
 	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
@@ -178,7 +178,13 @@ class global_clnt_context_imp : public global_clnt_context, public base_library 
 	char lib_info_json[256];
 	struct init_params par;
 	bdevs_hash bdevs;
-	global_clnt_context_imp() : base_library(LIB_NAME) { memset(lib_info_json, 0, sizeof(lib_info_json)); }
+	global_clnt_context_imp() : base_library(LIB_NAME) {
+		pr_info1("clnt_ctx[%p] - construct %lu[b]\n", this, sizeof(*this));
+		memset(lib_info_json, 0, sizeof(lib_info_json));
+	}
+	~global_clnt_context_imp() {
+		pr_info1("clnt_ctx[%p] - destruct\n", this);
+	}
 	bool is_initialized(void) const { return lib_info_json[0] != 0; }
 	enum connect_rv bdev_connect(void);
 	int server_disconenct(void);
