@@ -5,5 +5,9 @@
 		"vector": "cpp",
 		"string_view": "cpp",
 		"initializer_list": "cpp",
+		"chrono": "cpp",
+		"typeinfo": "cpp",
+		"stdexcept": "cpp",
+		"functional": "cpp"
 	}
 }

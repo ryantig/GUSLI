@@ -1,0 +1,55 @@
+#!/bin/bash
+# Tested on ubuntu and ubuntu WSL in Windows11. Integration with NIXL library, Jira ticket: NVMESH-5239
+# Step 1.0: Install docker and basic dependencies
+sudo apt update
+sudo apt install -y apt-transport-https ca-certificates curl software-properties-common gnupg lsb-release
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+apt-cache policy docker-ce;
+sudo apt install docker-ce;
+sudo systemctl status docker;
+
+# Step 1.1: Clone NIXL source
+cd ~/projects;
+git clone ssh://git@github.com/ai-dynamo/nixl.git;
+
+# Step 2: Create NIXL container
+cd ~/projects/nixl; sudo ./contrib/build-container.sh
+sudo docker images; # See which image we have, example
+	# REPOSITORY   TAG                  IMAGE ID       CREATED        SIZE
+	# nixl         v0.1.0.dev.fa90267   ad35c624545f   27 hours ago   22.3GB
+	# nixl         v0.1.0.dev.f1464c3   5de048889167   3 weeks ago    19.1GB
+if false; then
+	# Unsecure docker, supports lib-iouring io
+	sudo docker run --security-opt seccomp=unconfined -v /home/danielhe/projects/nixl:/home/danielhe/projects/nixl:Z -it b8a0841505f3 /bin/bash
+else
+	sudo docker run -v /home/danielhe/projects/nixl:/home/danielhe/projects/nixl:Z -it b8a0841505f3 /bin/bash
+fi;
+
+################################ Do inside container
+# Step 3.0: Install generic stuff
+apt-get install -y libgflags-dev meson autoconf libtool gdb htop libgtest-dev liburing-dev libaio-dev clangd tree xxd;
+
+# Step 3.1: Install latests gusli lib
+cd /home/danielhe/projects/nixl;
+if false; then								# Debuuging / Developing GUSLI-NIXL integration
+	rm -rf ./gusli/; cp -r ../gusli .;		# Copy local dev version
+	cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 TRACE_LEVEL=7 && cd ..;
+else
+	rm -rf ./gusli;
+	git clone ssh://git@gitlab-master.nvidia.com:12051/excelero/gusli.git && cd gusli && make all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 && cd .. && ll /usr/lib/libg* && ll /usr/include/gus*;
+
+fi;
+
+# Step 3.2: Build NIXL unitests
+mkdir -p /root/NNN; mkdir -p /root/NNP; meson setup --reconfigure -Dbuildtype=debug -Dprefix=/root/NNP /root/NNN; cd /home/danielhe/projects/nixl;
+clear; ninja -C /root/NNN install
+
+# Step 3.3: Run Gusli Plugin within NIXL unitest
+clear; /root/NNN/test/unit/plugins/gusli/nixl_gusli_test;
+rm /root/NNN/meson-logs/testlog.txt; meson test gusli_plugin_test -C /root/NNN; cat /root/NNN/meson-logs/testlog.txt
+for i in {1..50}; do  /root/NNN/test/unit/plugins/gusli/nixl_gusli_test 2>&1 | tee -a z_out.txt; done;
+
+################################ If changed gusli plugin within NIXL, make sure it is clang formatted
+apt install -y clang-format
+clang-format -style=file -i src/plugins/gusli/*.cpp src/plugins/gusli/*.h test/unit/plugins/gusli/nixl_gusli_test.cpp
+
