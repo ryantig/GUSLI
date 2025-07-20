@@ -37,9 +37,6 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	sock_t io_sock;						// Communication socket with client
 	connect_addr ca;					// Connected client address
 	class datapath_t dp;
-	#if SUPPORT_SPDK
-		spdk_device_config spdk_dev;  		// SPDK-specific fields, move into backend api
-	#endif
 	bdev_stats_srvr stats;
 	void client_accept(connect_addr& addr);
 	void client_reject(void);

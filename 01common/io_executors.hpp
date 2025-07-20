@@ -262,34 +262,6 @@ class server_side_executor : public io_request_executor_base {						// Convert r
 	}
 	enum io_request::cancel_rv cancel(void) override { BUG_NOT_IMPLEMENTED(); return io_request_executor_base::cancel(); }
 };
-/*****************************************************************************/
-class spdk_request_executor : public io_request_executor_base {						// Execute async io with spdk
-public:
-	spdk_request_executor(class io_request& _io) : io_request_executor_base(_io, false) {
-		int rv = 0;
-		BUG_ON(io->params._has_mm, "Not implementded yet");
-		#if SUPPORT_SPDK
-			struct spdk_bdev_desc *desc = this->spdk_dev.desc;
-			struct spdk_io_channel *channel = this->spdk_dev.channel;
-			auto cb_lambda = [](struct spdk_bdev_io *bdev_io, bool success, void *cb_arg) {
-											auto req = static_cast<io_request*>(cb_arg);
-											req->out.rv = success ? req->params.num_blocks : E_PERM_FAIL_NO_RETRY;
-											req->complete();
-											spdk_bdev_free_io(bdev_io);
-										};
-			if (params.op == G_READ) {
-				rv = spdk_bdev_read(desc, channel, params.data_buf, params.map.offset_lba_bytes, params.num_blocks, cb_lambda, this);
-			} else if (params.op == G_WRITE) {
-				rv = spdk_bdev_write(desc, channel, params.data_buf,params.map.offset_lba_bytes, params.num_blocks, cb_lambda, this);
-			}
-		#endif
-		total_bytes += ((rv==0) ? (int64_t)rv : (int64_t)0);
-	}
-	void run(void) override {BUG_NOT_IMPLEMENTED();}
-	enum io_request::cancel_rv cancel(void) override { BUG_NOT_IMPLEMENTED(); return io_request_executor_base::cancel(); }
-	~spdk_request_executor() { }
-};
-
 }; // namespace gusli
 
 /*****************************************************************************/

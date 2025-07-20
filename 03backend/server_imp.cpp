@@ -6,7 +6,6 @@
 #include "io_executors.hpp"
 
 namespace gusli {
-#include "spdk_api.hpp"
 
 /******************************** Communicate with client ********************/
 int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) {
@@ -58,11 +57,7 @@ int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_byte
 }
 
 void global_srvr_context_imp::__clnt_close(const MGMT::msg_content& msg, const connect_addr& addr) {
-	#if SUPPORT_SPDK
-		this->spdk_dev.close();
-	#else
-		par.vfuncs.close(par.vfuncs.caller_context, "????");
-	#endif
+	par.vfuncs.close(par.vfuncs.caller_context, "????");
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_infoS("stats{%s}\n", str);
@@ -127,11 +122,7 @@ int global_srvr_context_imp::run(void) {
 			char cid[sizeof(p->client_id)+1];
 			sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
 			BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
-			#if SUPPORT_SPDK
-				const int rv_open = spdk_bdev_connect(this);
-			#else
-				const int rv_open = par.vfuncs.open(par.vfuncs.caller_context, cid);
-			#endif
+			const int rv_open = par.vfuncs.open(par.vfuncs.caller_context, cid);
 			const size_t n_send_bytes = msg.build_hel_ack();
 			msg.pay.s_hello_ack.info = par.binfo;
 			if (rv_open != 0)
@@ -185,9 +176,6 @@ int global_srvr_context_imp::run(void) {
 			for (; idx >= 0; idx = dp.srvr_receive_io(io, &wake)) {
 				need_wakeup_clnt_io_submitter |= wake;
 				stats.inc(io);
-				#if SUPPORT_SPDK
-					auto *_exec = new spdk_request_executor(io);
-				#else
 				{	nvTODO("Unify with client execute io code");
 					server_side_executor *_exec = new server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
 					if (_exec) {
@@ -196,7 +184,6 @@ int global_srvr_context_imp::run(void) {
 						io_autofail_executor(io, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
 					}
 				}
-				#endif
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);
 				need_wakeup_clnt_comp_reader |= wake;
 				pr_verbS(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params._comp_ctx, wake);
@@ -258,7 +245,6 @@ int global_srvr_context::run(const struct init_params& _par) noexcept {
 	g->par = _par;
 	int rv;
 	rv = g->init(); if (rv < 0) return rv;
-	spdk_init();
 	rv = g->run();
 	return g->destroy();
 }
