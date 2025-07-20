@@ -292,8 +292,9 @@ enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const
 
 int32_t global_clnt_raii::get_bdev_descriptor(const backend_bdev_id& id) noexcept {
 	bdev_info rv;
-	global_clnt_context::get().bdev_get_info(id, &rv);
-	return rv.bdev_descriptor;
+	if (global_clnt_context::get().bdev_get_info(id, &rv) == connect_rv::C_OK)
+		return rv.bdev_descriptor;
+	return -1;
 }
 
 /*****************************************************************************/

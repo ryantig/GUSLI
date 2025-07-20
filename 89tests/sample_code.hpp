@@ -9,8 +9,8 @@
 
 #include "gusli_client_api.hpp"
 
-int _log(const char *fmt,...) __attribute__ ((format (printf, 1, 2)));
-int _log(const char *fmt,...) {
+inline int _log(const char *fmt, ...) __attribute__ ((format (printf, 1, 2)));
+inline int _log(const char *fmt, ...) {
 	int res = 0;
 	va_list ap;
 	va_start(ap, fmt);
@@ -20,7 +20,6 @@ int _log(const char *fmt,...) {
 }
 #define log(fmt, ...) ({ _log("\x1b[1;37m" "UserApp: " fmt "\x1b[0;0m",          ##__VA_ARGS__); fflush(stderr); })
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
-
 
 enum io_exec_mode { ILLEGAL = 0, POLLABLE, ASYNC_CB, URING_POLLABLE, URING_BLOCKING, SYNC_BLOCKING_1_BY_1, N_MODES } mode;
 static const char* io_exec_mode_str(io_exec_mode m) {
@@ -76,7 +75,7 @@ class unitest_io {
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
 	unitest_io() { my_assert(posix_memalign((void**)&io_buf, buf_align, buf_len) == 0);	}
 	~unitest_io() { if (io_buf) free(io_buf); }
-	uint64_t buf_size(void) const { return buf_len; }
+	gusli::io_buffer_t get_map(void) const { return gusli::io_buffer_t{ .ptr = io_buf, .byte_len = buf_len }; }
 	const unitest_io& exec(gusli::io_type _op, io_exec_mode _mode) {
 		mode = _mode;
 		has_callback_arrived = false;

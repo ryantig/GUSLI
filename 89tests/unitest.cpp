@@ -11,7 +11,7 @@ uint64_t get_cur_timestamp_unix(void) {
 
 static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
-	lib.bdev_get_info(bdev, &i);
+	my_assert(lib.bdev_get_info(bdev, &i) == gusli::connect_rv::C_OK);
 	log("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);
 	return i.bdev_descriptor;
 }
@@ -163,7 +163,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Legacy /dev/zero tests");
 		bdev.set_from(UUID.DEV_ZERO);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-		gusli::bdev_info bdi; lib.bdev_get_info(bdev, &bdi);
+		gusli::bdev_info bdi;
+		my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_OK);
 		my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
 		my_io.io.params.map.data.byte_len = 1 * bdi.block_size;	my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
@@ -175,8 +176,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 
 		{ 	// Dummy-Register buffer with kernel bdev
 			std::vector<gusli::io_buffer_t> mem; mem.reserve(2);
-			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
-			mem.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+			mem.emplace_back(my_io.get_map());
+			mem.emplace_back(my_io.get_map());
 			my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 			my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);			// Cannot disconnect with mapped buffers
 			my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
@@ -406,7 +407,8 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			pthread_t tid;								// Thread  id when server is lauched as thread
 			__pid_t   pid;								// Process id when server is lauched as process via fork()
 		};
-	 } child[n_servers];
+	} child[n_servers];
+	static constexpr bool launch_server_as_process = true;
 	for (int i = 0; i < n_servers; i++) {
 		child[i].pid = fork();
 		my_assert(child[i].pid >= 0);
@@ -422,7 +424,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		gusli::bdev_info info;
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
-		lib.bdev_get_info(bdev, &info);
+		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 
 		// Map app buffers for read operations
@@ -473,7 +475,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
-		lib.bdev_get_info(bdev, &info);
+		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
@@ -483,7 +485,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	}
 
 	// Wait for all servers process to finish
-	if (dummy_server::launch_as_processes()) {
+	if (launch_server_as_process) {
 		for (int i = 0; i < n_servers; ++i) {
 			int status;
 			while (-1 == waitpid(child[i].pid, &status, 0));
@@ -581,8 +583,8 @@ void unitest_raii_api(const gusli::global_clnt_raii* lib) {
 	bdev.set_from(UUID.DEV_ZERO);
 	// Register buffer with kernel bdev - forces an auto open
 	std::vector<gusli::io_buffer_t> mem0, mem1;
-	mem0.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
-	mem1.emplace_back(gusli::io_buffer_t{ .ptr = my_io.io_buf, .byte_len = my_io.buf_size() });
+	mem0.emplace_back(my_io.get_map());
+	mem1.emplace_back(my_io.get_map());
 	my_assert(lib->bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
 	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was autoopened open
 	my_assert(lib->bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);

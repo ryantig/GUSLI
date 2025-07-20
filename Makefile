@@ -29,7 +29,9 @@ endif
 
 # ********** Included directories of H files *********
 # Main project directory. (relative to this Makefile)
-SSDA = $(NVMESH_ROOT_DIR)
+THIS_MKFILE_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+ROOT_DIR_RLTV := $(THIS_MKFILE_DIR)
+ROOT_DIR_ABS = $(realpath $(ROOT_DIR_RLTV))
 INCLUDES :=
 INCLUDES += -I/usr/include -I. -I./00utils -I./01common -I./03backend -I./05clnt
 
@@ -37,8 +39,8 @@ INCLUDES += -I/usr/include -I. -I./00utils -I./01common -I./03backend -I./05clnt
 SOURCES_BASE = 00utils/utils.cpp
 SOURCES_CLNT = 05clnt/client_imp.cpp
 SOURCES_SRVR = 03backend/server_imp.cpp
-SOURCES_TEST = 89tests/unitest.cpp
-SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST)
+SOURCES_TEST_CLNT = 89tests/unitest.cpp
+SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST_CLNT)
 
 # ********** All objects will reside in separate directory **********
 OBJ_DIR_ROOT=99bin
@@ -52,8 +54,8 @@ $(shell mkdir -p $(OBJ_DIR))
 OBJECTS_BASE = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_BASE))
 OBJECTS_CLNT = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_CLNT))
 OBJECTS_SRVR = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SRVR))
-OBJECTS_TEST = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_TEST))
-OBJECTS_ALL = $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR) $(OBJECTS_TEST)
+OBJECTS_TEST_CLNT = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_TEST_CLNT))
+OBJECTS_ALL = $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR) $(OBJECTS_TEST_CLNT)
 
 # Include dependency files if they exist, causes recompilation .cpp files when .hpp files cahnge
 DEPEND_FILES_ALL = $(OBJECTS_ALL:.o=.d)
@@ -69,7 +71,7 @@ ifeq ($(BUILD_FOR_UNITEST),1)
 else
 	INSTALL_DIR=/usr
 endif
-UNITEST_EXE=z_$(LIB_CLNT_NAME)_unitest
+UNITEST_CLNT_EXE=z_$(LIB_CLNT_NAME)_unitest
 
 # ********** Extract git information *********
 ifeq ($(COMPILATION_DATE),)
@@ -98,7 +100,7 @@ endif
 # ********** Define Linker flags *********
 LFLAGS_ALL = -lpthread -rdynamic
 LFLAGS_EXT =
-# ********** External libraries ********* heck for lib using pkg-config and update flags appropriately
+# ********** External libraries ********* check for lib using pkg-config and update flags appropriately
 EXTLIB=liburing
 ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
 	CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
@@ -138,6 +140,7 @@ CC=g++
 define print_compilation_info
 	@printf "===========================================\n"
 	@printf "Compilation info, Release=$(BUILD_RELEASE), COMMIT_ID=$(COMMIT_ID), $(CC), TRACE_LEVEL=$(TRACE_LEVEL) HT=$(HT)|\n"
+	@printf "\t* Proj    | $(ROOT_DIR_ABS) [$(ROOT_DIR_RLTV)]\n"
 	@printf "\t* CFLAGS  | $(CFLAGS)\n"
 	@printf "\t* INCLUDS | $(INCLUDES)\n"
 	@printf "\t* DFLAGS  | $(DFLAGS)\n"
@@ -153,8 +156,7 @@ define print_synamic_dependencies
 	@printf "Dynamic dependencies analysis:\n"
 	ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
 	ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
-	ldd $(UNITEST_EXE)_st
-	ldd $(UNITEST_EXE)
+	ldd $(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_st
 	@printf "===========================================\n"
 endef
 
@@ -165,7 +167,7 @@ help:
 	@printf "Usage |\e[0;32mmake all\e[0;0m| for building libs + executable unitest\n"
 	@printf "\n\n\n\n"
 
-all: $(SOURCES_ALL) install $(UNITEST_EXE) $(UNITEST_EXE)_st
+all: $(SOURCES_ALL) install $(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_st
 	$(if $(filter 1,$(VERBOSE)),$(call print_compilation_info))
 	$(if $(filter 1,$(VERBOSE)),$(call print_synamic_dependencies))
 	$(info +--->100% Done!)
@@ -201,12 +203,12 @@ $(OBJ_DIR)/$(LIB_SRVR_NAME).so: $(OBJECTS_BASE) $(OBJECTS_SRVR)
 	$(call print_building_target);
 	$(ECHO_CMD) $(CC) -o $@ $^ $(LFLAGS__SO)
 
-$(UNITEST_EXE)_st: $(OBJECTS_TEST) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
+$(UNITEST_CLNT_EXE)_st: $(OBJECTS_TEST_CLNT) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE__STATIC))
 	@printf "+-->Run Exe: \e[1;45m./$@ -h\e[0;0m\n"
 
-$(UNITEST_EXE): $(OBJECTS_TEST)
+$(UNITEST_CLNT_EXE): $(OBJECTS_TEST_CLNT)
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE_DYNAMIC))
 	@printf "+-->Run Exe: \e[1;45mLD_LIBRARY_PATH=$(INSTALL_DIR)/lib ./$@ -h\e[0;0m\n"
@@ -241,7 +243,7 @@ endef
 define clean_compilation_output
 	@printf "+-->Cleaning |\e[1;45mExe / Lib.so / CrashDumps\e[0;0m|\n"
 	@find ./${1} -type f -name '*.so' -delete
-	@rm -f $(UNITEST_EXE) $(OBJ_DIR)/*.so core.*
+	@rm -f $(UNITEST_CLNT_EXE)* $(OBJ_DIR)/*.so core.*
 endef
 
 clean: uninstall

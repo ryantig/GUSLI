@@ -2,7 +2,7 @@
 #include <pthread.h>
 #include <stdint.h>		// uint64_t, uint32_t and such
 #include "utils.hpp"		// BUG_ON
-/* __atomic_* is gcc-specific, and conforms C++11 memory model anyway. Not usings std::atomic, as it does not fit spdk implementation" */
+/* __atomic_* is gcc-specific, and conforms C++11 memory model anyway. Not usings std::atomic, as it does not fit cooperative threads framework" */
 template<class T> class atomic {
 	T v;
  public:
@@ -102,7 +102,7 @@ class t_shared_mem {
 	char* name;				// Name of the file in /dev/shm. Producer saves it for freeing shared memory
 	void *buf;				// Shared memory itself
 	size_t n_bytes;			// Length of the buffer
-	bool is_external_buf;	// Was buffer givven externally or internally mapped
+	bool is_external_buf;	// Was buffer given externally or internally mapped
 	void debug_print(const char* ref) const {
 		static constexpr const bool verbose = false;	// Use for debugging
 		if (verbose && buf) printf("%p, %s%s, who=%s\n", buf, name, ref, (name != NULL ? "producer" : "consumer"));

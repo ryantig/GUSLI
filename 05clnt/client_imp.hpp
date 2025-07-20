@@ -16,9 +16,8 @@ enum bdev_type {							// Fast path to supported bdevs
 	FS_FILE =	      'f',					// 1 File or a directory of files storing the data
 	KERNEL_BDEV =     'K',					// Backwards compatibility to /dev/... kernel implemented block devices including NVMe drives, /dev/zero, etc
 	LINUX_UBLK =      'U',					// Backwards compatibility to Linux user space block device
-	NVMESH_UM =       'N',
-	NVME_OF =         'O',
-	OTHER =           '?',
+	NVMESH_UM =       'N',					// Network block device (gusli client communicates wih bdev via server)
+	//OTHER =           '?',
 };
 
 struct bdev_config {

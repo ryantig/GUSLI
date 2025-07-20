@@ -11,12 +11,14 @@ make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/li
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
 - See sample_code.hpp or unit-tests to learn how to use the library
 
+## Dependencies
+ * Mandatory: None. Plain C++ code (libc) code.
+ * Optional: For IO's with large scatter gathers (> 64 ranges), uring API to local blockdevices may help. So consider: sudo apt install liburing-dev
 ## Support
 DanielHe@nvidia.com
 
 ## Roadmap & Project status
-In development
-https://jirasw.nvidia.com/browse/NVMESH-5811
+In development https://jirasw.nvidia.com/browse/NVMESH-5811
 
 ## Todos:
 - [ ] [Set up project integrations](https://gitlab-master.nvidia.com/excelero/gusli/-/settings/integrations)
