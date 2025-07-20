@@ -196,9 +196,6 @@ class time_stamp_t {
 };
 
 time_stamp_t get_time_now(char reset_to = 0);
-namespace time_utils {
-	void sleep_milliseconds(int n_milli_sec);
-};
 
 /******************************* Networking **********************************/
 #include <arpa/inet.h>

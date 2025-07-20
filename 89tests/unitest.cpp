@@ -311,6 +311,13 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 	return map;
 }
 
+void client_no_server_reply_test(gusli::global_clnt_context& lib) {
+	log_line("Remote server %s:no reply test", UUID.SRVR_NAME[0]);
+	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[0]);
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
+}
+
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
@@ -332,12 +339,19 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			exit(0);
 		}
 	}
-	std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for servers to be up
 	for (int s = 0; s < n_servers; s++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
 		gusli::bdev_info info;
-		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-		__get_connected_bdev_descriptor(lib, bdev);
+		{
+			int n_attempts = 0;
+			enum gusli::connect_rv con_rv = lib.bdev_connect(bdev);
+			for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));	// Wait for servers to be up
+				con_rv = lib.bdev_connect(bdev);
+			}
+			my_assert(con_rv == gusli::connect_rv::C_OK);
+			__get_connected_bdev_descriptor(lib, bdev);
+		}
 		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 
@@ -539,6 +553,7 @@ int main(int argc, char *argv[]) {
 	gusli::global_clnt_raii* ggg = lib_initialize_unitests(lib);
 	unitest_raii_api(ggg);
 	base_lib_unitests(lib, n_iter_race_tests);
+	client_no_server_reply_test(lib);
 	client_server_test(lib, num_ios_preassure);
 	delete ggg;
 	log("Done!!! Success\n\n\n");

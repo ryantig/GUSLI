@@ -79,7 +79,8 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 	} else {
 		io_sock = sock;
 	}
-	io_sock.set_io_buffer_size(1<<19, 1<<19);
+	if (MGMT::set_large_io_buffers)
+		io_sock.set_io_buffer_size(1<<19, 1<<19);
 }
 
 void global_srvr_context_imp::client_reject(void) {

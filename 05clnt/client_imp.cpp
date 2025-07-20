@@ -148,7 +148,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, g->par.client_name);
 		if (info->is_valid())
 			return C_OK;
-		return C_WRONG_ARGUMENTS;
+		return C_NO_RESPONSE;
 	}
 	return C_NO_DEVICE;
 }
@@ -413,19 +413,25 @@ int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 
 int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* addr, const char *clnt_name) {
 	const sock_t::type s_type = MGMT::get_com_type(addr);
+	MGMT::msg_content msg;
+	int conn_rv;
 	srv_addr = addr;
 	(void)id;
-	if (     s_type == sock_t::type::S_UDP) sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca);
-	else if (s_type == sock_t::type::S_TCP) sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, true);
-	else if (s_type == sock_t::type::S_UDS) sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca);
+	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca);
+	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, true);
+	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca);
 	else {
 		pr_err1("unsupported server address |%s|\n", addr);
 		info.bdev_descriptor = -__LINE__;
 		return info.bdev_descriptor;
 	}
+	if (conn_rv < 0) {
+		pr_err1("Cannot conenct to |%s|, rv=%d. is server up?\n", addr, conn_rv);
+		info.bdev_descriptor = -1;
+		goto _out;
+	}
 	is_control_path_ok = false;
 	io_listener_tid = 0;
-	MGMT::msg_content msg;
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;
@@ -446,19 +452,23 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
 		ASSERT_IN_PRODUCTION(dp.shm.init_producer(pr->name, n_bytes) == 0);
 		*(uint64_t*)dp.shm.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
+		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) >= 0) {
 			check_incoming();
 		} else
 			goto _out;
 		dp.get()->init();
 	}
-	sock.set_io_buffer_size(1<<19, 1<<19);
+	if (MGMT::set_large_io_buffers)
+		sock.set_io_buffer_size(1<<19, 1<<19);
 	info.bdev_descriptor = sock.fd();
 	{
 		const int err = pthread_create(&io_listener_tid, NULL, (void* (*)(void*))io_completions_listener, this);
 		ASSERT_IN_PRODUCTION(err <= 0);
 	}
 _out:
+	if (info.bdev_descriptor <= 0)
+		this->close(id);				// Cleanup open with close
 	return info.bdev_descriptor;
 }
 
@@ -515,6 +525,7 @@ int bdev_backend_api::close(const struct backend_bdev_id& id, const bool do_kill
 		pr_info1("going to join listener_thread tid=0x%lx\n", (long)io_listener_tid);
 		const int err = pthread_join(io_listener_tid, NULL);
 		ASSERT_IN_PRODUCTION(err == 0);
+		io_listener_tid = 0;
 	}
 	char str[256];
 	stats.print_stats(str, sizeof(str));

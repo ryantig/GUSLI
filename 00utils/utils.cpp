@@ -53,10 +53,6 @@ time_stamp_t get_time_now(__maybe_unused char reset_to) {
 	// return time(NULL);
 }
 
-void time_utils::sleep_milliseconds(int n_millisec) {
-	std::this_thread::sleep_for(std::chrono::milliseconds(n_millisec));
-}
-
 /*****************************************************************************/
 #include <sys/socket.h>
 #include <arpa/inet.h>

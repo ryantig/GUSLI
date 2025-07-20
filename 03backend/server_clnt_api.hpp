@@ -234,6 +234,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	static constexpr int msg_type_len = 6;	// Header of all messages is 6 bytes long. See below
  public:
 	static constexpr int COMM_PORT = 2051;	// Communication port
+	static constexpr bool set_large_io_buffers = false;
 	static sock_t::type get_com_type(const char* addr) {
 		if (addr[0] == '/') return sock_t::type::S_UDS;	// Path: Fastest communication
 		if (addr[0] == 'u') return sock_t::type::S_UDP; // UDP: Fast
