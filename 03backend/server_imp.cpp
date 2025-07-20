@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include "server_imp.hpp"
-#include "io_executors.hpp"
+//#include "io_executors.hpp"
 
 namespace gusli {
 
@@ -25,7 +25,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) 
 	}
 	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes};
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
-	pr_infoS("Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS(this, "Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	BUG_ON(rv, "Todo: instead of relying that clnt/server addresses are identical, IO should talk in buffer indices");
 	return rv;
 }
@@ -40,16 +40,16 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) 
 	const int rv = 0;
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
 	dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
-	pr_infoS("UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS(this, "UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
 int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const {
 	ssize_t send_rv;
 	if (msg.is(MGMT::msg::dp_complete))
-		pr_verbS(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
+		pr_verbS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	else
-		pr_infoS(" >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
+		pr_infoS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	send_rv = io_sock.send_msg(msg.raw(), n_bytes, addr);
 	if (send_rv != (ssize_t)n_bytes)
 		pr_emerg("%s: Send Error rv=%ld, n_bytes=%lu, msg=%s\n", LIB_NAME, send_rv, n_bytes, msg.raw());
@@ -60,7 +60,7 @@ void global_srvr_context_imp::__clnt_close(const char* reason) {
 	par.vfuncs.close1(par.vfuncs.caller_context, reason);
 	char str[256];
 	stats.print_stats(str, sizeof(str));
-	pr_infoS("stats{%s}\n", str);
+	pr_infoS(this, "stats{%s}\n", str);
 	stats.clear();
 	dp.destroy();
 }
@@ -69,12 +69,12 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 	if (sock.uses_connection()) {
 		const int client_fd = sock.srvr_accept_clnt(addr);
 		if (client_fd < 0) {
-			pr_infoS("accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
+			pr_infoS(this, "accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
 			return;
 		}
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
-		pr_infoS("accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
+		pr_infoS(this, "accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
 		io_sock = sock_t(client_fd, sock.get_type());
 		io_sock.set_blocking(true);			// Todo: Dont block on incomming io because same thread sends done io completions
 	} else {
@@ -90,6 +90,90 @@ void global_srvr_context_imp::client_reject(void) {
 	}
 }
 
+class backend_io_executor {
+	server_io_req io;					// IO to pass to backend
+	global_srvr_context_imp *srv = NULL;
+	void* client_io_ctx = NULL;			// Original pointer to client io to pass back via completion entry
+	connect_addr addr;					// Address on which to wakeup client if needed
+	int sqe_indx;
+	bool need_wakeup_clnt_io_submitter = false;
+	bool need_wakeup_clnt_comp_reader = false;
+
+	void _io_done_cb(void) {
+		pr_verbS(srv, "exec[%p].Server io__cb_: rv=%ld\n", this, io.get_raw_rv());
+		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
+		io.params._comp_ctx = client_io_ctx;			// Restore client context
+		const int cmp_idx = srv->dp.srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
+		pr_verbS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell={s=%u,c=%u}\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, cmp_idx, client_io_ctx, need_wakeup_clnt_io_submitter, need_wakeup_clnt_comp_reader);
+		if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
+			MGMT::msg_content msg;	// Send wakeup completion to client on all executed IO's
+			const size_t n_send_bytes = msg.build_dp_comp();
+			auto *p = &msg.pay.dp_complete;
+			p->sender_added_new_work = need_wakeup_clnt_comp_reader;
+			p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
+			srv->stats.inc(*p);
+			if (srv->send_to(msg, n_send_bytes, addr) < 0) {
+				srv->shutting_down = true;
+			}
+		}
+		delete this;
+	}
+	static void static_io_done_cb(backend_io_executor *me) { me->_io_done_cb();	}
+ public:
+	backend_io_executor(const connect_addr& _addr, global_srvr_context_imp& _srv) {
+		addr = _addr;
+		srv = &_srv;
+		sqe_indx = srv->dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
+		if (unlikely(need_wakeup_clnt_io_submitter))
+			pr_errS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT "Client sent more than allowed > %u[ios], if it blocked will try waking him up\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, srv->binfo.num_max_inflight_io);
+	}
+	bool has_io_to_do(void) const { return (sqe_indx >= 0); }
+	bool run(void) {
+		if (has_io_to_do()) {
+			srv->stats.inc(io);
+			client_io_ctx = io.params._comp_ctx;
+			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
+			DEBUG_ASSERT(io.is_valid());										// Verify no other executor connected to io
+			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
+			srv->par.vfuncs.exec_io(srv->par.vfuncs.caller_context, io);		// Launch io execution
+			return true;
+		} else {
+			delete this;
+			return false;
+		}
+	}
+};
+
+void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr) {
+	(void)msg;
+	bool should_continue = true;
+	int n_ios = 0;
+	if (0) {	// Slow method, produces too much client wakeup messages, may process infinite amount of io's in a single loop
+		do {
+			auto *io = new backend_io_executor(addr, *this);
+			should_continue = io->run();
+		} while (should_continue);
+	} else if (0) {	// Bound amount of ios but if < ring capacity will stuck. For debug only
+		static constexpr const int n_max_batch_size = io_csring::CAPACITY;
+		do {
+			auto *io = new backend_io_executor(addr, *this);
+			should_continue = io->run();
+			n_ios++;
+		} while (should_continue && (n_ios < n_max_batch_size));
+	} else {		// Best method, remove all io's from submition ring and send them all to execution
+		static constexpr const int n_max_batch_size = io_csring::CAPACITY;
+		backend_io_executor *arr[n_max_batch_size];
+		do {
+			BUG_ON(n_ios > n_max_batch_size, "Impossible: %d > %d\n", n_ios , n_max_batch_size);
+			arr[n_ios] = new backend_io_executor(addr, *this);
+			should_continue = arr[n_ios]->has_io_to_do();
+			n_ios++;
+		} while (should_continue);
+		for (int i = 0; i < n_ios; i++)
+			arr[i]->run();
+	}
+}
+
 int global_srvr_context_imp::run_impl(void) {
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
@@ -100,7 +184,7 @@ int global_srvr_context_imp::run_impl(void) {
 		const enum io_state io_st = __read_1_full_message(io_sock, msg, false, addr);
 		if (io_st != ios_ok) {
 			BUG_ON(io_st == ios_block, "Server listener is blocking");
-			pr_errS("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
+			pr_errS(this, "receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
 			if (!shutting_down) {
 				client_reject();
 				client_accept(addr);
@@ -110,9 +194,9 @@ int global_srvr_context_imp::run_impl(void) {
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
 		if (msg.is(MGMT::msg::dp_submit))
-			pr_verbS("<< |%s|\n", msg.raw());
+			pr_verbS(this, "<< |%s|\n", msg.raw());
 		else
-			pr_infoS("<< |%s| from %s\n", msg.raw(), clnt_path);
+			pr_infoS(this, "<< |%s| from %s\n", msg.raw(), clnt_path);
 		if (msg.is(MGMT::msg::hello)) {
 			const auto *p = &msg.pay.c_hello;
 			char cid[sizeof(p->client_id)+1];
@@ -123,7 +207,7 @@ int global_srvr_context_imp::run_impl(void) {
 			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
 			msg.pay.s_hello_ack.info = binfo;
 			if (binfo.bdev_descriptor <= 0) {
-				pr_errS("Open failed by backend rv=%d\n", binfo.bdev_descriptor);
+				pr_errS(this, "Open failed by backend rv=%d\n", binfo.bdev_descriptor);
 				msg.pay.s_hello_ack.info.bdev_descriptor = 0;
 			}
 			// Todo: Initialize datapath of consumer here
@@ -165,42 +249,7 @@ int global_srvr_context_imp::run_impl(void) {
 			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -__LINE__;
 		} else if (msg.is(MGMT::msg::dp_submit)) {
-			server_io_req io;
-			bool need_wakeup_clnt_io_submitter = false, need_wakeup_clnt_comp_reader = false, wake = false;
-			int idx = dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
-			if (idx < 0) {
-				//pr_infoS("...ignore comp\n");
-				continue;
-			}
-			for (; idx >= 0; idx = dp.srvr_receive_io(io, &wake)) {
-				need_wakeup_clnt_io_submitter |= wake;
-				stats.inc(io);
-				{	nvTODO("Unify with client execute io code");
-					void* client_io_ctx = io.params._comp_ctx;		// Save aside
-					server_side_executor *_exec = new server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
-					if (_exec) {
-						_exec->run();									// Will auto delete exec upon IO finish;
-					} else {
-						io_autofail_executor(io, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
-					}
-					io.params._comp_ctx = client_io_ctx;			// Restore client context
-				}
-				const int cmp_idx = dp.srvr_finish_io(io, &wake);
-				need_wakeup_clnt_comp_reader |= wake;
-				pr_verbS(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT ".clnt_io_ptr=%p, doorbell=%u\n", PRINT_IO_REQ_ARGS(io.params), idx, cmp_idx, io.params._comp_ctx, wake);
-			}
-			if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
-				// Send wakeup completion to client on all executed IO's
-				const size_t n_send_bytes = msg.build_dp_comp();
-				auto *p = &msg.pay.dp_complete;
-				p->sender_added_new_work = need_wakeup_clnt_comp_reader;
-				p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
-				if (unlikely(need_wakeup_clnt_io_submitter))
-					pr_err1("Client sent more than allowed > %u[ios], if it blocked will try waking him up\n", binfo.num_max_inflight_io);
-				stats.inc(*p);
-				if (send_to(msg, n_send_bytes, addr) < 0)
-					return -__LINE__;
-			}
+			__clnt_on_io_receive(msg, addr);
 		} else {
 			strncpy(msg.pay.wrong_cmd.extra_info, msg.raw(), sizeof(msg.hdr));		// Copy header of wrong message
 			const size_t n_send_bytes = msg.build_wrong();
@@ -214,7 +263,7 @@ int global_srvr_context_imp::run_impl(void) {
 
 int global_srvr_context_imp::init_impl(void) {
 	int rv = 0;
-	#define abort_exe_init_on_err() { pr_errS("Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
+	#define abort_exe_init_on_err() { pr_errS(this, "Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
 	if (this->start() != 0)
 		abort_exe_init_on_err()
 	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
@@ -223,19 +272,19 @@ int global_srvr_context_imp::init_impl(void) {
 	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca, blocking_accept);
 	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca, blocking_accept);
 	else {
-		pr_errS("unsupported listen address |%s|\n", par.listen_address);
+		pr_errS(this, "unsupported listen address |%s|\n", par.listen_address);
 		abort_exe_init_on_err()
 	}
 	if (rv < 0)
 		abort_exe_init_on_err();
-	pr_infoS("initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
+	pr_infoS(this, "initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
 	is_initialized = true;
 	return 0;
 }
 
 int global_srvr_context_imp::destroy_impl(void) {
 	pr_flush();
-	pr_infoS("terminate: conn=%c, {%s:%u}\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT);
+	pr_infoS(this, "terminate: conn=%c, {%s:%u}\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT);
 	if (sock.get_type() == sock_t::type::S_UDS)
 		unlink(par.listen_address);
 	sock.nice_close();

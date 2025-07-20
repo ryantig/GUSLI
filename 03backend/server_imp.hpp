@@ -6,10 +6,10 @@ namespace gusli {
 
 #define LIB_NAME "GUSLIs"
 #define LIB_COLOR NV_COL_PURPL
-#define pr_infoS(fmt, ...) pr_info1( "[%s:%s] " fmt, par.server_name, binfo.name, ##__VA_ARGS__)
-#define pr_errS( fmt, ...) pr_err1(  "[%s:%s] " fmt, par.server_name, binfo.name, ##__VA_ARGS__)
-#define pr_noteS(fmt, ...) pr_note1( "[%s:%s] " fmt, par.server_name, binfo.name, ##__VA_ARGS__)
-#define pr_verbS(fmt, ...) pr_verb1( "[%s:%s] " fmt, par.server_name, binfo.name, ##__VA_ARGS__)
+#define pr_infoS(srvr, fmt, ...) pr_info1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
+#define pr_errS( srvr, fmt, ...) pr_err1(  "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
+#define pr_noteS(srvr, fmt, ...) pr_note1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
+#define pr_verbS(srvr, fmt, ...) pr_verb1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
 
 struct bdev_stats_srvr {
 	uint64_t n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp;
@@ -46,9 +46,11 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	void client_reject(void);
 	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
 	int  __clnt_bufs_unregist(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
+	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
 	void __clnt_close(const char* reason);
 	int  send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const __attribute__((warn_unused_result));
-	friend class global_srvr_context;
+	friend class global_srvr_context;	// nvTODO("Solve this encapsulation issue");
+	friend class backend_io_executor;
 
 	void parse_args(int argc, char* const argv[]);
  public:
