@@ -126,17 +126,12 @@ class io_request {								// Data structure for issuing IO
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
 	SYMBOL_EXPORT [[nodiscard]] enum cancel_rv try_cancel(void) noexcept;	// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
  protected:
-	friend class io_request_executor_base;		// Execution of io via third-party block device driver
-	friend class datapath_t;					// Server-Client datapath
-	friend class io_autofail_executor;
 	class io_request_executor_base* _exec;		// During execution executor attaches to IO
 	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;
 	struct output_t {
 		int64_t rv;								// Negative error code or amount of blocks transferred
 	} out;
 	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
-	const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
-	void complete(void) { if (has_callback()) params._comp_cb(params._comp_ctx); }
 };
 
 /******************************** Global library context ***********************/

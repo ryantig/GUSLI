@@ -328,7 +328,8 @@ void io_request::submit_io(void) noexcept {
 	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
 		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
 	} else if (bdev->conf.type == NVMESH_UM) {
-		if (unlikely(this->is_blocking_io())) {
+		const bool should_block = this->is_blocking_io();
+		if (unlikely(should_block)) {
 			_exec = new remote_aio_blocker(*this);
 			if (_exec)
 				_exec->run();
@@ -339,11 +340,12 @@ void io_request::submit_io(void) noexcept {
 			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT "        .clnt_io_ptr=%p, doorbell=%d\n", PRINT_IO_REQ_ARGS(params), rv, this, need_wakeup_srvr);
 			if (need_wakeup_srvr)
 				ASSERT_IN_PRODUCTION(bdev->b.dp_wakeup_server() == 0);
+			// Callback will come in future
 		} else {
-			complete();	// Todo: Put in a waiting queue and wait for server notification that it consumed some submition entries
+			/* Callback already arrived, 'this' can be free already as it returned a callback on failed async io */
 		}
-		if (_exec)
-			_exec->is_still_running();		// Blocking wait;
+		if (should_block)
+			_exec->is_still_running();		// Blocking wait, for success or failure
 	} else {
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	}

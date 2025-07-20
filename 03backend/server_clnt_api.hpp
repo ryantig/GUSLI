@@ -7,6 +7,7 @@
 #include "gusli_client_api.hpp"
 #include <time.h>
 #include "00utils/atomics.hpp"
+#include "gusli_server_api.hpp"
 
 namespace gusli {
 
@@ -28,7 +29,7 @@ struct io_csring_sqe {					// IO submition queue entry
 
 struct io_csring_cqe {
 	using context_t = struct {
-		io_request *io_ptr;				// Connect completion entry to clients IO pointer
+		server_io_req *io_ptr;			// Connect completion entry to clients IO pointer
 		int64_t  rv;					// result code for the IO as returned from the server
 	};
 	context_t ctx;
@@ -116,7 +117,7 @@ class datapath_t {
 		return (map.is_valid_for(block_size) &&
 				(map.get_offset_end_lba() < num_total_bytes) &&
 				verify_buf_shared(map.data)); }
-	bool verify_io_param_valid(const io_request  &io ) const;
+	bool verify_io_param_valid(const server_io_req  &io ) const;
  public:
 	t_shared_mem shm;						// Mapped Submition/completion queues.
 	std::vector<struct base_shm_element> shm_io_bufs;	// Mapped User external io buffers
@@ -131,7 +132,7 @@ class datapath_t {
 	int clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
 	int clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
 	int srvr_receive_io(   io_request &io, bool *need_wakeup_clnt_producer) const;
-	int srvr_finish_io(    io_request &io, bool *need_wakeup_clnt_consumer) const;
+	int srvr_finish_io(    server_io_req &io, bool *need_wakeup_clnt_consumer) const;
 	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm.~t_shared_mem(); }
 };
 
@@ -159,7 +160,7 @@ inline bool datapath_t::verify_buf_shared(const io_buffer_t &buf) const {
 	return false;	// Not contained in any mapped range
 }
 
-inline bool datapath_t::verify_io_param_valid(const io_request &io) const {
+inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
 	if (unlikely(io.params._async_no_comp))				// Polling mode not supported yet
 		return false;
 	if (!io.params._has_mm)
@@ -174,14 +175,17 @@ inline bool datapath_t::verify_io_param_valid(const io_request &io) const {
 	return verify_buf_shared(io.params.map.data);		// Scatter-gather is accesible to server
 }
 inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) const {
+	server_io_req *sio = (server_io_req*)&io;
 	int rv = 0;
-	if (!io.params.assume_safe_io && !verify_io_param_valid(io)) {
-		io.out.rv = io_error_codes::E_INVAL_PARAMS; return -1;
+	if (!io.params.assume_safe_io && !verify_io_param_valid(*sio)) {
+		sio->set_error(io_error_codes::E_INVAL_PARAMS);
+		return -1;
 	}
 	io_csring *r = get();
 	rv = r->sq.insert(io.params, need_wakeup_srvr);
 	if (rv < 0) {
-		io.out.rv = io_error_codes::E_THROTTLE_RETRY_LATER; return -1;
+		sio->set_error(io_error_codes::E_THROTTLE_RETRY_LATER);
+		return -1;
 	}
 	return rv;
 }
@@ -191,9 +195,10 @@ inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
 	io_csring_cqe::context_t comp;
 	const int rv = r->cq.remove(&comp, need_wakeup_srvr);
 	if (rv >= 0) {
-		io_request* io = (io_request*)comp.io_ptr;
-		io->out.rv = comp.rv;
-		io->complete();
+		server_io_req* io = comp.io_ptr;
+		BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
+		BUG_ON(!io->has_callback(), "How else would we notify the sender that IO finished?");
+		io->set_success(comp.rv);
 		return rv;
 	}	// No completions arrived, client poller can go to sleep
 	return rv;
@@ -204,9 +209,9 @@ inline int datapath_t::srvr_receive_io(io_request &io, bool *need_wakeup_clnt) c
 	return r->sq.remove(&io.params, need_wakeup_clnt);
 }
 
-inline int datapath_t::srvr_finish_io(io_request &io, bool *need_wakeup_clnt) const {
+inline int datapath_t::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
-	io_csring_cqe::context_t comp{(io_request *)io.params._comp_ctx, io.out.rv};
+	io_csring_cqe::context_t comp{(server_io_req*)io.params._comp_ctx, io.get_raw_rv()};
 	int rv = r->cq.insert(comp, need_wakeup_clnt);
 	ASSERT_IN_PRODUCTION(rv >= 0);		// Todo: Server has to block to let client process the completions
 	return rv;

@@ -1,5 +1,5 @@
 #pragma once
-#include "gusli_client_api.hpp"
+#include "gusli_server_api.hpp"
 #include "00utils/atomics.hpp"
 #include <aio.h>
 #include <signal.h>
@@ -8,19 +8,19 @@ namespace gusli {
 
 struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont execute anything, used on stack
 	io_autofail_executor(class io_request& io, io_error_codes rv) {
-		DEBUG_ASSERT(io._exec == nullptr);		// This executor never connects nor disconnects from io
-		io.out.rv = rv;
-		io.complete();
+		class server_io_req *sio = (class server_io_req*)&io;
+		DEBUG_ASSERT(sio->is_valid());				// This executor never connects nor disconnects from io
+		sio->set_error(rv);
 	}
 };
 
 /*****************************************************************************/
 class io_request_executor_base : no_implicit_constructors {
  protected:
-	class io_request* io;							// Link to original IO. If cacnel() not called will always be a valid pointer.
+	class server_io_req* io;						// Link to original IO. If cacnel() not called will always be a valid pointer.
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
-	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes';
+	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes'
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
 	enum io_type op(void) const { return io->params.op; }
  private:
@@ -46,9 +46,9 @@ class io_request_executor_base : no_implicit_constructors {
 			delete this;
 	}
 
-	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].start"                                     "\n", this, io, op(), num_ranges); }
+	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start   cmp_ctx=%p"           "\n", this, io, op(), num_ranges, io->params.buf_size(), io->params._comp_ctx); }
 	void log_free(                                                 ) const { pr_verb1("exec[%p].o[%p].free"                                                          "\n", this, io                  ); }
-	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]].rv[%ld] "                    PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes,             io->out.rv, PRINT_EXTERN_ERR_ARGS); }
+	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]] "                            PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes,     PRINT_EXTERN_ERR_ARGS); }
 	void log_cancel(                                               ) const { pr_verb1("exec[%p].o[%p].was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
 	void log_put(                                           char rv) const { pr_verb1("exec[%p].o[%p].put[%c(%d%d)]"                                                       "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
  protected:
@@ -58,22 +58,30 @@ class io_request_executor_base : no_implicit_constructors {
 		if (is_async_executor) cmp.lock.lock();
 		cmp.has_finished_all_async_tasks = true;
 		if (!cmp.was_canceled) {
+			const int64_t cur_rv = io->get_raw_rv();
 			if (!was_rv_already_set_by_remote) {
-				BUG_ON(io->out.rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", io->out.rv);
-				io->out.rv = ((uint64_t)total_bytes == io->params.buf_size()) ? total_bytes : (int64_t)io_error_codes::E_BACKEND_FAULT;	// Partial io not supported
+				BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
+				log_set_rv();
+				io->set_success((uint64_t)total_bytes);									// User callback may not call cancel() so no dead lock
+			} else {
+				BUG_ON(cur_rv == (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
+				BUG_ON(io->has_callback(), "wrong implementation, io already got its cb and filled the rv");
+				total_bytes = (uint64_t)cur_rv;
+				log_set_rv();
 			}
-			log_set_rv();
-			io->complete();									// User callback may not call cancel() so no dead lock
 		}
 		if (is_async_executor) cmp.lock.unlock();
 		__dec_ref(true);
 	}
 	void send_async_work_failed(void) { async_work_done(); }// Async work not started, we are still in submit io (polling code has not started, completion callback is not awaited yet)
  public:													// API to use by IO
-	io_request_executor_base(class io_request& _io, const bool is_async) : io(&_io), num_ranges(io->params.num_ranges()) {
+	io_request_executor_base(class io_request& _io, const bool is_async) {
+		io = static_cast<server_io_req*>(&_io);
+		num_ranges = io->params.num_ranges();
+		BUILD_BUG_ON(sizeof(server_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 		is_async_executor = is_async;
 		if (is_async_executor) { ref.count.set(2); cmp.lock.init(); }
-		io->out.rv = io_error_codes::E_IN_TRANSFER;
+		io->start_execution();
 		log_start();
 	}
 	virtual ~io_request_executor_base() {
@@ -229,16 +237,17 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 	static void __cb(remote_aio_blocker *exec) {
 		pr_verb1("exec[%p].o[%p].blocked_rio: completion arrived\n", exec, exec->io);
 		exec->was_rv_already_set_by_remote = true;
-		BUG_ON(sem_post(&exec->wait) != 0, "Cant unblock waiter");		// Must be last line because after unblock executor can get free
+		BUG_ON(sem_post(&exec->wait) != 0, "Error when unblocking waiter");		// Must be last line because after unblock executor can get free
 	}
  public:
 	remote_aio_blocker(io_request &_io) : blocking_request_executor(_io) {
+		DEBUG_ASSERT(io->is_valid());								// Verify no other executor conencted to io
 		io->params.set_completion(this, this->__cb);
-		BUG_ON(sem_init(&wait, 0, 0) != 0, "Cannot init blocking io");
+		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
 	}
 	void run(void) override {}
 	enum io_error_codes is_still_running(void) override {
-		BUG_ON(sem_wait(&wait) != 0, "Cannot wait for blocking io");
+		BUG_ON(sem_wait(&wait) != 0, "Error waiting for blocking io");
 		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
 		io->params.set_completion(NULL, NULL);
 		async_work_done();
@@ -248,15 +257,15 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 
 /*****************************************************************************/
 class server_side_executor : public io_request_executor_base {						// Convert remote async request io to blocking
-	int (*fn)(void *ctx, class io_request& io);
+	void (*fn)(void *ctx, class server_io_req& io);
 	void* ctx;
  public:
-	server_side_executor(int (*_fn)(void *, class io_request&), void *_ctx, io_request &_io) : io_request_executor_base(_io, false), fn(_fn), ctx(_ctx) {}
-	~server_side_executor() { }
+	server_side_executor(void (*_fn)(void *, class server_io_req&), void *_ctx, server_io_req &_io) : io_request_executor_base(_io, false), fn(_fn), ctx(_ctx) {}
 	void run(void) override {
-		const int exec_rv = fn(ctx, *io);
-		pr_verb1("exec[%p].o[%p].Server io: rv=%d\n", this, io, exec_rv);
-		total_bytes = (exec_rv >= 0) ? (int64_t)io->params.buf_size() : (int64_t)exec_rv;
+		fn(ctx, *io);		// Launch io execution
+		pr_verb1("exec[%p].o[%p].Server io: rv=%ld\n", this, io, io->get_raw_rv());
+		was_rv_already_set_by_remote = true;
+		total_bytes = io->get_raw_rv();
 		detach_io();
 		async_work_done();
 	}

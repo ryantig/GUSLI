@@ -10,7 +10,7 @@ namespace gusli {
 /******************************** Communicate with client ********************/
 int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) {
 	const auto *pr = &msg.pay.c_register_buf;
-	const uint64_t n_bytes = (uint64_t)pr->num_blocks * par.binfo.block_size;
+	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	t_shared_mem *shm_ptr;
 	if (pr->is_io_buf) {
 		base_shm_element *new_map = &dp.shm_io_bufs.emplace_back();
@@ -25,7 +25,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) 
 	}
 	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes};
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
-	pr_infoS("Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS("Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	BUG_ON(rv, "Todo: instead of relying that clnt/server addresses are identical, IO should talk in buffer indices");
 	return rv;
 }
@@ -34,13 +34,13 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) 
 	const auto *pr = &msg.pay.c_unreg_buf;
 	const int vec_idx = dp.shared_buf_find(pr->buf_idx);
 	if (vec_idx < 0) return -1;
-	const uint64_t n_bytes = (uint64_t)pr->num_blocks * par.binfo.block_size;
+	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	const io_buffer_t buf = {.ptr = NULL, .byte_len = n_bytes};
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
 	const int rv = 0;
 	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
 	dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
-	pr_infoS("UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / par.binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS("UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
@@ -56,13 +56,12 @@ int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_byte
 	return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
 }
 
-void global_srvr_context_imp::__clnt_close(const MGMT::msg_content& msg, const connect_addr& addr) {
-	par.vfuncs.close(par.vfuncs.caller_context, "????");
+void global_srvr_context_imp::__clnt_close(const char* reason) {
+	par.vfuncs.close1(par.vfuncs.caller_context, reason);
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_infoS("stats{%s}\n", str);
 	dp.destroy();
-	(void)msg; (void)addr;
 }
 
 void global_srvr_context_imp::client_accept(connect_addr& addr) {
@@ -89,7 +88,7 @@ void global_srvr_context_imp::client_reject(void) {
 	}
 }
 
-int global_srvr_context_imp::run(void) {
+int global_srvr_context_imp::run_impl(void) {
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
 	client_accept(addr);
@@ -122,11 +121,14 @@ int global_srvr_context_imp::run(void) {
 			char cid[sizeof(p->client_id)+1];
 			sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
 			BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
-			const int rv_open = par.vfuncs.open(par.vfuncs.caller_context, cid);
+			this->binfo = par.vfuncs.open1(par.vfuncs.caller_context, cid);
 			const size_t n_send_bytes = msg.build_hel_ack();
-			msg.pay.s_hello_ack.info = par.binfo;
-			if (rv_open != 0)
-				msg.pay.s_hello_ack.info.bdev_descriptor = -1;
+			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
+			msg.pay.s_hello_ack.info = binfo;
+			if (binfo.bdev_descriptor <= 0) {
+				pr_errS("Open failed by backend rv=%d\n", binfo.bdev_descriptor);
+				msg.pay.s_hello_ack.info.bdev_descriptor = 0;
+			}
 			// Todo: Initialize datapath of consumer here
 			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
@@ -145,13 +147,13 @@ int global_srvr_context_imp::run(void) {
 			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::close_nice)) {
-			__clnt_close(msg, addr);
+			__clnt_close("nice_close");
 			const size_t n_send_bytes = msg.build_cl_ack();
 			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::die_now)) {
 			this->shutting_down = true;
-			__clnt_close(msg, addr);
+			__clnt_close("suicide");
 			const size_t n_send_bytes = msg.build_die_ack();
 			strcpy(msg.pay.s_die.extra_info, "cdie");
 			if (send_to(msg, n_send_bytes, addr) < 0)
@@ -166,7 +168,7 @@ int global_srvr_context_imp::run(void) {
 			if (send_to(msg, n_send_bytes, addr) < 0)
 				return -1;
 		} else if (msg.is(MGMT::msg::dp_submit)) {
-			io_request io;
+			server_io_req io;
 			bool need_wakeup_clnt_io_submitter = false, need_wakeup_clnt_comp_reader = false, wake = false;
 			int idx = dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
 			if (idx < 0) {
@@ -177,12 +179,14 @@ int global_srvr_context_imp::run(void) {
 				need_wakeup_clnt_io_submitter |= wake;
 				stats.inc(io);
 				{	nvTODO("Unify with client execute io code");
+					void* client_io_ctx = io.params._comp_ctx;		// Save aside
 					server_side_executor *_exec = new server_side_executor(par.vfuncs.exec_io, par.vfuncs.caller_context, io); // Execute IO on backend, syncronously....
 					if (_exec) {
 						_exec->run();									// Will auto delete exec upon IO finish;
 					} else {
 						io_autofail_executor(io, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
 					}
+					io.params._comp_ctx = client_io_ctx;			// Restore client context
 				}
 				const int cmp_idx = dp.srvr_finish_io(io, &wake);
 				need_wakeup_clnt_comp_reader |= wake;
@@ -209,11 +213,9 @@ int global_srvr_context_imp::run(void) {
 	return 0;
 }
 
-int global_srvr_context_imp::init(void) {
+int global_srvr_context_imp::init_impl(void) {
 	int rv = 0;
 	#define abort_exe_init_on_err() { pr_errS("Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
-	if (!io_csring::is_big_enough_for(par.binfo.num_max_inflight_io))
-		abort_exe_init_on_err()
 	if (this->start() != 0)
 		abort_exe_init_on_err()
 	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
@@ -227,26 +229,50 @@ int global_srvr_context_imp::init(void) {
 	if (rv < 0)
 		abort_exe_init_on_err();
 	pr_infoS("initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
+	is_initialized = true;
 	return 0;
 }
 
-int global_srvr_context_imp::destroy(void) {
+int global_srvr_context_imp::destroy_impl(void) {
 	pr_flush();
 	pr_infoS("terminate: conn=%c, {%s:%u}\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT);
 	if (sock.get_type() == sock_t::type::S_UDS)
 		unlink(par.listen_address);
 	sock.nice_close();
-	return finish(NV_COL_PURPL, 0);
+	free((char*)par.server_name);
+	const int rv = finish(NV_COL_PURPL, 0);
+	is_initialized = false;
+	return rv;
 }
 
 /********************************************************/
-int global_srvr_context::run(const struct init_params& _par) noexcept {
+int global_srvr_context::init(const struct init_params& _par) noexcept {
 	global_srvr_context_imp* g = _impl(this);
+	if (g->is_initialized) {
+		pr_err1("already initialized\n");
+		return EEXIST;	// Success
+	}
 	g->par = _par;
-	int rv;
-	rv = g->init(); if (rv < 0) return rv;
-	rv = g->run();
-	return g->destroy();
+	g->par.server_name = _par.server_name ? strdup(_par.server_name) : strdup("GS");	// dup srvr name string
+	return g->init_impl();
+}
+
+int global_srvr_context::destroy(void) noexcept {
+	global_srvr_context_imp* g = _impl(this);
+	if (!g->is_initialized) {
+		pr_err1("not initialized, nothing to destroy\n");
+		return ENOENT;
+	}
+	return g->destroy_impl();
+}
+
+int global_srvr_context::run(void) noexcept {
+	global_srvr_context_imp* g = _impl(this);
+	if (!g->is_initialized) {
+		pr_err1("not initialized, cannot run\n");
+		return ENOENT;
+	}
+	return g->run_impl();
 }
 
 } // namespace gusli
