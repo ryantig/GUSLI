@@ -195,6 +195,8 @@ int global_srvr_context_imp::run_impl(void) {
 				auto *p = &msg.pay.dp_complete;
 				p->sender_added_new_work = need_wakeup_clnt_comp_reader;
 				p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
+				if (unlikely(need_wakeup_clnt_io_submitter))
+					pr_err1("Client sent more than allowed > %u[ios], if it blocked will try waking him up\n", binfo.num_max_inflight_io);
 				stats.inc(*p);
 				if (send_to(msg, n_send_bytes, addr) < 0)
 					return -__LINE__;

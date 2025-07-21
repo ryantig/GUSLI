@@ -335,12 +335,15 @@ void io_request::submit_io(void) noexcept {
 		bool need_wakeup_srvr;
 		const int rv = bdev->b.dp.clnt_send_io(*this, &need_wakeup_srvr);
 		if (rv >= 0) {
-			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT "        .clnt_io_ptr=%p, doorbell=%d\n", PRINT_IO_REQ_ARGS(params), rv, this, need_wakeup_srvr);
-			if (need_wakeup_srvr)
-				ASSERT_IN_PRODUCTION(bdev->b.dp_wakeup_server() == 0);
+			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), rv, this, need_wakeup_srvr);
+			if (need_wakeup_srvr) {
+				const int wakeup_rv = bdev->b.dp_wakeup_server();
+				if (wakeup_rv < 0)
+					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waiking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), rv, this);
+			}
 			// Callback will come in future
 		} else {
-			/* Callback already arrived, 'this' can be free already as it returned a callback on failed async io */
+			/* Submition failed, Callback already arrived , 'this' can be free already as it returned a callback on failed async io */
 		}
 		if (should_block)
 			_exec->is_still_running();		// Blocking wait, for success or failure
@@ -578,13 +581,16 @@ bool bdev_backend_api::check_incoming() {
 			pr_info1("\t%s Server dies, reason:%s\n", this->info.name, msg.pay.s_die.extra_info);
 			is_control_path_ok = false;
 		} else if (msg.is(MGMT::msg::dp_complete)) {
-			bool need_wakeup_srvr;
-			int idx = dp.clnt_receive_completion(&need_wakeup_srvr);
-			// BUG_ON(need_wakeup_srvr, LIB_NAME ": completion list full, need to wakup server. Not implemented");
-			if (idx < 0)
-				return true;
-			for (; idx >= 0; idx = dp.clnt_receive_completion(&need_wakeup_srvr)) {
-				// BUG_ON(need_wakeup_srvr, LIB_NAME ": completion list full, need to wakup server. Not implemented");
+			// Drain all awaiting completions
+			bool need_wakeup_srvr = false, wakup_on_msg;
+			int idx = dp.clnt_receive_completion(&wakup_on_msg);
+			for (; idx >= 0; idx = dp.clnt_receive_completion(&wakup_on_msg)) {
+				need_wakeup_srvr |= wakup_on_msg;
+				pr_verb1(PRINT_IO_CQE_ELEM_FMT " processed completion. Need_wakeup=%d\n", idx, wakup_on_msg);
+			}
+			if (need_wakeup_srvr) { // We dont send more than ring size ios so server never runs out of completion entries
+				// Find bdev by message address and call bdev->b.dp_wakeup_server()); // because client is ready to accept new completions
+				pr_err("%s: completion list full (throttling not implemented). IO may stuck. Probably user app sent too much IO's in air (more than allowed)...\n", server_path);
 			}
 		} else {
 			BUG_ON(true, "Unhandled message %s\n", msg.hdr.type);

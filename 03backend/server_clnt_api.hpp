@@ -41,7 +41,7 @@ struct io_csring_cqe {
 	void extract_to(context_t* p) { *p = ctx; }
 } __attribute__((aligned(sizeof(long))));
 
-template <class T, unsigned int CAPACITY>
+template <class T, unsigned int CAPACITY, const char dbg_name>
 class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up to CAPACITY-1 elements
 	T arr[CAPACITY];
 	t_lock_spinlock lock_;
@@ -71,6 +71,7 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 	int insert(const T::context_t& p, bool *was_list_empty) {	// -1 on error, index of element [0..CAPACITY-1] on success
 		t_lock_guard l(lock_);
 		*was_list_empty = is_empty();
+		// pr_verbs("%c: nelems=%u ++\n", dbg_name, in_queue());
 		if (is_full())
 			return -1;
 		T *i = &arr[head];
@@ -83,6 +84,7 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 	int remove(T::context_t* p, bool *was_list_full) {			// -1 on error, index of element on success
 		t_lock_guard l(lock_);
 		*was_list_full = is_full();
+		// pr_verbs("%c: nelems=%u --\n", dbg_name, in_queue());
 		if (is_empty())
 			return -1;
 		T *i = &arr[tail_inc()];
@@ -94,16 +96,15 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 };
 
 struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev, shared memory is initialized
-	static constexpr int CAPACITY = 256;	// Maximal ammount of in air IO's + at least 1
- public:
-	io_csring_queue<io_csring_sqe, CAPACITY> sq;
-	io_csring_queue<io_csring_cqe, CAPACITY> cq;
+	static constexpr int CAPACITY = 512;	// Maximal ammount of in air IO's + at least 1
+	io_csring_queue<io_csring_sqe, CAPACITY, 's'> sq;
+	io_csring_queue<io_csring_cqe, CAPACITY, 'c'> cq;
 	void init(void) {						// Initialized by client (producer)
 		sq.init();
 		cq.init();
 	}
 	// datapath
-	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= num_max_inflight_io; }
+	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= (num_max_inflight_io+1); }	// +1 for debug, so according to max io's ring will never be full so producer will never have to block
 };
 
 struct base_shm_element {
@@ -131,7 +132,7 @@ class datapath_t {
 	int shared_buf_find(const uint32_t buf_idx) const;
 	int clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
 	int clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
-	int srvr_receive_io(   io_request &io, bool *need_wakeup_clnt_producer) const;
+	int srvr_receive_io(   server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	int srvr_finish_io(    server_io_req &io, bool *need_wakeup_clnt_consumer) const;
 	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm.~t_shared_mem(); }
 };
@@ -204,7 +205,7 @@ inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
 	return rv;
 }
 
-inline int datapath_t::srvr_receive_io(io_request &io, bool *need_wakeup_clnt) const {
+inline int datapath_t::srvr_receive_io(server_io_req &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
 	return r->sq.remove(&io.params, need_wakeup_clnt);
 }
@@ -223,6 +224,7 @@ inline int datapath_t::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt)
 #define PRINT_IO_REQ_ARGS(c) (c).op, (c).map.offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map.data), (c).num_ranges()
 #define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
 #define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
+#define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"
 
 #define pr_info1(fmt, ...) ({ pr_info( LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
 #define pr_err1( fmt, ...) ({ pr_err(            LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
@@ -337,9 +339,9 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 			struct t_wrong_cmd  {
 				char extra_info[32];					// Information about wrong command
 			} wrong_cmd;
-			struct t_dp_cmd  {
-				uint32_t sender_added_new_work;			// Boolean: Notify the other party that I (producer) added new work for it to consume (Unblock consumer from blocked-read)
-				uint32_t sender_ready_for_work;			// Boolean: Notify the other party that I (consumer) is ready to consume new work     (Unblock producer from blocked-write)
+			struct t_dp_cmd  {							// Client is producer of submitions, Server is producer of completions
+				uint32_t sender_added_new_work;			// Boolean: Producer notifies consumer that it added new work for it to consume (Unblock consumer from blocked-read)
+				uint32_t sender_ready_for_work;			// Boolean: Consumer notifies producer that it is ready to consume new work     (Unblock producer from blocked-write)
 			} dp_submit, dp_complete;
 		} pay; // __attribute__((packed));
 		      char *raw(void)       { return (char*)this; }

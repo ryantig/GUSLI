@@ -45,7 +45,7 @@ class server_ro_lba {
  private:
 	#define dslog(s, fmt, ...) ({ _log("%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
-	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_CLIENT_IN_FLIGHT_IO-1, .reserved = 'r' };
+	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_CLIENT_IN_FLIGHT_IO, .reserved = 'r' };
 	static gusli::bdev_info open1(void *ctx, const char* who) {
 		server_ro_lba *me = (server_ro_lba*)ctx;
 		me->binfo.bdev_descriptor = open(me->binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
