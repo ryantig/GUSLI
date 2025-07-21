@@ -434,6 +434,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 	}
 	is_control_path_ok = false;
 	io_listener_tid = 0;
+	stats.clear();
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;

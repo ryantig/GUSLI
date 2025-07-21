@@ -43,7 +43,8 @@ class bdev_no_backend_api {									// When there is no server, and client emula
 
 struct bdev_stats_clnt {
 	uint64_t n_doorbels_wakeup_srvr;
-	bdev_stats_clnt() { memset(this, 0, sizeof(*this)); }
+	void clear(void) { memset(this, 0, sizeof(*this)); }
+	bdev_stats_clnt() { clear(); }
 	int print_stats(char* buf, int buf_len) {
 		return scnprintf(buf, buf_len, "d={%lu}", n_doorbels_wakeup_srvr);
 	}
