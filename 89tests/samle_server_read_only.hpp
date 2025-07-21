@@ -68,6 +68,7 @@ class server_ro_lba {
 	}
 	static void exec_io(void *ctx, class gusli::server_io_req& io) {
 		server_ro_lba *me = (server_ro_lba *)ctx;
+		my_assert(io.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		if (io.params.op == gusli::io_type::G_WRITE) {
 			io.set_error(gusli::E_BACKEND_FAULT);
