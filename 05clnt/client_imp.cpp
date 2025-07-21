@@ -3,13 +3,14 @@
 #include "00utils/utils.hpp"
 #include "client_imp.hpp"
 #include "io_executors.hpp"
-#include <memory>				// unique_ptr static initialization
+//#include <memory>				// unique_ptr static initialization
 
 namespace gusli {
 
 global_clnt_context& global_clnt_context::get(void) noexcept {
-	static std::unique_ptr<global_clnt_context_imp> gc_ctx =  std::make_unique<global_clnt_context_imp>();
-	return *gc_ctx;
+	//static std::unique_ptr<global_clnt_context_imp> gc_ctx =  std::make_unique<global_clnt_context_imp>(); return *gc_ctx;
+	static global_clnt_context_imp gc_ctx;
+	return gc_ctx;
 }
 static inline       global_clnt_context_imp* _impl(      global_clnt_context* g) { return       (global_clnt_context_imp*)g; }
 static inline const global_clnt_context_imp* _impl(const global_clnt_context* g) { return (const global_clnt_context_imp*)g; }
