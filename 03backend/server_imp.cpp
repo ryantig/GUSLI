@@ -44,16 +44,19 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) 
 	return rv;
 }
 
-int global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const {
+void global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) {
 	ssize_t send_rv;
 	if (msg.is(MGMT::msg::dp_complete))
 		pr_verbS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	else
 		pr_infoS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	send_rv = io_sock.send_msg(msg.raw(), n_bytes, addr);
-	if (send_rv != (ssize_t)n_bytes)
+	if (send_rv != (ssize_t)n_bytes) {
 		pr_emerg("%s: Send Error rv=%ld, n_bytes=%lu, msg=%s\n", LIB_NAME, send_rv, n_bytes, msg.raw());
-	return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
+		client_reject();
+		do_shut_down(-__LINE__);
+	}
+	//return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
 }
 
 void global_srvr_context_imp::__clnt_close(const char* reason) {
@@ -87,6 +90,7 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 void global_srvr_context_imp::client_reject(void) {
 	if (sock.uses_connection() && sock.is_alive()) {
 		io_sock.nice_close();
+		ca.clean();
 	}
 }
 
@@ -112,9 +116,7 @@ class backend_io_executor {
 			p->sender_added_new_work = need_wakeup_clnt_comp_reader;
 			p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
 			srv->stats.inc(*p);
-			if (srv->send_to(msg, n_send_bytes, addr) < 0) {
-				srv->shutting_down = true;
-			}
+			srv->send_to(msg, n_send_bytes, addr);
 		}
 		delete this;
 	}
@@ -174,96 +176,87 @@ void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg,
 	}
 }
 
-int global_srvr_context_imp::run_impl(void) {
+int global_srvr_context_imp::run_once_impl(void) {
+	if (exit_error_code)
+		return exit_error_code;
+	if (!has_conencted_client()) {
+		client_accept(this->ca);		// Blocking accept client because nothing else to do, no io
+		return exit_error_code;
+	}
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
-	if (!has_conencted_client()) {
-		client_accept(addr);
+	const enum io_state io_st = __read_1_full_message(io_sock, msg, false, addr);
+	if (io_st != ios_ok) {
+		BUG_ON(io_st == ios_block, "Server listener is blocking");
+		pr_errS(this, "receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
+		client_reject();
+		return exit_error_code;			// On next iteration, accept new client
 	}
-	while (!shutting_down) {
-		const enum io_state io_st = __read_1_full_message(io_sock, msg, false, addr);
-		if (io_st != ios_ok) {
-			BUG_ON(io_st == ios_block, "Server listener is blocking");
-			pr_errS(this, "receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
-			if (!shutting_down) {
-				client_reject();
-				client_accept(addr);
-			}
-			continue;
+	char clnt_path[32];
+	sock.print_address(clnt_path, addr);
+	if (msg.is(MGMT::msg::dp_submit))
+		pr_verbS(this, "<< |%s|\n", msg.raw());
+	else
+		pr_infoS(this, "<< |%s| from %s\n", msg.raw(), clnt_path);
+	if (msg.is(MGMT::msg::hello)) {
+		const auto *p = &msg.pay.c_hello;
+		char cid[sizeof(p->client_id)+1];
+		sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
+		BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
+		this->binfo = par.vfuncs.open1(par.vfuncs.caller_context, cid);
+		const size_t n_send_bytes = msg.build_hel_ack();
+		ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
+		msg.pay.s_hello_ack.info = binfo;
+		if (binfo.bdev_descriptor <= 0) {
+			pr_errS(this, "Open failed by backend rv=%d\n", binfo.bdev_descriptor);
+			msg.pay.s_hello_ack.info.bdev_descriptor = 0;
 		}
-		char clnt_path[32];
-		sock.print_address(clnt_path, addr);
-		if (msg.is(MGMT::msg::dp_submit))
-			pr_verbS(this, "<< |%s|\n", msg.raw());
-		else
-			pr_infoS(this, "<< |%s| from %s\n", msg.raw(), clnt_path);
-		if (msg.is(MGMT::msg::hello)) {
-			const auto *p = &msg.pay.c_hello;
-			char cid[sizeof(p->client_id)+1];
-			sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
-			BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
-			this->binfo = par.vfuncs.open1(par.vfuncs.caller_context, cid);
-			const size_t n_send_bytes = msg.build_hel_ack();
-			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
-			msg.pay.s_hello_ack.info = binfo;
-			if (binfo.bdev_descriptor <= 0) {
-				pr_errS(this, "Open failed by backend rv=%d\n", binfo.bdev_descriptor);
-				msg.pay.s_hello_ack.info.bdev_descriptor = 0;
-			}
-			// Todo: Initialize datapath of consumer here
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::register_buf)) {
-			const int reg_rv = __clnt_bufs_register(msg);
-			const size_t n_send_bytes = msg.build_reg_ack();
-			msg.pay.s_register_ack.server_pointer = 0x0;		// Not needed
-			msg.pay.s_register_ack.rv = reg_rv;		// Leave other fields untouched
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::unreg_buf)) {
-			const int reg_rv = __clnt_bufs_unregist(msg);
-			const size_t n_send_bytes = msg.build_unr_ack();
-			msg.pay.s_unreg_ack.server_pointer = 0x0;		// Not needed
-			msg.pay.s_unreg_ack.rv = reg_rv;		// Leave other fields untouched
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::close_nice)) {
-			__clnt_close("nice_close");
-			const size_t n_send_bytes = msg.build_cl_ack();
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::die_now)) {
-			this->shutting_down = true;
-			__clnt_close("suicide");
-			const size_t n_send_bytes = msg.build_die_ack();
-			strcpy(msg.pay.s_die.extra_info, "cdie");
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::log)) {
-			const char*p = msg.pay.c_log.extra_info;
-			while (*p == ' ') p++;
-			pr_flush();
-			pr_alert("\n\n\n%s\n", p);
-			const size_t n_send_bytes = msg.build_ping();
-			strcpy(msg.pay.s_kal.extra_info, " LOG-OK");
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		} else if (msg.is(MGMT::msg::dp_submit)) {
-			__clnt_on_io_receive(msg, addr);
-		} else {
-			strncpy(msg.pay.wrong_cmd.extra_info, msg.raw(), sizeof(msg.hdr));		// Copy header of wrong message
-			const size_t n_send_bytes = msg.build_wrong();
-			if (send_to(msg, n_send_bytes, addr) < 0)
-				return -__LINE__;
-		}
+		// Todo: Initialize datapath of consumer here
+		send_to(msg, n_send_bytes, addr);
+	} else if (msg.is(MGMT::msg::register_buf)) {
+		const int reg_rv = __clnt_bufs_register(msg);
+		const size_t n_send_bytes = msg.build_reg_ack();
+		msg.pay.s_register_ack.server_pointer = 0x0;		// Not needed
+		msg.pay.s_register_ack.rv = reg_rv;		// Leave other fields untouched
+		send_to(msg, n_send_bytes, addr);
+	} else if (msg.is(MGMT::msg::unreg_buf)) {
+		const int reg_rv = __clnt_bufs_unregist(msg);
+		const size_t n_send_bytes = msg.build_unr_ack();
+		msg.pay.s_unreg_ack.server_pointer = 0x0;		// Not needed
+		msg.pay.s_unreg_ack.rv = reg_rv;		// Leave other fields untouched
+		send_to(msg, n_send_bytes, addr);
+	} else if (msg.is(MGMT::msg::close_nice)) {
+		__clnt_close("nice_close");
+		const size_t n_send_bytes = msg.build_cl_ack();
+		send_to(msg, n_send_bytes, addr);
+	} else if (msg.is(MGMT::msg::die_now)) {
+		do_shut_down(__LINE__);			// Successfull kill by client
+		__clnt_close("suicide");
+		const size_t n_send_bytes = msg.build_die_ack();
+		strcpy(msg.pay.s_die.extra_info, "cdie");
+		send_to(msg, n_send_bytes, addr);
+		client_reject();
+	} else if (msg.is(MGMT::msg::log)) {
+		const char*p = msg.pay.c_log.extra_info;
+		while (*p == ' ') p++;
+		pr_flush();
+		pr_alert("\n\n\n%s\n", p);
+		const size_t n_send_bytes = msg.build_ping();
+		strcpy(msg.pay.s_kal.extra_info, " LOG-OK");
+		send_to(msg, n_send_bytes, addr);
+	} else if (msg.is(MGMT::msg::dp_submit)) {
+		__clnt_on_io_receive(msg, addr);
+	} else {
+		strncpy(msg.pay.wrong_cmd.extra_info, msg.raw(), sizeof(msg.hdr));		// Copy header of wrong message
+		const size_t n_send_bytes = msg.build_wrong();
+		send_to(msg, n_send_bytes, addr);
 	}
-	client_reject();
-	return shutting_down ? 1 /* Successfully finished */ : 0 /* May continue to run*/;
+	return exit_error_code;
 }
 
 int global_srvr_context_imp::init_impl(void) {
 	int rv = 0;
-	#define abort_exe_init_on_err() { pr_errS(this, "Error in line %d\n", __LINE__); shutting_down = true; return -__LINE__; }
+	#define abort_exe_init_on_err() { pr_errS(this, "Error in line %d\n", __LINE__); do_shut_down(-__LINE__); return this->exit_error_code; }
 	if (this->start() != 0)
 		abort_exe_init_on_err()
 	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
@@ -321,7 +314,14 @@ int global_srvr_context::run(void) noexcept {
 		pr_err1("not initialized, cannot run\n");
 		return ENOENT;
 	}
-	return g->run_impl();
+	if (g->par.has_external_polling_loop) {
+		return g->run_once_impl();
+	} else {
+		int run_rv;
+		for (run_rv = 0; run_rv == 0; run_rv = g->run_once_impl()) {
+		}
+		return run_rv;
+	}
 }
 
 } // namespace gusli

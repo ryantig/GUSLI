@@ -43,7 +43,7 @@ class server_ro_lba {
 		}
 	}
  private:
-	#define dslog(s, fmt, ...) ({ _log("%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
+	#define dslog(s, fmt, ...) ({ _log("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_CLIENT_IN_FLIGHT_IO, .reserved = 'r' };
 	static gusli::bdev_info open1(void *ctx, const char* who) {
@@ -82,11 +82,12 @@ class server_ro_lba {
 		}
 		io.set_success(io.params.buf_size());
 	}
-	#undef dslog
  public:
-	server_ro_lba(const char* _name, const char* listen_addr) {
+	server_ro_lba(const char* _name, const char* listen_addr, bool use_extenral_loop = false) {
 		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address)-1);
-		p.log = stderr,	p.server_name = "USRV",
+		p.log = stderr;
+		p.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
+		p.has_external_polling_loop = use_extenral_loop;
 		p.vfuncs = {.caller_context = this, .open1 = server_ro_lba::open1, .close1 = server_ro_lba::close1, .exec_io = server_ro_lba::exec_io };
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
 	}
@@ -95,6 +96,15 @@ class server_ro_lba {
 		my_assert(rename_rv == 0);
 		gusli::global_srvr_raii srvr(p);
 		my_assert(srvr.BREAKING_VERSION == 1);
-		my_assert(srvr.run() >= 0);
+		int run_rv;
+		if (p.has_external_polling_loop) {
+			for (run_rv = 0; run_rv == 0; run_rv = srvr.run()) {
+				dslog(this, "User is doing interesting stuff here, throttle how much cpu server uses\n");
+			}
+		} else {
+			run_rv = srvr.run();
+		}
+		my_assert(run_rv > 0);		// Successful exit
 	}
+	#undef dslog
 };

@@ -206,7 +206,8 @@ struct connect_addr {
 		struct sockaddr_in i;		// ip address
 		struct sockaddr_un u;		// domain socket
 	} u;
-	connect_addr() { memset(this, 0, sizeof(*this)); }
+	void clean(void) { memset(this, 0, sizeof(*this)); }
+	connect_addr() { clean(); }
 	bool is_empty(void) const { return u.i.sin_port == 0; }
 	int get_len(bool is_remote) const { return is_remote ? sizeof(u.i) : sizeof(u.u); }
 	int get_remote_len(void) const { return sizeof(u.i); }

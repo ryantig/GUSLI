@@ -41,6 +41,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	class datapath_t dp;
 	bdev_stats_srvr stats;
 	bool is_initialized = false;
+	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
 	bool has_conencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(void);
@@ -48,7 +49,8 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	int  __clnt_bufs_unregist(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
 	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
 	void __clnt_close(const char* reason);
-	int  send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) const __attribute__((warn_unused_result));
+	void do_shut_down(int err_code) { exit_error_code = err_code; shutting_down = true;}
+	void send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr);
 	friend class global_srvr_context;	// nvTODO("Solve this encapsulation issue");
 	friend class backend_io_executor;
 
@@ -56,7 +58,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
  public:
 	global_srvr_context_imp() : base_library(LIB_NAME) { binfo.clear(); }
 	int init_impl(void);
-	int run_impl(void);
+	int run_once_impl(void);
 	int destroy_impl(void);
 };
 
