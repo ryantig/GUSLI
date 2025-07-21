@@ -26,6 +26,7 @@ struct bdev_stats_srvr {
 		else
 			n_io_range_single++;
 	}
+	void clear(void) { memset(this, 0, sizeof(*this)); }
 	int print_stats(char* buf, int buf_len) {
 		return scnprintf(buf, buf_len, "d={%lu/sub=%lu/cmp=%lu}, io={r1=%lu,rm=%lu}", n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp, n_io_range_single, n_io_range_multi);
 	}

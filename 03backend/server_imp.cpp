@@ -61,6 +61,7 @@ void global_srvr_context_imp::__clnt_close(const char* reason) {
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_infoS("stats{%s}\n", str);
+	stats.clear();
 	dp.destroy();
 }
 
