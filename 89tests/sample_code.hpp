@@ -35,6 +35,8 @@ static const char* io_exec_mode_str(io_exec_mode m) {
 #define for_each_exec_mode(i)       for (int i = ((int)io_exec_mode::ILLEGAL + 1); i < io_exec_mode::N_MODES;        i++)
 #define for_each_exec_async_mode(i) for (int i = ((int)io_exec_mode::POLLABLE   ); i < io_exec_mode::URING_BLOCKING; i++)
 
+#define MAX_CLIENT_IN_FLIGHT_IO (256)
+
 /***************************** Example of io usage ***************************************/
 class unitest_io {
 	static constexpr const int buf_len = (1 << 16);	// 64K

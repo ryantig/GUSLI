@@ -218,6 +218,7 @@ class all_ios_t {
 	static void __comp_cb(gusli::io_request *c) {
 		my_assert(c->get_error() == 0);
 		const uint64_t n_completed_ios = glbal_all_ios->n_completed_ios.inc();
+		// log("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
 		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
 			c->params.map.offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
 			c->submit_io();
@@ -462,6 +463,7 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 	char clnt_name[32], conf[512];
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
 	p.client_name = clnt_name;
+	p.max_num_simultaneous_requests = MAX_CLIENT_IN_FLIGHT_IO;
 	{	// Generate config
 		int i = sprintf(conf,
 			"# version=1, Config file for gusli client lib\n"
