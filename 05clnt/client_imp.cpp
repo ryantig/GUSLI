@@ -428,7 +428,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		return info.bdev_descriptor;
 	}
 	if (conn_rv < 0) {
-		pr_err1("Cannot conenct to |%s|, rv=%d. is server up?\n", addr, conn_rv);
+		pr_err1("Cannot connenct to |%s|, rv=%d. is server up?\n", addr, conn_rv);
 		info.bdev_descriptor = -1;
 		goto _out;
 	}
