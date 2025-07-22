@@ -31,7 +31,7 @@ CONF_FILE=`realpath ../gusli/07examples/server/spdk_bdev.conf`;
 cd ~/projects/spdk;
 if false; then				# Optionally check that all unitests pass
 	./test/unit/unittest.sh;
-	sudo ./build/examples/hello_bdev -c /home/danielhe/examples/bdev/hello_world/bdev.json -b Malloc0;
+	sudo ./build/examples/hello_bdev -c ./examples/bdev/hello_world/bdev.json -b Malloc0;
 	sudo ./build/examples/hello_bdev -c ${CONF_FILE} -b dhs_bdev;
 	sudo ./build/examples/bdevperf -c ${CONF_FILE} -q 1 -o 4096 -w write -t 3;
 fi
