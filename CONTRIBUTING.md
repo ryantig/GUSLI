@@ -149,7 +149,7 @@ We do not accept anonymous contributors nor those utilizing pseudonyms.
 
 Each commit must include a DCO which looks like this
 
-#Commit names format
+# Commit names format
 - [Issue Number] Component: More info
 - Example [JIRA-1568] Server: support non blocking accept
 - Please Keep commit names short
