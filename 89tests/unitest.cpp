@@ -21,9 +21,9 @@ struct bdev_uuid_cache {
 	static constexpr const char* AUTO_FAIL =    "168867d168867d7";	// Check last byte is 0
 	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
-	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
-	static constexpr const char* SRVR_NAME[] = { "Srv0", "Srv1", "Srv2"};
-	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tcp*/ };
+	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316", "8888spdk5555uuid____"};
+	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2", "SrvrSPdev0"};
+	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tcp*/, spdk_srvr_listen_addre };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
