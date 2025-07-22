@@ -16,7 +16,11 @@ make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/li
  * Mandatory: None. Plain C++ code (libc) code.
  * Optional: For IO's with large scatter gathers (> 64 ranges), uring API to local blockdevices may help. So consider: sudo apt install liburing-dev
 ## Support
-DanielHe@nvidia.com
+The current Maintainers Group for the project consists of:
+
+| Maintainer              | GitHub ID                                             | Affiliation | Email               |
+|-------------------------|-------------------------------------------------------|-------------|---------------------|
+| Daniel Herman Shmulyan  | [danielhe](https://github.com/danielhe-nvidia)        | NVIDIA      | DanielHe@nvidia.com |
 
 ## Roadmap & Project status
 In development https://jirasw.nvidia.com/browse/NVMESH-5811
