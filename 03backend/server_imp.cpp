@@ -99,6 +99,7 @@ class backend_io_executor {
 	global_srvr_context_imp *srv = NULL;
 	void* client_io_ctx = NULL;			// Original pointer to client io to pass back via completion entry
 	connect_addr addr;					// Address on which to wakeup client if needed
+	uint64_t thread_id; 				// Verify that callback comes on the same thread as io request
 	int sqe_indx;
 	bool need_wakeup_clnt_io_submitter = false;
 	bool need_wakeup_clnt_comp_reader = false;
@@ -106,6 +107,7 @@ class backend_io_executor {
 	void _io_done_cb(void) {
 		pr_verbS(srv, "exec[%p].Server io__cb_: rv=%ld\n", this, io.get_raw_rv());
 		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
+		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io lanuched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
 		io.params._comp_ctx = client_io_ctx;			// Restore client context
 		const int cmp_idx = srv->dp.srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
 		pr_verbS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell={s=%u,c=%u}\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, cmp_idx, client_io_ctx, need_wakeup_clnt_io_submitter, need_wakeup_clnt_comp_reader);
@@ -125,6 +127,7 @@ class backend_io_executor {
 	backend_io_executor(const connect_addr& _addr, global_srvr_context_imp& _srv) {
 		addr = _addr;
 		srv = &_srv;
+		thread_id = (uint64_t)pthread_self();
 		sqe_indx = srv->dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
 		if (unlikely(need_wakeup_clnt_io_submitter))
 			pr_errS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT "Client sent more than allowed > %u[ios], if it blocked will try waking him up\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, srv->binfo.num_max_inflight_io);
