@@ -42,7 +42,7 @@ class global_srvr_context_imp : public global_srvr_context, public base_library 
 	bdev_stats_srvr stats;
 	bool is_initialized = false;
 	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
-	bool has_conencted_client(void) const { return io_sock.is_alive(); }
+	bool has_connencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(void);
 	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));

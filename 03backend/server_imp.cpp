@@ -72,7 +72,7 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 	if (sock.uses_connection()) {
 		const int client_fd = sock.srvr_accept_clnt(addr);
 		if (client_fd < 0) {
-			pr_infoS(this, "accept failed: c_fd=%d" PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
+			pr_verbS(this, "accept failed: c_fd=%d " PRINT_EXTERN_ERR_FMT "\n", client_fd, PRINT_EXTERN_ERR_ARGS);
 			return;
 		}
 		char clnt_path[32];
@@ -182,7 +182,8 @@ void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg,
 int global_srvr_context_imp::run_once_impl(void) {
 	if (exit_error_code)
 		return exit_error_code;
-	if (!has_conencted_client()) {
+	if (!has_connencted_client()) {
+		pr_verbS(this, "Waiting to accept client...\n");
 		client_accept(this->ca);		// Blocking accept client because nothing else to do, no io
 		return exit_error_code;
 	}
@@ -263,7 +264,7 @@ int global_srvr_context_imp::init_impl(void) {
 	if (this->start() != 0)
 		abort_exe_init_on_err()
 	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
-	const bool blocking_accept = true;
+	const bool blocking_accept = par.use_blocking_client_accept;
 	if (     s_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false, ca, blocking_accept);
 	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca, blocking_accept);
 	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca, blocking_accept);

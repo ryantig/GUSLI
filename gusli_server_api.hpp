@@ -50,6 +50,7 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
 		const char* server_name = NULL;				// For debug, server identifier
 		bool has_external_polling_loop = false;		// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
+		bool use_blocking_client_accept = true;		// If client is not connected, server has nothing to do so it may block. If you implement external polling loop, consider setting this to false
 		struct srvr_backend_callbacks {
 			void *caller_context;
 			bdev_info (*open1)(void *caller_context, const char* who) = 0;
