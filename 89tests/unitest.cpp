@@ -1,4 +1,4 @@
-#include "sample_code.hpp"
+#include "07examples/client/io_submittion_example.hpp"
 
 #define log_line(fmt, ...) log("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define UNITEST_CLNT_NAME "[_test_]"
@@ -192,7 +192,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 }
 
 /***************************** Clnt Server test ***************************************/
-#include "samle_server_read_only.hpp"
+#include "07examples/server/read_only_ram.hpp"
 
 template<class T> class atomic {
 	T v;
@@ -464,7 +464,7 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 	char clnt_name[32], conf[512];
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
 	p.client_name = clnt_name;
-	p.max_num_simultaneous_requests = MAX_CLIENT_IN_FLIGHT_IO;
+	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;
 	{	// Generate config
 		int i = sprintf(conf,
 			"# version=1, Config file for gusli client lib\n"

@@ -9,7 +9,8 @@ make all;
 - executable of unitests will be created in root dir
 make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/libg*; ll /usr/include/gus*;
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
-- See sample_code.hpp or unit-tests to learn how to use the library
+- See examples directory for client/server implementation examples
+- See unit-tests directory to learn how to use the library
 
 ## Dependencies
  * Mandatory: None. Plain C++ code (libc) code.
