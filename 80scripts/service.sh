@@ -14,7 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+function echo_red() {    echo -e "\e[0;31m$*\e[0m"; }
 function echo_green() {  echo -e "\e[0;32m$*\e[0m"; }
+function echo_yellow() { echo -e "\e[0;33m$*\e[0m"; }
+
 function GUSLI() {
 	if [ $# -eq 0 ]; then
 		echo "params: show / clean "
