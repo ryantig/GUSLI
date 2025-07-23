@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #pragma once
+#ifdef SUPPORT_SPDK
 #include "spdk_server_ram.hpp"
 
 static volatile bool ctrl_c_pressed = false;
@@ -86,3 +87,16 @@ class server_spdk_app_1_gusli_server {
 	}
 	int get_rv(void) const { return run_rv; }
 };
+
+#else	// spdk support
+	#include "gusli_server_api.hpp"
+	#include "../common.hpp"
+	class server_spdk_app_1_gusli_server {
+	 public:
+		server_spdk_app_1_gusli_server(const int argc, const char *argv[]) { (void)argc; (void)argv; }
+		int get_rv(void) const {
+			log_uni_failure("Server: Could not find spdk framework, spdk server unitest abort, rv=%d\n", -ENOEXEC);
+			return ENOEXEC;
+		}
+	};
+#endif

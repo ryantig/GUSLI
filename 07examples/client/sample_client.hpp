@@ -86,6 +86,6 @@ int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, c
 	log_line("%s: Disconnect & Kill", spdk_srvr_listen_address);
 	gc.report_data_corruption(bdev, 0);			// Kill the server
 	log_uni_success("Client: Test OK\n");
-	return 1;
+	return 0;
 }
 

@@ -54,8 +54,9 @@ SOURCES_BASE = 00utils/utils.cpp
 SOURCES_CLNT = 05clnt/client_imp.cpp
 SOURCES_SRVR = 03backend/server_imp.cpp
 SOURCES_TEST_CLNT = 89tests/unitest.cpp
-SOURCES_TEST_SRVR = 89tests/sample_spdk_server.cpp
-SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST_CLNT) $(SOURCES_TEST_SRVR)
+SOURCES_SPDK_SRVR_APP = 89tests/sample_app_spdk_server.cpp
+SOURCES_SPDK_BOTH_APP = 89tests/sample_app_spdk_both.cpp
+SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST_CLNT) $(SOURCES_SPDK_BOTH_APP) $(SOURCES_SPDK_SRVR_APP)
 
 # ********** All objects will reside in separate directory **********
 OBJ_DIR_ROOT=99bin
@@ -70,8 +71,9 @@ OBJECTS_BASE = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_BASE))
 OBJECTS_CLNT = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_CLNT))
 OBJECTS_SRVR = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SRVR))
 OBJECTS_TEST_CLNT = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_TEST_CLNT))
-OBJECTS_TEST_SRVR = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_TEST_SRVR))
-OBJECTS_ALL = $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR) $(OBJECTS_TEST_CLNT) $(OBJECTS_TEST_SRVR)
+OBJECTS_SPDK_BOTH_APP = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SPDK_BOTH_APP))
+OBJECTS_SPDK_SRVR_APP = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCES_SPDK_SRVR_APP))
+OBJECTS_ALL = $(OBJECTS_BASE) $(OBJECTS_CLNT) $(OBJECTS_SRVR) $(OBJECTS_TEST_CLNT) $(OBJECTS_SPDK_BOTH_APP) $(OBJECTS_SPDK_SRVR_APP)
 
 # Include dependency files if they exist, causes recompilation .cpp files when .hpp files cahnge
 DEPEND_FILES_ALL = $(OBJECTS_ALL:.o=.d)
@@ -87,8 +89,11 @@ ifeq ($(BUILD_FOR_UNITEST),1)
 else
 	INSTALL_DIR=/usr
 endif
-UNITEST_CLNT_EXE=z_$(LIB_CLNT_NAME)_unitest
-UNITEST_SRVR_EXE=z_$(LIB_SRVR_NAME)_sample
+UNITEST_EXE_PREFIX=z_
+UNITEST_CLNT_EXE=$(UNITEST_EXE_PREFIX)$(LIB_CLNT_NAME)_unitest
+UNITEST_SPDKS_EXE=$(UNITEST_EXE_PREFIX)$(PROJECT_PREFIX)_spdk_server_dyn
+UNITEST_SPDK2_EXE=$(UNITEST_EXE_PREFIX)$(PROJECT_PREFIX)_spdk_both_unitest
+EXE_LIST_ALL=$(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_dyn $(UNITEST_SPDKS_EXE) $(UNITEST_SPDK2_EXE)
 
 # ********** Extract git information *********
 ifeq ($(COMPILATION_DATE),)
@@ -198,8 +203,7 @@ define print_synamic_dependencies
 	@printf "Dynamic dependencies analysis:\n"
 	ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
 	ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
-	ldd $(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_st
-	ldd $(UNITEST_SRVR_EXE) $(UNITEST_SRVR_EXE)_st
+	ldd $(EXE_LIST_ALL)
 	@printf "===========================================\n"
 endef
 
@@ -210,7 +214,7 @@ help:
 	@printf "Usage |\e[0;32mmake all\e[0;0m| for building libs + executable unitest\n"
 	@printf "\n\n\n\n"
 
-all: $(SOURCES_ALL) install $(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_st $(UNITEST_SRVR_EXE) $(UNITEST_SRVR_EXE)_st
+all: $(SOURCES_ALL) install $(EXE_LIST_ALL)
 	$(if $(filter 1,$(VERBOSE)),$(call print_compilation_info))
 	$(if $(filter 1,$(VERBOSE)),$(call print_synamic_dependencies))
 	$(info +--->100% Done!)
@@ -246,25 +250,25 @@ $(OBJ_DIR)/$(LIB_SRVR_NAME).so: $(OBJECTS_BASE) $(OBJECTS_SRVR)
 	$(call print_building_target);
 	$(ECHO_CMD) $(CC) -o $@ $^ $(LFLAGS__SO)
 
-$(UNITEST_CLNT_EXE)_st: $(OBJECTS_TEST_CLNT) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
+$(UNITEST_CLNT_EXE): $(OBJECTS_TEST_CLNT) $(OBJ_DIR)/$(LIB_CLNT_NAME).a $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE__STATIC))
 	@printf "+-->Run Exe: \e[1;45m./$@ -h\e[0;0m\n"
 
-$(UNITEST_CLNT_EXE): $(OBJECTS_TEST_CLNT)
+$(UNITEST_CLNT_EXE)_dyn: $(OBJECTS_TEST_CLNT)
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE_DYNAMIC))
 	@printf "+-->Run Exe: \e[1;45mLD_LIBRARY_PATH=$(INSTALL_DIR)/lib ./$@ -h\e[0;0m\n"
 
-$(UNITEST_SRVR_EXE)_st: $(OBJECTS_TEST_SRVR) $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a
+$(UNITEST_SPDK2_EXE): $(OBJECTS_SPDK_BOTH_APP) $(OBJ_DIR)/$(LIB_COMN_NAME).a $(OBJ_DIR)/$(LIB_SRVR_NAME).a $(OBJ_DIR)/$(LIB_CLNT_NAME).a
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE__STATIC), $(LFLAGS_SPDK_SRVR))
-	@printf "+-->Run Exe: \e[1;45m./$@ -h\e[0;0m\n"
+	@printf "+-->Run Exe: \e[1;45msudo ./$@\e[0;0m\n"
 
-$(UNITEST_SRVR_EXE): $(OBJECTS_TEST_SRVR)
+$(UNITEST_SPDKS_EXE): $(OBJECTS_SPDK_SRVR_APP)
 	$(call print_building_target);
 	$(call link_executable, $(LFLAGS_EXE_DYNAMIC), $(LFLAGS_SPDK_SRVR))
-	@printf "+-->Run Exe: \e[1;45mLD_LIBRARY_PATH=$(INSTALL_DIR)/lib ./$@ -h\e[0;0m\n"
+	@printf "+-->Run Exe: \e[1;45msudo LD_LIBRARY_PATH=$(INSTALL_DIR)/lib ./$@\e[0;0m\n"
 
 $(OBJ_DIR)/%.o: %.cpp Makefile
 	@mkdir -p $(dir $@)
@@ -296,7 +300,7 @@ endef
 define clean_compilation_output
 	@printf "+-->Cleaning |\e[1;45mExe / Lib.so / CrashDumps\e[0;0m|\n"
 	@find ./${1} -type f -name '*.so' -delete
-	@rm -f $(UNITEST_CLNT_EXE)* $(UNITEST_SRVR_EXE)* $(OBJ_DIR)/*.so core.*
+	@rm -f $(UNITEST_EXE_PREFIX)$(PROJECT_PREFIX)* $(OBJ_DIR)/*.so core.*
 endef
 
 clean: uninstall
