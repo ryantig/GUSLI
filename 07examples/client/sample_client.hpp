@@ -29,7 +29,7 @@ int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, c
 		int i = sprintf(conf,
 			"# version=1, Config file for gusli client lib\n"
 			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
-		i += sprintf(&conf[i], "%s N W D %s sec=0x0\n", bdev_uuid, srvr_addr);
+		i += sprintf(&conf[i], "%s N W D %s sec=0x04\n", bdev_uuid, srvr_addr);
 		p.config_file = &conf[0];
 	}
 	gusli::global_clnt_raii gc(p);

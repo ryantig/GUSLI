@@ -91,7 +91,7 @@ class server_spdk_ram {
 	#define PRINT_IO_REQ_ARGS(io)  (io).params.op, (&io), io.params.num_ranges(), io.params.buf_size()
 
 	gusli::global_srvr_context::init_params p;
-	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 0, .num_total_blocks = 0, .name = "", .num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO, .reserved = 's' };
+	gusli::bdev_info binfo;
 	struct backend_dev_t back;
 	gusli::global_srvr_raii *gs = NULL;
 	static void bdev_event_cb(enum spdk_bdev_event_type type, struct spdk_bdev *bdev, void *ctx) {
@@ -201,7 +201,9 @@ class server_spdk_ram {
 		p.has_external_polling_loop = true;
 		p.use_blocking_client_accept = false;	// Must do this if you want to run > 1 server on the same cpu core (spdk thread)
 		p.vfuncs = {.caller_context = this, .open1 = server_spdk_ram::open1, .close1 = server_spdk_ram::close1, .exec_io = server_spdk_ram::exec_io };
+		binfo.clear();
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
+		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
 		back.bdev_name = _name;
 		back.my_srvr = this;
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name

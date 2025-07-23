@@ -31,7 +31,7 @@
 class server_ro_lba {
 	#define dslog(s, fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
-	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO, .reserved = 'r' };
+	gusli::bdev_info binfo;
 	static gusli::bdev_info open1(void *ctx, const char* who) {
 		server_ro_lba *me = (server_ro_lba*)ctx;
 		me->binfo.bdev_descriptor = open(me->binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
@@ -75,6 +75,10 @@ class server_ro_lba {
 		p.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
 		p.has_external_polling_loop = use_extenral_loop;
 		p.vfuncs = {.caller_context = this, .open1 = server_ro_lba::open1, .close1 = server_ro_lba::close1, .exec_io = server_ro_lba::exec_io };
+		binfo.clear();
+		binfo.block_size = 4096;			// 4[KB]
+		binfo.num_total_blocks = (1 << 20); // 4[GB]
+		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
 	}
 	void run(void) {

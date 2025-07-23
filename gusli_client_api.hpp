@@ -38,13 +38,13 @@ struct backend_bdev_id {					// Unique ID of volume
 } __attribute__((aligned(sizeof(long))));
 
 struct bdev_info {							// After connection to bdev established, this info can be retrieved
+	char name[32];							// Server self reported name, used for logging
 	int32_t  bdev_descriptor;				// Much like file descriptor, Used to access this bdev in datapath
 	uint32_t block_size;					// bytes units. Minimal unit for IO (size and alignment). Typically 4[KB]..16[MB]
 	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrinked.
-	char name[32];							// Server self reported name, used for logging
 	uint32_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side
 	uint32_t reserved;
-	void clear(void) { memset(this, 0, sizeof(*this)); }
+	void clear(void) { memset(this, 0, sizeof(*this)); bdev_descriptor = -1; }
 	bool is_valid(void) const { return (block_size > 0) && (bdev_descriptor > 0); }
 } __attribute__((aligned(sizeof(long))));
 
