@@ -92,13 +92,12 @@ struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] hea
 	bool is_valid(void) const { return (n_entries > 1); } // For 0,1 range, multi map is not needed
 } __attribute__((aligned(sizeof(long))));
 
-
 class io_request {								// Data structure for issuing IO
  public:
 	struct params_t {							// Parameters for IO, treated as const by the library
+		io_map_t map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
 		int32_t bdev_descriptor;				// Take from bdev_info::bdev_descriptor
 		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
-		io_map_t map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
 		enum io_type op : 8;					// Operation to be performed
 		uint8_t priority: 8;					// [0..100] priority. 100 is highest, 0 lowest
 		uint8_t is_mutable_data : 1;			// Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
@@ -125,13 +124,12 @@ class io_request {								// Data structure for issuing IO
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
 	SYMBOL_EXPORT [[nodiscard]] enum cancel_rv try_cancel(void) noexcept;	// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
- protected:
-	class io_request_executor_base* _exec;		// During execution executor attaches to IO
-	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;
-	struct output_t {
-		int64_t rv;								// Negative error code or amount of blocks transferred
-	} out;
+ protected:																// Below extra 16[b] for execution state
+	class io_request_executor_base* _exec;								// During execution executor attaches to IO, Server side uses it to execute io
+ 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
 	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
+private:
+	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;	// Internal function, dont touch
 };
 
 /******************************** Global library context ***********************/
@@ -185,9 +183,12 @@ public:
 			throw std::runtime_error("Failed to initialize gusli client");
 	}
 	SYMBOL_EXPORT ~global_clnt_raii() noexcept { (void)global_clnt_context::get().destroy(); }
-	SYMBOL_EXPORT [[nodiscard]] static enum connect_rv bufs_register(      const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT [[nodiscard]] static enum connect_rv bufs_unregist(      const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;
-	SYMBOL_EXPORT static int32_t         get_bdev_descriptor(const backend_bdev_id& id) noexcept;
+	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept { return global_clnt_context::get().get_metadata_json(); }
+	SYMBOL_EXPORT [[nodiscard]] static enum connect_rv bufs_register( const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
+	SYMBOL_EXPORT [[nodiscard]] static enum connect_rv bufs_unregist( const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server = false) noexcept;
+	SYMBOL_EXPORT [[nodiscard]] static enum connect_rv get_bdev_info( const backend_bdev_id& id, struct bdev_info &rv) noexcept { return global_clnt_context::get().bdev_get_info(id, &rv); }
+	SYMBOL_EXPORT [[nodiscard]] static int32_t   get_bdev_descriptor( const backend_bdev_id& id) noexcept;
+	SYMBOL_EXPORT               static void   report_data_corruption( const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept { global_clnt_context::get().bdev_report_data_corruption(id, offset_lba_bytes); }
 };
 
 } // namespace gusli

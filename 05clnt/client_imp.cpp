@@ -289,7 +289,7 @@ enum connect_rv global_clnt_raii::bufs_register(const backend_bdev_id& id, const
 	}
 	return global_clnt_context::get().bdev_bufs_register(id, bufs);
 }
-enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server) noexcept {
 	global_clnt_context &c = global_clnt_context::get();
 	global_clnt_context_imp* g = _impl(&c);
 	server_bdev *bdev = g->bdevs.find_by(id);
@@ -300,7 +300,7 @@ enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const
 	if (rv != C_OK)
 		return rv;
 	if (!bdev->is_still_used())
-		(void)__bdev_disconnect(bdev, false);		// User has nothing to do with close failure
+		(void)__bdev_disconnect(bdev, stop_server);		// User has nothing to do with close failure
 	return C_OK;
 }
 

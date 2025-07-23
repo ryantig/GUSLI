@@ -94,7 +94,6 @@ class io_request_executor_base : no_implicit_constructors {
 	io_request_executor_base(class io_request& _io, const bool is_async) {
 		io = static_cast<server_io_req*>(&_io);
 		num_ranges = io->params.num_ranges();
-		BUILD_BUG_ON(sizeof(server_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 		is_async_executor = is_async;
 		if (is_async_executor) { ref.count.set(2); cmp.lock.init(); }
 		io->start_execution();

@@ -442,7 +442,8 @@ inline void __compilation_verification(void) {
 	BUILD_BUG_ON(sizeof(MGMT::msg_content::t_payload::c_register_buf) != 40);
 	BUILD_BUG_ON(sizeof(MGMT::msg_content::t_payload::s_register_ack) != 40);
 	BUILD_BUG_ON(sizeof(MGMT::msg_content) != 64);
-	BUILD_BUG_ON(sizeof(io_request::params_t) != 56);
+	BUILD_BUG_ON(sizeof(io_request::params_t) != 48);
+	BUILD_BUG_ON(sizeof(server_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 	BUILD_BUG_ON(sizeof(io_multi_map_t) != 8);
 }
 
