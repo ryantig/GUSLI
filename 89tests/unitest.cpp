@@ -392,11 +392,11 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			mio->entries[1] = (gusli::io_map_t){.data = {.ptr = io_bufs[1].ptr  , .byte_len = n_block(2), }, .offset_lba_bytes = n_block(0x11)};
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
 			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-			server_ro_lba::test_mmio_print(mio, "clnt");
+			test_lba::mmio_print(mio, "clnt");
 			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Sync-IO-OK
-			server_ro_lba::test_mmio_verify_and_clean(mio, info.block_size);
+			test_lba::mmio_verify_and_clean(mio, info.block_size);
 			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);				// Async-OK
-			server_ro_lba::test_mmio_verify_and_clean(mio, info.block_size);
+			test_lba::mmio_verify_and_clean(mio, info.block_size);
 			my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
 		}
 

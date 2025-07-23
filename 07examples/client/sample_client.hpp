@@ -18,33 +18,6 @@
 #include "07examples/client/io_submittion_example.hpp"
 
 /*****************************************************************************/
-/* First 8 bytes of each block store the address of that block
-	so unit-tests can verify the correctness of reads */
-namespace test_lba {
-	void map1_fill(const gusli::io_map_t &m, uint32_t block_size_bytes) {
-		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
-			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
-			*dst = (m.offset_lba_bytes + b);
-		}
-	}
-	void mmio_fill(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
-		for (uint32_t i = 0; i < mio->n_entries; i++)
-			map1_fill(mio->entries[i], block_size_bytes);
-	}
-	void map1_verify_and_clean(const gusli::io_map_t &m, uint32_t block_size_bytes) {
-		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
-			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
-			my_assert(*dst == (m.offset_lba_bytes + b));
-			*dst = -1;		// Future reads must execute to access the data again
-		}
-	}
-	void mmio_verify_and_clean(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
-		for (uint32_t i = 0; i < mio->n_entries; i++)
-			map1_verify_and_clean(mio->entries[i], block_size_bytes);
-	}
-};
-
-/*****************************************************************************/
 /* Simple test of clinet process: Connect to server, Write IO and verify it
    with read. Do 1 range and multi-range io. Stop the server at the end */
 int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, const char* srvr_addr) {

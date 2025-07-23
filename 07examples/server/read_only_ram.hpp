@@ -29,36 +29,6 @@
 	4. Completes io's immediately (syncronously)
 */
 class server_ro_lba {
-	static void _1_map_fill(const gusli::io_map_t &m, uint32_t block_size_bytes) {
-		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
-			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
-			*dst = (m.offset_lba_bytes + b);
-		}
-	}
-	static void _mmio_fill(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
-		for (uint32_t i = 0; i < mio->n_entries; i++)
-			_1_map_fill(mio->entries[i], block_size_bytes);
-	}
- public: // Unit-test environment api to fill and verify content of io
-	static void test_1_map_verify_and_clean(const gusli::io_map_t &m, uint32_t block_size_bytes) {
-		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
-			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
-			my_assert(*dst == (m.offset_lba_bytes + b));
-			*dst = -1;		// Future reads must execute to access the data again
-		}
-	}
-	static void test_mmio_verify_and_clean(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
-		for (uint32_t i = 0; i < mio->n_entries; i++)
-			test_1_map_verify_and_clean(mio->entries[i], block_size_bytes);
-	}
-	static void test_mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
-		log_unitest("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
-		for (uint32_t i = 0; i < mio->n_entries; i++) {
-			const gusli::io_map_t& m = mio->entries[i];
-			log_unitest("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
-		}
-	}
- private:
 	#define dslog(s, fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO, .reserved = 'r' };
@@ -89,12 +59,12 @@ class server_ro_lba {
 		if (io.params.op == gusli::io_type::G_WRITE) {
 			io.set_error(gusli::E_BACKEND_FAULT);
 		} else if (io.params.num_ranges() <= 1) {
-			_1_map_fill(io.params.map, me->binfo.block_size);
+			test_lba::map1_fill(io.params.map, me->binfo.block_size);
 		} else {
 			const gusli::io_multi_map_t* mio = io.get_multi_map();
 			dslog(me, "Serving IO: #rng = %u, buf_size=%lu[b]\n", io.params.num_ranges(), io.params.buf_size());
-			test_mmio_print(mio, me->p.server_name);
-			_mmio_fill(mio, me->binfo.block_size);
+			test_lba::mmio_print(mio, me->p.server_name);
+			test_lba::mmio_fill(mio, me->binfo.block_size);
 		}
 		io.set_success(io.params.buf_size());
 	}

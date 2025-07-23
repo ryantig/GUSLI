@@ -55,3 +55,37 @@ static inline void wait_for_process(__pid_t pid, const char* who) {
 		log_unitest("\t %s rv=%d\n", who, WEXITSTATUS(status));
 	}
 }
+
+/*****************************************************************************/
+/* First 8 bytes of each block store the address of that block
+	so unit-tests can verify the correctness of reads */
+namespace test_lba {
+	static inline void map1_fill(const gusli::io_map_t &m, uint32_t block_size_bytes) {
+		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
+			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			*dst = (m.offset_lba_bytes + b);
+		}
+	}
+	static inline void mmio_fill(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
+		for (uint32_t i = 0; i < mio->n_entries; i++)
+			map1_fill(mio->entries[i], block_size_bytes);
+	}
+	static inline void map1_verify_and_clean(const gusli::io_map_t &m, uint32_t block_size_bytes) {
+		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
+			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			my_assert(*dst == (m.offset_lba_bytes + b));
+			*dst = -1;		// Future reads must execute to access the data again
+		}
+	}
+	static inline void mmio_verify_and_clean(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
+		for (uint32_t i = 0; i < mio->n_entries; i++)
+			map1_verify_and_clean(mio->entries[i], block_size_bytes);
+	}
+	static inline void mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
+		log_unitest("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
+		for (uint32_t i = 0; i < mio->n_entries; i++) {
+			const gusli::io_map_t& m = mio->entries[i];
+			log_unitest("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
+		}
+	}
+};
