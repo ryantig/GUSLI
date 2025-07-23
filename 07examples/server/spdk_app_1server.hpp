@@ -81,6 +81,7 @@ class server_spdk_app_1_gusli_server {
 		} else {
 			SPDK_NOTICELOG("app finished, gs_rv=%d %s\n", run_rv, (ctrl_c_pressed ? ",Ctr+C pressed" : ""));
 			spdk_app_fini();
+			log_uni_success("Server: Test OK\n");
 		}
 	}
 	int get_rv(void) const { return run_rv; }

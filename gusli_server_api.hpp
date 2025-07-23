@@ -30,6 +30,7 @@ public:											// Note this is the same as base class, just add functions for
 	SYMBOL_EXPORT void start_execution(void) { out.rv = io_error_codes::E_IN_TRANSFER; }
 	SYMBOL_EXPORT int64_t get_raw_rv(void) const { return out.rv; }
 	SYMBOL_EXPORT const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
+	SYMBOL_EXPORT void** get_private_exec_u64_addr(void) { return (void**)&this->_exec; }
 	SYMBOL_EXPORT void set_error(enum io_error_codes err) {
 		const bool do_cb = has_callback();
 		out.rv = (int64_t)err;							// After this line 'this' may get free, if no callback
