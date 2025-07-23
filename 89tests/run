@@ -29,7 +29,7 @@ function UNITEST_SPDK_both() {
 	echo_green ".....Test ctrl+c";
 	rm out_*;
 	sudo ./z_gusli_spdk_both_unitest @s 2>&1 | tee -a out_srvr.txt &
-	sudo ./z_gusli_spdk_both_unitest @c 2>&1 | tee -a out_clnt.txt
+	     ./z_gusli_spdk_both_unitest @c 2>&1 | tee -a out_clnt.txt
 	wait;
 	GUSLI show;
 }

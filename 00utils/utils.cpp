@@ -77,6 +77,8 @@ time_stamp_t get_time_now(__maybe_unused char reset_to) {
 #include <netdb.h>
 #include <sys/epoll.h>
 #include <sys/un.h>
+#include <unistd.h>				// Set permissions of socket
+#include <sys/stat.h>
 void sock_t::epoll_reply_start(void) {
 	BUG_ON(has_epoll_running(), "trying to create epoll for fd=%d a second time", _fd);
 	epoll_fd = epoll_create1(0);
@@ -145,6 +147,13 @@ void sock_t::__bind_server(const struct connect_addr &ca) {
 		const char* where = (is_remote()) ? "inet" : ca.u.u.sun_path;
 		pr_err("Bind failed(%s) type=%c, rv=%d, " PRINT_EXTERN_ERR_FMT "\n", where, _type, rv, PRINT_EXTERN_ERR_ARGS);
 		close(_fd); _fd = -1; return;
+	}
+	if (this->_type == type::S_UDS) {		// Allow sudo app to talk to non sudo app via unix domain socket
+		static constexpr const mode_t all_mode = S_IRWXU | S_IRWXG | S_IRWXO;  // rwxrwxrwx
+		pr_verbs("socket[%s].fd[%u].chmod[%o]\n", ca.u.u.sun_path, _fd, all_mode);
+		//if (fchmod(_fd, blk_mode) < 0)	// Possibly do this on non uds
+		if (chmod(ca.u.u.sun_path, all_mode) < 0)
+			pr_err("socket[%s].fd[%u].chmod[%o] failed " PRINT_EXTERN_ERR_FMT "\n", ca.u.u.sun_path, _fd, all_mode, PRINT_EXTERN_ERR_ARGS);
 	}
 	if ((rv = listen(_fd, 256 /*Max clients*/)) < 0) {
 		/*if (errno != EINTR) {
