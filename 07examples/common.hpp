@@ -32,7 +32,9 @@ inline int _unitest_log_fn(const char *fmt, ...) {
 	va_end(ap);
 	return res;
 }
-#define log_unitest(fmt, ...) ({ _unitest_log_fn("\x1b[1;37m" "UserApp: " fmt "\x1b[0;0m", ##__VA_ARGS__); fflush(stderr); })
+#define log_unitest(    fmt, ...) ({ _unitest_log_fn("\x1b[1;37m" "UserApp: " fmt "\x1b[0;0m", ##__VA_ARGS__); fflush(stderr); })
+#define log_uni_success(fmt, ...) ({ _unitest_log_fn("\x1b[1;32m" fmt "\x1b[0;0m", ##__VA_ARGS__); fflush(stderr); })
+#define log_uni_failure(fmt, ...) ({ _unitest_log_fn("\x1b[1;31m" fmt "\x1b[0;0m", ##__VA_ARGS__); fflush(stderr); })
 #define log_line(fmt, ...) log_unitest("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
 
