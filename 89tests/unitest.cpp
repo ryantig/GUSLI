@@ -16,7 +16,6 @@
  */
 #include "07examples/client/io_submittion_example.hpp"
 
-#define log_line(fmt, ...) log("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
 uint64_t get_cur_timestamp_unix(void) {
@@ -28,7 +27,7 @@ uint64_t get_cur_timestamp_unix(void) {
 static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
 	my_assert(lib.bdev_get_info(bdev, &i) == gusli::connect_rv::C_OK);
-	log("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);
+	log_unitest("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);
 	return i.bdev_descriptor;
 }
 
@@ -37,9 +36,9 @@ struct bdev_uuid_cache {
 	static constexpr const char* AUTO_FAIL =    "168867d168867d7";	// Check last byte is 0
 	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
-	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316", "8888spdk5555uuid____"};
-	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2", "SrvrSPdev0"};
-	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tcp*/, spdk_srvr_listen_addre };
+	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
+	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2"};
+	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tcp*/ };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -107,7 +106,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		}
 		const uint64_t time_end = get_cur_timestamp_unix();
 		const uint64_t n_micro_sec = (time_end - time_start);
-		log("Test summary[%s]: time=%5lu.%03u[msec]\n", io_exec_mode_str(POLLABLE), n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+		log_unitest("Test summary[%s]: time=%5lu.%03u[msec]\n", io_exec_mode_str(POLLABLE), n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
 		my_io.enable_prints(true).clear_stats();
 	}
 	if (1) {
@@ -124,7 +123,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			}
 			const uint64_t time_end = get_cur_timestamp_unix();
 			const uint64_t n_micro_sec = (time_end - time_start);
-			log("Test summary[%s]: canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+			log_unitest("Test summary[%s]: canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
 			my_io.clear_stats();
 		}
 		my_io.enable_prints(true).clear_stats();
@@ -234,7 +233,7 @@ class all_ios_t {
 	static void __comp_cb(gusli::io_request *c) {
 		my_assert(c->get_error() == 0);
 		const uint64_t n_completed_ios = glbal_all_ios->n_completed_ios.inc();
-		// log("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
+		// log_unitest("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
 		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
 			c->params.map.offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
 			c->submit_io();
@@ -271,7 +270,7 @@ class all_ios_t {
 		n_in_air_ios.set(io_depth);
 		my_assert(sem_init(&wait, 0, 0) == 0);
 		if (n_completed_ios.read() == 0)
-			log("\tperfTest %lu[op=%c], io_size=%lu[b], io_depth=%u\n", _n_ios_todo, ios[0].params.op, ios[0].params.buf_size(), io_depth);
+			log_unitest("\tperfTest %lu[op=%c], io_size=%lu[b], io_depth=%u\n", _n_ios_todo, ios[0].params.op, ios[0].params.buf_size(), io_depth);
 		n_completed_ios.set(0);
 		const uint64_t time_start = get_cur_timestamp_unix();
 		for (int i = 0; i < io_depth; i++) {
@@ -283,7 +282,7 @@ class all_ios_t {
 		const uint64_t n_done_ios = n_completed_ios.read();
 		const uint64_t n_done_bytes = n_done_ios * ios[0].params.buf_size();
 		const uint64_t n_GBperSec = (n_done_bytes / n_micro_sec)/1000; (void)n_GBperSec;
-		log("\tperfTest time=%lu.%03u[msec] %lu[Kios], %lu[Kio/s]\n" /*"t=%lu[GB/sec]\n"*/, n_micro_sec/1000, (unsigned)(n_micro_sec%1000), n_done_ios/1000, ((n_completed_ios.read()*1000)/ n_micro_sec) /*, n_GBperSec*/);
+		log_unitest("\tperfTest time=%lu.%03u[msec] %lu[Kios], %lu[Kio/s]\n" /*"t=%lu[GB/sec]\n"*/, n_micro_sec/1000, (unsigned)(n_micro_sec%1000), n_done_ios/1000, ((n_completed_ios.read()*1000)/ n_micro_sec) /*, n_GBperSec*/);
 	}
 	~all_ios_t() { }
 };
@@ -433,15 +432,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	// Wait for all servers process to finish
 	if (launch_server_as_process) {
 		for (int i = 0; i < n_servers; ++i) {
-			int status;
-			while (-1 == waitpid(child[i].pid, &status, 0));
-			if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
-				log("\t server_done rv=%d\n", WEXITSTATUS(status));
-			} else if (WIFSIGNALED(status)) {
-				log("\t server_done killed_ by signal=%d\n", WTERMSIG(status));
-			} else {
-				log("\t server_done rv=%d\n", WEXITSTATUS(status));
-			}
+			wait_for_process(child[i].pid, "server_done");
 		}
 	} else {
 		for (int i = 0; i < n_servers; ++i) {
@@ -515,7 +506,7 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 	auto *rv = new gusli::global_clnt_raii(p);
 	memset((void*)&p, 0xCC, sizeof(p));						// Trap usage by gusli library of params memory after initialization
 	my_assert(lib.init(p) == EEXIST);						// Second initialization, even with garbage params is also OK
-	log("\tmetadata= %s\n", lib.get_metadata_json());
+	log_unitest("\tmetadata= %s\n", lib.get_metadata_json());
 	my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
 	my_assert(rv->BREAKING_VERSION == 1);
 	memset(conf,      0xCC, sizeof(conf));
@@ -555,10 +546,10 @@ int main(int argc, char *argv[]) {
 			case 'c': n_iter_race_tests = std::stoi(  optarg); break;
 			case 'h':
 			default:
-				log("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-h]\n", argv[0]);
-				log("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
-				log("  -c n_iter_race_tests, (default: %d)\n", n_iter_race_tests);
-				log("  -h                    Show this help message\n");
+				log_unitest("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-h]\n", argv[0]);
+				log_unitest("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
+				log_unitest("  -c n_iter_race_tests, (default: %d)\n", n_iter_race_tests);
+				log_unitest("  -h                    Show this help message\n");
 				return (opt == 'h') ? 0 : 1;
 		}
 	}
@@ -575,5 +566,5 @@ int main(int argc, char *argv[]) {
 	client_no_server_reply_test(lib);
 	client_server_test(lib, num_ios_preassure);
 	delete ggg;
-	log("Done!!! Success\n\n\n");
+	log_unitest("Done!!! Success\n\n\n");
 }

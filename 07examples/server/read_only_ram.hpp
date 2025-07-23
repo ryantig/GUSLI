@@ -52,14 +52,14 @@ class server_ro_lba {
 			test_1_map_verify_and_clean(mio->entries[i], block_size_bytes);
 	}
 	static void test_mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
-		log("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
+		log_unitest("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
 		for (uint32_t i = 0; i < mio->n_entries; i++) {
 			const gusli::io_map_t& m = mio->entries[i];
-			log("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
+			log_unitest("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
 		}
 	}
  private:
-	#define dslog(s, fmt, ...) ({ _log("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
+	#define dslog(s, fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo = gusli::bdev_info{ .bdev_descriptor = -1, .block_size = 4096, .num_total_blocks = (1 << 30), .name = "", .num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO, .reserved = 'r' };
 	static gusli::bdev_info open1(void *ctx, const char* who) {

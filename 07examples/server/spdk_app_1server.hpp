@@ -68,7 +68,7 @@ class server_spdk_app_1_gusli_server {
 	static void app_source_code_static(void *arg1) { ((server_spdk_app_1_gusli_server*)arg1)->app_source_code(); }
  public:
 	server_spdk_app_1_gusli_server(const int argc, const char *argv[]) {
-		srvr = std::make_unique<server_spdk_ram>(backend_dev_t::default_bdev_name, spdk_srvr_listen_addre);
+		srvr = std::make_unique<server_spdk_ram>(backend_dev_t::default_bdev_name, spdk_srvr_listen_address);
 		const int parse_rv = parse_opts(argc, argv);
 		if (parse_rv != 0) {
 			SPDK_ERRLOG("Error parsing args\n");

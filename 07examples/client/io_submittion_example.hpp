@@ -66,7 +66,7 @@ class unitest_io {
 		}
 		_should_try_cancel = false;
 	}
-	void print_io_comp(void) { n_ios++; if (_verbose) log("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op, io.get_error()); }
+	void print_io_comp(void) { n_ios++; if (_verbose) log_unitest("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op, io.get_error()); }
  public:
 	gusli::io_request io;
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
@@ -78,7 +78,7 @@ class unitest_io {
 		has_callback_arrived = false;
 		const int n_bytes = (int)io.params.buf_size();
 		my_assert(n_bytes < buf_len);
-		if (_verbose) log("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", n_ios, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
+		if (_verbose) log_unitest("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", n_ios, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
 		io.params.op = _op;
 		if (mode == io_exec_mode::ASYNC_CB) {
 			io.params.set_completion(this, __comp_cb);

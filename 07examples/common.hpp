@@ -23,8 +23,8 @@
 #include <thread>			// thread::sleep
 #include <stdarg.h>			// Debug print to log
 
-inline int _log(const char *fmt, ...) __attribute__ ((format (printf, 1, 2)));
-inline int _log(const char *fmt, ...) {
+inline int _unitest_log_fn(const char *fmt, ...) __attribute__ ((format (printf, 1, 2)));
+inline int _unitest_log_fn(const char *fmt, ...) {
 	int res = 0;
 	va_list ap;
 	va_start(ap, fmt);
@@ -32,9 +32,24 @@ inline int _log(const char *fmt, ...) {
 	va_end(ap);
 	return res;
 }
-#define log(fmt, ...) ({ _log("\x1b[1;37m" "UserApp: " fmt "\x1b[0;0m",          ##__VA_ARGS__); fflush(stderr); })
+#define log_unitest(fmt, ...) ({ _unitest_log_fn("\x1b[1;37m" "UserApp: " fmt "\x1b[0;0m", ##__VA_ARGS__); fflush(stderr); })
+#define log_line(fmt, ...) log_unitest("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
 
-// Typically
 #define MAX_SERVER_IN_FLIGHT_IO (256)
-static constexpr const char* spdk_srvr_listen_addre = "/dev/shm/gs8888_uds";
+static constexpr const char* spdk_srvr_listen_address = "/dev/shm/gs8888_uds";
+static constexpr const char* spdk_srvr_bdev0_uuid = "8888spdk5555uuid____";
+
+#include <unistd.h>  // for fork()
+#include <sys/wait.h>
+static inline void wait_for_process(__pid_t pid, const char* who) {
+	int status;
+	while (-1 == waitpid(pid, &status, 0));
+	if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
+		log_unitest("\t %s rv=%d\n", who, WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status)) {
+		log_unitest("\t %s killed_ by signal=%d\n", who, WTERMSIG(status));
+	} else {
+		log_unitest("\t %s rv=%d\n", who, WEXITSTATUS(status));
+	}
+}
