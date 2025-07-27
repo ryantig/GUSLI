@@ -59,9 +59,9 @@ class srvr_backend_bdev_api {						// Implement (derive from this class privetly
 	virtual void    exec_io(server_io_req& io) = 0;	// use server_io_req methods to execute the io and set result
 
  protected:
+	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;
 	/* Gusli API towards your class, USE this API to initialize/User the server */
 	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Call me from your derived class constructor upon error throws exception.  Get the version of the library to adapt application dynamically to library features set.
-	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;
 	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept; // Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";

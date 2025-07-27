@@ -39,7 +39,8 @@ function UNITEST_SPDK_both() {
 case "$1" in
   spdk_both) UNITEST_SPDK_both;;
   all|All)
-	UNITEST_compile_success
+	UNITEST_compile_success;
+	 ./z_gusli_clnt_unitest;
 	UNITEST_SPDK_both;
 	echo_green "************************ All tests Done";
 	;;
