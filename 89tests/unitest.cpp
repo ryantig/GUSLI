@@ -351,8 +351,10 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(child[i].pid >= 0);
 		if (child[i].pid == 0) {	// Child process
 			const bool use_extenral_loop = (UUID.SERVER_PATH[i][0] == 't');
-			server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SERVER_PATH[i], use_extenral_loop);
-			ds.run();
+			{
+				server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SERVER_PATH[i], use_extenral_loop);
+				ds.run();
+			}
 			exit(0);
 		}
 	}
