@@ -19,6 +19,8 @@
 #include "spdk_server_ram.hpp"
 
 static volatile bool ctrl_c_pressed = false;
+static volatile bool shutdown_in_progress = false;
+
 class server_spdk_app_1_gusli_server {
  	std::unique_ptr<server_spdk_ram> srvrs[spdk_test::num_bdevs];
 	struct spdk_app_opts opts = {};
@@ -45,6 +47,14 @@ class server_spdk_app_1_gusli_server {
 		if (signal == SIGINT) {
 			SPDK_NOTICELOG("Ctrl+C received, initiating shutdown...\n");
 			ctrl_c_pressed = true;
+			if (!shutdown_in_progress) {
+				shutdown_in_progress = true;
+				SPDK_NOTICELOG("Forcing SPDK application stop...\n");
+				spdk_app_stop(0);			// This ensures SPDK will exit even if the event loop is stuck
+			} else {
+				SPDK_ERRLOG("Second Ctrl+C received, forcing immediate exit!\n");	// If we're already shutting down and get another Ctrl+C,force exit immediately
+				exit(1);
+			}
 		}
 	}
 	inline int run_g_server_once(void) {
@@ -53,13 +63,14 @@ class server_spdk_app_1_gusli_server {
 			srvrs_rv[i] = srvrs[i]->run_once();
 			run_rv &= srvrs_rv[i];					// Continue running as long as at least 1 server needs
 		}
-		// SPDK_NOTICELOG("sssssssssssssssssssssss ctr+c=%u run_rv={%d:%d/%d}\n", ctrl_c_pressed, run_rv, srvrs_rv[0], srvrs_rv[1]);
+		// SPDK_NOTICELOG("1-run ctr+c=%u run_rv={%d:%d/%d}\n", ctrl_c_pressed, run_rv, srvrs_rv[0], srvrs_rv[1]);
 		return SPDK_POLLER_BUSY;					// Run at full rate to see the output clearly
 	}
 	static int run_g_server_once_static(void *arg) { return ((server_spdk_app_1_gusli_server*)arg)->run_g_server_once(); }
 	void app_source_code(void) {
 		const uint64_t period_us = 0;				// Fastest polling frequency
 		signal(SIGINT, signal_handler);
+		signal(SIGTERM, signal_handler);			// Also handle SIGTERM for graceful shutdown
 		gs_poller = spdk_poller_register(run_g_server_once_static, (void*)this, period_us);
 		if (gs_poller == NULL) {
 			SPDK_ERRLOG("Failed to register background poller at %lu[usec]\n", period_us);
@@ -69,8 +80,11 @@ class server_spdk_app_1_gusli_server {
 			// Here you can have multiple servers/bdevs run your own code
 			spdk_thread_poll(spdk_get_thread(), 0, 0);		// Allow server poller to run
 		}
+		// SPDK_NOTICELOG("Main loop exited, cleaning up...\n");
 		spdk_poller_unregister(&gs_poller);
-		spdk_app_stop((run_rv < 0) ? -1 : 0);
+		if (!shutdown_in_progress) {				// If we're here due to normal exit (not Ctrl+C), stop the app
+			spdk_app_stop((run_rv < 0) ? -1 : 0);
+		}
 	}
 	static void app_source_code_static(void *arg1) { ((server_spdk_app_1_gusli_server*)arg1)->app_source_code(); }
  public:
