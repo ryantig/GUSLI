@@ -379,7 +379,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		std::vector<gusli::io_buffer_t> io_bufs;
 		io_bufs.reserve(2);
 		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffers for mass io tests
-		io_bufs.emplace_back(__alloc_io_buffer(info, 10));							// another small buffer for testing multiple registrations
+		io_bufs.emplace_back(__alloc_io_buffer(info, 100));							// another small buffer for testing multiple registrations
 		const gusli::io_buffer_t& map = io_bufs[0];
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 
