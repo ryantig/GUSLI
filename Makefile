@@ -14,6 +14,7 @@
 # limitations under the License.
 # ********** Define compiler and compilation flags *********
 BUILD_RELEASE?=1
+USE_CLANG?=0
 BUILD_FOR_UNITEST?=1
 UNAME := $(shell uname)# Which operating system we use?
 HT = $(shell uname -m)
@@ -155,7 +156,7 @@ endif
 
 # ********** Define compilation/Linker flags *********
 CFLAGS += -DCOMPILATION_DATE=${COMPILATION_DATE} -DCOMMIT_ID=0x$(COMMIT_ID)UL -DVER_TAGID=$(VER_TAGID) -DBRANCH_NAME=$(BRANCH_NAME)
-CFLAGS += -Wall -Werror -Wextra -Wshadow -Werror=strict-aliasing -Wno-nonnull-compare -falign-functions=8 -std=c++2a
+CFLAGS += -Wall -Werror -Wextra -Wshadow -Werror=strict-aliasing -falign-functions=8 -std=c++2a
 CFLAGS += -fPIC -fvisibility=hidden
 ifeq ($(BUILD_RELEASE),1)
 	USE_SANITIZERS?=0
@@ -180,7 +181,14 @@ LFLAGS__SO = -shared $(LFLAGS_EXT) -Wl,--no-undefined $(LFLAGS_ALL)
 LFLAGS_EXE = -no-pie $(LFLAGS_ALL)
 LFLAGS_EXE__STATIC = $(LFLAGS_EXT) # -static   Add this for container compilation to include libc++ and such in the exe
 LFLAGS_EXE_DYNAMIC = -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME)
-CC=g++
+ifeq ($(USE_CLANG)_$(shell clang -v 2>&1 | grep -c "clang version"), 1_1)
+    #CFLAGS += -MJ $*.o.json
+    CFLAGS += -Wno-vla-cxx-extension -Wno-extra -Wno-invalid-constexpr -fno-threadsafe-statics -Wno-parentheses-equality -Wno-gnu-folding-constant -Wno-unused-private-field
+    CC=clang++
+else
+    CFLAGS += -Wno-nonnull-compare
+    CC=g++
+endif
 
 # ********** Actions *********
 define print_compilation_info

@@ -369,7 +369,7 @@ io_request_executor_base* io_request::__disconnect_executor_atomic(void) noexcep
 	if (!_exec)
 		return nullptr;
 	uint64_t *ptr = (uint64_t *)&_exec;
-	return (io_request_executor_base*)__atomic_exchange_n(ptr, NULL, __ATOMIC_SEQ_CST);
+	return (io_request_executor_base*)__atomic_exchange_n(ptr, (unsigned long)NULL, __ATOMIC_SEQ_CST);
 }
 
 enum io_error_codes io_request::get_error(void) noexcept {

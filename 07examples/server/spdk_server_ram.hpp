@@ -90,7 +90,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	#define PRINT_IO_REQ_ARGS(io)  (io).params.op, (&io), io.params.num_ranges(), io.params.buf_size()
 
 	gusli::bdev_info binfo;
-	struct backend_dev_t back;
+	backend_dev_t back;
 	static void bdev_event_cb(enum spdk_bdev_event_type type, struct spdk_bdev *bdev, void *ctx) {
 		server_spdk_ram *me = (server_spdk_ram*)ctx;
 		dslog(me, "Unsupported bdev event: type=%d, bdev=%p\n", type, bdev);
@@ -203,6 +203,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		dslog(this, "metadata=|%s|\n", create_and_get_metadata_json());
 	}
 	int run_once(void) { return gusli::srvr_backend_bdev_api::run(); }
+	virtual ~server_spdk_ram() = default;	// Just avoid clang warning of missing default virtual destructor
 	#undef dslog
 	#undef dserr
 };

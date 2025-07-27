@@ -91,5 +91,6 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		}
 		my_assert(run_rv > 0);		// Successful exit
 	}
+	virtual ~server_ro_lba() = default;	// Just avoid clang warning of missing default virtual destructor
 	#undef dslog
 };

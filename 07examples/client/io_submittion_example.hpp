@@ -45,7 +45,7 @@ class unitest_io {
 	unsigned int n_ios = 0;		// Number of executed ios
 	unsigned int n_cancl = 0;	// Number of canceled ios
  private:
-	static void __comp_cb(struct unitest_io *c) {
+	static void __comp_cb(unitest_io *c) {
 		const gusli::io_error_codes io_rv = c->io.get_error();
 		my_assert(io_rv != gusli::io_error_codes::E_IN_TRANSFER);							// When callback is is done and cannot be in air
 		my_assert(io_rv != gusli::io_error_codes::E_CANCELED_BY_CALLER);					// If canceled by caller, callback cannot arrive

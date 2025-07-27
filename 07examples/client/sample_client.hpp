@@ -36,7 +36,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 	gusli::global_clnt_raii gc(p);
 	log_unitest("Client metadata= %s\n", gc.get_metadata_json());
 	// Create io buffers
-	struct unitest_io my_io;
+	unitest_io my_io;
 	std::vector<gusli::io_buffer_t> io_bufs;
 	io_bufs.emplace_back(my_io.get_map());
 

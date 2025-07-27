@@ -54,7 +54,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
 	lib.bdev_report_data_corruption(bdev, (1UL << 13));
-	struct unitest_io my_io;
+	unitest_io my_io;
 	my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
 	my_io.expect_success(false);
 	for_each_exec_mode(i) {
@@ -63,9 +63,9 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 }
 
 int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
-	struct unitest_io my_io;
+	unitest_io my_io;
 	static constexpr const char *data = "Hello world";
-	static constexpr const uint64_t data_len = strlen(data);
+	static constexpr const uint64_t data_len = __builtin_strlen(data);
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
@@ -133,7 +133,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	if (1) {
 		log_line("Multi-Range-Read");
 		static constexpr const char *multi_io_read_result = "orelloHew";		// Expected permutation of 'data' buffer
-		static constexpr const int multi_io_read_length = strlen(multi_io_read_result);
+		static constexpr const int multi_io_read_length = __builtin_strlen(multi_io_read_result);
 		static constexpr const int n_ranges = 4;
 		static constexpr const size_t multi_io_size = sizeof(gusli::io_multi_map_t) + n_ranges * sizeof(gusli::io_map_t);
 		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
@@ -386,7 +386,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		if (1) _remote_server_bad_path_unitests(lib, info, map);
 		if (1) {
 			log_line("%s: IO-to-srvr-multi-range", UUID.SRVR_NAME[s]);
-			struct unitest_io my_io;
+			unitest_io my_io;
 			gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(1);
 			mio->n_entries = 3;
 			mio->reserved = 'r';
@@ -460,7 +460,7 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_assert(rv == lib.bdev_bufs_unregist(bdev, mem));
 	my_assert(rv == lib.bdev_disconnect(bdev));
 	lib.bdev_report_data_corruption(bdev, 0);
-	struct unitest_io my_io;	// Write 100 bytes
+	unitest_io my_io;	// Write 100 bytes
 	my_io.expect_success(false).enable_prints(false);
 	my_io.io.params.init_1_rng(gusli::G_WRITE,  0, 5, 100, NULL);
 	my_io.exec(gusli::G_WRITE, ASYNC_CB);
@@ -518,7 +518,7 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 
 void unitest_raii_api(const gusli::global_clnt_raii* lib) {
 	log_line("/dev/zero read with auto open/close");
-	struct unitest_io my_io;
+	unitest_io my_io;
 	gusli::backend_bdev_id bdev;
 	bdev.set_from(UUID.DEV_ZERO);
 	// Register buffer with kernel bdev - forces an auto open
