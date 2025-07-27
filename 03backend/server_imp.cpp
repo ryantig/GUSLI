@@ -95,7 +95,7 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 		sock.print_address(clnt_path, addr);
 		pr_infoS(this, "accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
 		io_sock = sock_t(client_fd, sock.get_type());
-		io_sock.set_blocking(true);			// Todo: Dont block on incomming io because same thread sends done io completions
+		io_sock.set_blocking(b.par.use_blocking_client_accept);	// Dont block on incomming io because same thread sends done io completions and thread may serve multiple block devices
 	} else {
 		io_sock = sock;
 	}
@@ -200,15 +200,16 @@ int global_srvr_context_imp::run_once(void) noexcept {
 		return exit_error_code;
 	if (!has_connencted_client()) {
 		pr_verbS(this, "Waiting to accept client...\n");
-		client_accept(this->ca);		// Blocking accept client because nothing else to do, no io
+		client_accept(this->ca);		// Should not be blocking if multiple bdevs are used on the same thread. Blocking / non blocking
 		return exit_error_code;
 	}
 	MGMT::msg_content msg;
 	connect_addr addr = this->ca;
 	const enum io_state io_st = __read_1_full_message(io_sock, msg, false, addr);
 	if (io_st != ios_ok) {
-		BUG_ON(io_st == ios_block, "Server listener is blocking");
-		pr_errS(this, "receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
+		if (io_st == ios_block)
+			return exit_error_code;		// Occurs only if io socket is non blocking
+		pr_errS(this, "receive type=%c, io_state=%d, fd=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, io_sock.fd(), PRINT_EXTERN_ERR_ARGS);
 		client_reject();
 		return exit_error_code;			// On next iteration, accept new client
 	}
@@ -310,7 +311,7 @@ int global_srvr_context_imp::init(const char* metadata_json_format) noexcept {
 	if (rv < 0)
 		abort_exe_init_on_err();
 	pr_infoS(this, "initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), b.par.listen_address, MGMT::COMM_PORT, rv);
-	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
+	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID), COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
 	return 0;
 }
 
