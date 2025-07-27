@@ -76,7 +76,7 @@ void global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_byt
 }
 
 void global_srvr_context_imp::__clnt_close(const char* reason) {
-	par.b->close1(reason);
+	b.close1(reason);
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_infoS(this, "stats{%s}\n", str);
@@ -156,7 +156,7 @@ class backend_io_executor {
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			DEBUG_ASSERT(io.is_valid());										// Verify no other executor connected to io
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
-			srv->par.b->exec_io(io);		// Launch io execution
+			srv->b.exec_io(io);		// Launch io execution
 			return true;
 		} else {
 			delete this;
@@ -195,7 +195,7 @@ void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg,
 	}
 }
 
-int global_srvr_context_imp::run_once_impl(void) {
+int global_srvr_context_imp::run_once(void) noexcept {
 	if (exit_error_code)
 		return exit_error_code;
 	if (!has_connencted_client()) {
@@ -223,7 +223,7 @@ int global_srvr_context_imp::run_once_impl(void) {
 		char cid[sizeof(p->client_id)+1];
 		sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
 		BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
-		this->binfo = par.b->open1(cid);
+		this->binfo = b.open1(cid);
 		const size_t n_send_bytes = msg.build_hel_ack();
 		ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
 		msg.pay.s_hello_ack.info = binfo;
@@ -274,73 +274,72 @@ int global_srvr_context_imp::run_once_impl(void) {
 	return exit_error_code;
 }
 
-int global_srvr_context_imp::init_impl(void) {
+int global_srvr_context_imp::run(void) noexcept {
+	if (!is_initialized()) {
+		pr_err1("not initialized, cannot run\n");
+		return ENOENT;
+	}
+	if (b.par.has_external_polling_loop) {
+		return run_once();
+	} else {
+		int run_rv;
+		for (run_rv = 0; run_rv == 0; run_rv = run_once()) {
+		}
+		return run_rv;
+	}
+}
+
+int global_srvr_context_imp::init(const char* metadata_json_format) noexcept {
+	if (is_initialized()) {
+		pr_err1("already initialized\n");
+		return EEXIST;	// Success
+	}
 	int rv = 0;
 	#define abort_exe_init_on_err() { pr_errS(this, "Error in line %d\n", __LINE__); do_shut_down(-__LINE__); return this->exit_error_code; }
 	if (this->start() != 0)
 		abort_exe_init_on_err()
-	const sock_t::type s_type = MGMT::get_com_type(par.listen_address);
-	const bool blocking_accept = par.use_blocking_client_accept;
+	const sock_t::type s_type = MGMT::get_com_type(b.par.listen_address);
+	const bool blocking_accept = b.par.use_blocking_client_accept;
 	if (     s_type == sock_t::type::S_UDP) rv = sock.srvr_listen(MGMT::COMM_PORT, false, ca, blocking_accept);
 	else if (s_type == sock_t::type::S_TCP) rv = sock.srvr_listen(MGMT::COMM_PORT, true , ca, blocking_accept);
-	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(par.listen_address,     ca, blocking_accept);
+	else if (s_type == sock_t::type::S_UDS) rv = sock.srvr_listen(b.par.listen_address,   ca, blocking_accept);
 	else {
-		pr_errS(this, "unsupported listen address |%s|\n", par.listen_address);
+		pr_errS(this, "unsupported listen address |%s|\n", b.par.listen_address);
 		abort_exe_init_on_err()
 	}
 	if (rv < 0)
 		abort_exe_init_on_err();
-	pr_infoS(this, "initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT, rv);
-	is_initialized = true;
+	pr_infoS(this, "initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), b.par.listen_address, MGMT::COMM_PORT, rv);
+	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, srvr_backend_bdev_api::BREAKING_VERSION);
 	return 0;
 }
 
-int global_srvr_context_imp::destroy_impl(void) {
-	pr_flush();
-	pr_infoS(this, "terminate: conn=%c, {%s:%u}\n", sock.get_type(), par.listen_address, MGMT::COMM_PORT);
-	if (sock.get_type() == sock_t::type::S_UDS)
-		unlink(par.listen_address);
-	sock.nice_close();
-	free((char*)par.server_name);
-	const int rv = finish(NV_COL_PURPL, 0);
-	is_initialized = false;
-	return rv;
-}
-
-/********************************************************/
-int global_srvr_context::init(const struct init_params& _par) noexcept {
-	global_srvr_context_imp* g = _impl(this);
-	if (g->is_initialized) {
-		pr_err1("already initialized\n");
-		return EEXIST;	// Success
-	}
-	g->par = _par;
-	g->par.server_name = _par.server_name ? strdup(_par.server_name) : strdup("GS");	// dup srvr name string
-	return g->init_impl();
-}
-
-int global_srvr_context::destroy(void) noexcept {
-	global_srvr_context_imp* g = _impl(this);
-	if (!g->is_initialized) {
+int global_srvr_context_imp::destroy(void) noexcept {
+	if (!is_initialized()) {
 		pr_err1("not initialized, nothing to destroy\n");
 		return ENOENT;
 	}
-	return g->destroy_impl();
+	pr_flush();
+	pr_infoS(this, "terminate: conn=%c, {%s:%u}\n", sock.get_type(), b.par.listen_address, MGMT::COMM_PORT);
+	if (sock.get_type() == sock_t::type::S_UDS)
+		unlink(b.par.listen_address);
+	sock.nice_close();
+	const int rv = finish(NV_COL_PURPL, 0);
+	return rv;
 }
 
-int global_srvr_context::run(void) noexcept {
-	global_srvr_context_imp* g = _impl(this);
-	if (!g->is_initialized) {
-		pr_err1("not initialized, cannot run\n");
-		return ENOENT;
-	}
-	if (g->par.has_external_polling_loop) {
-		return g->run_once_impl();
-	} else {
-		int run_rv;
-		for (run_rv = 0; run_rv == 0; run_rv = g->run_once_impl()) {
-		}
-		return run_rv;
+/******************************** srvr_backend_bdev_api ********************************/
+const char *srvr_backend_bdev_api::create_and_get_metadata_json() {
+	impl = new global_srvr_context_imp(*this);
+	if (impl->init(metadata_json_format) < 0)
+		throw std::runtime_error("Failed to initialize gusli server");
+	return impl->lib_info_json;
+}
+int srvr_backend_bdev_api::run(void) noexcept { return impl->run(); }
+srvr_backend_bdev_api::~srvr_backend_bdev_api() {
+	if (impl) {
+		(void)impl->destroy();  // We have nothing to do if destroy returns failure
+		delete impl;
 	}
 }
 

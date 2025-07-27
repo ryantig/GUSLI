@@ -22,10 +22,11 @@ namespace gusli {
 
 #define LIB_NAME "GUSLIs"
 #define LIB_COLOR NV_COL_PURPL
-#define pr_infoS(srvr, fmt, ...) pr_info1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
-#define pr_errS( srvr, fmt, ...) pr_err1(  "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
-#define pr_noteS(srvr, fmt, ...) pr_note1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
-#define pr_verbS(srvr, fmt, ...) pr_verb1( "[%s:%s] " fmt, (srvr)->par.server_name, (srvr)->binfo.name, ##__VA_ARGS__)
+#define pr_srv_id(s) (s)->b.par.server_name, (s)->binfo.name
+#define pr_infoS(srvr, fmt, ...) pr_info1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
+#define pr_errS( srvr, fmt, ...) pr_err1(  "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
+#define pr_noteS(srvr, fmt, ...) pr_note1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
+#define pr_verbS(srvr, fmt, ...) pr_verb1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
 
 struct bdev_stats_srvr {
 	uint64_t n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp;
@@ -48,42 +49,33 @@ struct bdev_stats_srvr {
 	}
 };
 
-class global_srvr_context_imp : public global_srvr_context, public base_library  {
-	init_params par;				// Underlying bdev configuration
+class global_srvr_context_imp : public base_library  {
+	srvr_backend_bdev_api &b;			// Underlying bdev configuration
 	bdev_info binfo;
 	sock_t sock;						// Control path accept-client socket
 	sock_t io_sock;						// Communication socket with client
 	connect_addr ca;					// Connected client address
 	class datapath_t dp;
 	bdev_stats_srvr stats;
-	bool is_initialized = false;
 	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
 	bool has_connencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(void);
-	int  __clnt_bufs_register(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
-	int  __clnt_bufs_unregist(const MGMT::msg_content &msg) __attribute__((warn_unused_result));
+	[[nodiscard]] int  __clnt_bufs_register(const MGMT::msg_content &msg);
+	[[nodiscard]] int  __clnt_bufs_unregist(const MGMT::msg_content &msg);
 	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
 	void __clnt_close(const char* reason);
 	void do_shut_down(int err_code) { exit_error_code = err_code; shutting_down = true;}
 	void send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr);
-	friend class global_srvr_context;	// nvTODO("Solve this encapsulation issue");
+	[[nodiscard]] int run_once(void) noexcept;
 	friend class backend_io_executor;
 
 	void parse_args(int argc, char* const argv[]);
  public:
-	global_srvr_context_imp() : base_library(LIB_NAME) { binfo.clear(); }
-	int init_impl(void);
-	int run_once_impl(void);
-	int destroy_impl(void);
+	global_srvr_context_imp(srvr_backend_bdev_api &_b) : base_library(LIB_NAME), b(_b) { binfo.clear(); }
+	[[nodiscard]] int init(const char* metadata_json_format) noexcept;
+	[[nodiscard]] int run(void) noexcept;
+	[[nodiscard]] int destroy(void) noexcept;
 };
-
-global_srvr_context& global_srvr_context::get(void) noexcept {
-	static class global_srvr_context_imp gs_ctx;
-	return gs_ctx;
-}
-
-static inline       global_srvr_context_imp* _impl(      global_srvr_context* g) { return       (global_srvr_context_imp*)g; }
-static inline const global_srvr_context_imp* _impl(const global_srvr_context* g) { return (const global_srvr_context_imp*)g; }
 
 } // namespace gusli

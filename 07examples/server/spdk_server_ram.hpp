@@ -90,10 +90,8 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	#define PRINT_IO_REQ_FMT   "IO[%c|%p].#rng[%u].size[%lu[b]]"
 	#define PRINT_IO_REQ_ARGS(io)  (io).params.op, (&io), io.params.num_ranges(), io.params.buf_size()
 
-	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo;
 	struct backend_dev_t back;
-	gusli::global_srvr_raii *gs = NULL;
 	static void bdev_event_cb(enum spdk_bdev_event_type type, struct spdk_bdev *bdev, void *ctx) {
 		server_spdk_ram *me = (server_spdk_ram*)ctx;
 		dslog(me, "Unsupported bdev event: type=%d, bdev=%p\n", type, bdev);
@@ -191,23 +189,21 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	}
  public:
 	server_spdk_ram(const char* _name, const char* listen_addr) {
-		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address)-1);
-		p.log = stderr;
-		p.server_name = "SSRV";
-		p.has_external_polling_loop = true;
-		p.use_blocking_client_accept = false;	// Must do this if you want to run > 1 server on the same cpu core (spdk thread)
-		p.b = this;
+		my_assert(this->BREAKING_VERSION == 1);
+		strncpy(par.listen_address, listen_addr, sizeof(par.listen_address)-1);
+		par.log = stderr;
+		par.server_name = "SSRV";
+		par.has_external_polling_loop = true;
+		par.use_blocking_client_accept = false;	// Must do this if you want to run > 1 server on the same cpu core (spdk thread)
 		binfo.clear();
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
 		back.bdev_name = _name;
 		back.my_srvr = this;
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
 		my_assert(rename_rv == 0);
-		gs = new gusli::global_srvr_raii(p);
-		my_assert(gs->BREAKING_VERSION == 1);
+		dslog(this, "metadata=|%s|\n", create_and_get_metadata_json());
 	}
-	~server_spdk_ram() { delete gs; }
-	int run_once(void) { return gs->run(); }
+	int run_once(void) { return gusli::srvr_backend_bdev_api::run(); }
 	#undef dslog
 	#undef dserr
 };

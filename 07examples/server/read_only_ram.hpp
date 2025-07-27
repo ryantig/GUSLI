@@ -30,7 +30,6 @@
 */
 class server_ro_lba : private gusli::srvr_backend_bdev_api {
 	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
-	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo;
 	gusli::bdev_info open1(const char* who) override {
 		binfo.bdev_descriptor = open(binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
@@ -63,33 +62,32 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		} else {
 			const gusli::io_multi_map_t* mio = io.get_multi_map();
 			dslog("Serving IO: #rng = %u, buf_size=%lu[b]\n", io.params.num_ranges(), io.params.buf_size());
-			test_lba::mmio_print(mio, p.server_name);
+			test_lba::mmio_print(mio, par.server_name);
 			test_lba::mmio_fill( mio, binfo.block_size);
 		}
 		io.set_success(io.params.buf_size());
 	}
  public:
 	server_ro_lba(const char* _name, const char* listen_addr, bool use_extenral_loop = false) {
-		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address)-1);
-		p.log = stderr;
-		p.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
-		p.has_external_polling_loop = use_extenral_loop;
-		p.b = this;
+		my_assert(BREAKING_VERSION == 1);
+		strncpy(par.listen_address, listen_addr, sizeof(par.listen_address)-1);
+		par.log = stderr;
+		par.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
+		par.has_external_polling_loop = use_extenral_loop;
 		binfo.clear();
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
 		my_assert(rename_rv == 0);
+		dslog("metadata=|%s|\n", create_and_get_metadata_json());
 	}
 	void run(void) {
-		gusli::global_srvr_raii srvr(p);
-		my_assert(srvr.BREAKING_VERSION == 1);
 		int run_rv;
-		if (p.has_external_polling_loop) {
-			for (run_rv = 0; run_rv == 0; run_rv = srvr.run()) {
+		if (par.has_external_polling_loop) {
+			for (run_rv = 0; run_rv == 0; run_rv = gusli::srvr_backend_bdev_api::run()) {
 				dslog("User is doing interesting stuff here, throttle how much cpu server uses\n");
 			}
 		} else {
-			run_rv = srvr.run();
+			run_rv = gusli::srvr_backend_bdev_api::run();
 		}
 		my_assert(run_rv > 0);		// Successful exit
 	}

@@ -43,45 +43,29 @@ public:											// Note this is the same as base class, just add functions for
 	}
 };
 
-class srvr_backend_bdev_api {
+class srvr_backend_bdev_api {						// Implement (derive from this class privetly) for backend of block device
  public:
+	/* Backend API towards GUSLI, implement functions/params below  */
+	static constexpr const int BREAKING_VERSION = 1;	// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
+	struct init_params {							// Most params are optional, initialize params before calling the below create..() function
+		char listen_address[32];					// Mandatory, server will bind to this address, client will connect to it
+		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
+		const char* server_name = "";				// For debug, server identifier
+		bool has_external_polling_loop = false;		// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
+		bool use_blocking_client_accept = true;		// If client is not connected, server has nothing to do so it may block. If you implement external polling loop, consider setting this to false
+	} par;
 	virtual bdev_info open1(const char* debug_reason) = 0;
 	virtual int      close1(const char* who) = 0;
 	virtual void    exec_io(server_io_req& io) = 0;	// use server_io_req methods to execute the io and set result
-};
 
-class global_srvr_context : no_implicit_constructors {	// Singletone: Library context
- protected: global_srvr_context() = default;
- public:
-	struct init_params {							// Most params are optional
-		char listen_address[32];					// Mandatory
-		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
-		const char* server_name = NULL;				// For debug, server identifier
-		bool has_external_polling_loop = false;		// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
-		bool use_blocking_client_accept = true;		// If client is not connected, server has nothing to do so it may block. If you implement external polling loop, consider setting this to false
-		srvr_backend_bdev_api *b;
-	};
-	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	SYMBOL_EXPORT static global_srvr_context& get(void) noexcept; 				// Singletone
-	SYMBOL_EXPORT [[nodiscard]] int init(const init_params& par) noexcept;		// Must be called first, returns negative on error, 0 or positive on success
-	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept;							// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
-	SYMBOL_EXPORT [[nodiscard]] int destroy(void) noexcept;						// Must be called last,  returns negative on error, 0 or positive on success
+ protected:
+	/* Gusli API towards your class, USE this API to initialize/User the server */
+	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Call me from your derived class constructor upon error throws exception.  Get the version of the library to adapt application dynamically to library features set.
+	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;
+	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept; // Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
+ private:
+	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"breaking_api_version\" : %u}}";
+	class global_srvr_context_imp *impl = nullptr;		// Actual implementation of the gusli engine, dont touch
 };
-
-/******************************** RAII API ***********************/
-// High level more C++ API, Construct which throws exception
-class global_srvr_raii : no_implicit_constructors {
-public:
-	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	SYMBOL_EXPORT global_srvr_raii(const global_srvr_context::init_params& par) {
-		auto& instance = global_srvr_context::get();
-		if (instance.init(par) < 0)
-			throw std::runtime_error("Failed to initialize gusli server");
-	}
-	SYMBOL_EXPORT ~global_srvr_raii() noexcept { (void)global_srvr_context::get().destroy(); }
-	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept { return global_srvr_context::get().run(); }
-};
-
-/******************************** io zero copy ***********************/
 
 } // namespace gusli
