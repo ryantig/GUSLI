@@ -76,7 +76,7 @@ void global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_byt
 }
 
 void global_srvr_context_imp::__clnt_close(const char* reason) {
-	par.vfuncs.close1(par.vfuncs.caller_context, reason);
+	par.b->close1(reason);
 	char str[256];
 	stats.print_stats(str, sizeof(str));
 	pr_infoS(this, "stats{%s}\n", str);
@@ -156,7 +156,7 @@ class backend_io_executor {
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			DEBUG_ASSERT(io.is_valid());										// Verify no other executor connected to io
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
-			srv->par.vfuncs.exec_io(srv->par.vfuncs.caller_context, io);		// Launch io execution
+			srv->par.b->exec_io(io);		// Launch io execution
 			return true;
 		} else {
 			delete this;
@@ -223,7 +223,7 @@ int global_srvr_context_imp::run_once_impl(void) {
 		char cid[sizeof(p->client_id)+1];
 		sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
 		BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
-		this->binfo = par.vfuncs.open1(par.vfuncs.caller_context, cid);
+		this->binfo = par.b->open1(cid);
 		const size_t n_send_bytes = msg.build_hel_ack();
 		ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
 		msg.pay.s_hello_ack.info = binfo;

@@ -84,7 +84,7 @@ class backend_dev_t {
 	}
 };
 
-class server_spdk_ram {
+class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	#define dslog(s, fmt, ...) ({ SPDK_NOTICELOG("%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
 	#define dserr(s, fmt, ...) ({ SPDK_ERRLOG(   "%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
 	#define PRINT_IO_REQ_FMT   "IO[%c|%p].#rng[%u].size[%lu[b]]"
@@ -99,42 +99,41 @@ class server_spdk_ram {
 		dslog(me, "Unsupported bdev event: type=%d, bdev=%p\n", type, bdev);
 	}
 
-	static gusli::bdev_info open1(void *ctx, const char* who) {
-		server_spdk_ram *me = (server_spdk_ram*)ctx;
-		const int rv = spdk_bdev_open_ext(me->back.bdev_name, true /*write*/, server_spdk_ram::bdev_event_cb, me, &me->back.bdev_desc);
+	gusli::bdev_info open1(const char* who) override {
+		const int rv = spdk_bdev_open_ext(back.bdev_name, true /*write*/, server_spdk_ram::bdev_event_cb, this, &back.bdev_desc);
 		if (rv != 0) {
-			me->binfo.bdev_descriptor = -1;
-			dserr(me, "Open bdev %s - XX, client=%s, fd=%d, rv=%d\n", me->back.bdev_name, who, me->binfo.bdev_descriptor, rv);
-			return me->binfo;
+			binfo.bdev_descriptor = -1;
+			dserr(this, "Open bdev %s - XX, client=%s, fd=%d, rv=%d\n", back.bdev_name, who, binfo.bdev_descriptor, rv);
+			return binfo;
 		}
-		struct spdk_bdev *b = me->back.bdev = spdk_bdev_desc_get_bdev(me->back.bdev_desc);
-		me->binfo.bdev_descriptor = 555;	// Just some number, take from spdk for debug
-		me->binfo.block_size = spdk_bdev_get_block_size(b);
-		me->binfo.num_total_blocks = spdk_bdev_get_num_blocks(b); // spdk_bdev_get_write_unit_size(b);
-		const uint32_t buf_align = spdk_bdev_get_buf_align(b), reminder = (me->binfo.block_size % buf_align);
-		my_assert((buf_align <= me->binfo.block_size));		// Client operates in block sizes
+		struct spdk_bdev *b = back.bdev = spdk_bdev_desc_get_bdev(back.bdev_desc);
+		binfo.bdev_descriptor = 555;	// Just some number, take from spdk for debug
+		binfo.block_size = spdk_bdev_get_block_size(b);
+		binfo.num_total_blocks = spdk_bdev_get_num_blocks(b); // spdk_bdev_get_write_unit_size(b);
+		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
+		const uint32_t buf_align = spdk_bdev_get_buf_align(b), reminder = (binfo.block_size % buf_align);
+		my_assert((buf_align <= binfo.block_size));		// Client operates in block sizes
 		my_assert(reminder == 0);
-		dslog(me, "Open bdev %s - OK, client=%s, fd=%d, align=0x%x[b] totalblks=%lu rv=%d\n", me->back.bdev_name, who, me->binfo.bdev_descriptor, buf_align, me->binfo.num_total_blocks, rv);
-		me->back.bdev_io_channel = spdk_bdev_get_io_channel(me->back.bdev_desc);
-		if (me->back.bdev_io_channel == NULL) {
-			dserr(me, "Could not create bdev I/O channel, closing!!\n");
-			close1(me, who);
+		dslog(this, "Open bdev %s - OK, client=%s, fd=%d, align=0x%x[b] totalblks=%lu rv=%d\n", back.bdev_name, who, binfo.bdev_descriptor, buf_align, binfo.num_total_blocks, rv);
+		back.bdev_io_channel = spdk_bdev_get_io_channel(back.bdev_desc);
+		if (back.bdev_io_channel == NULL) {
+			dserr(this, "Could not create bdev I/O channel, closing!!\n");
+			close1(who);
 		}
-		if (spdk_bdev_is_zoned(me->back.bdev)) {
-			dslog(me, "Zoned bdev %s - will reset zone\n", me->back.bdev_name);
-			me->back.reset_zone(me->back.bdev);
+		if (spdk_bdev_is_zoned(back.bdev)) {
+			dslog(this, "Zoned bdev %s - will reset zone\n", back.bdev_name);
+			back.reset_zone(back.bdev);
 		}
-		return me->binfo;
+		return binfo;
 	}
 
-	static int close1(void *ctx, const char* who) {
-		server_spdk_ram *me = (server_spdk_ram*)ctx;
-		const int prev_fd = me->binfo.bdev_descriptor;
-		me->back.disconnect();
-		if (me->binfo.is_valid()) {
-			me->binfo.bdev_descriptor = -1;
+	int close1(const char* who) override {
+		const int prev_fd = binfo.bdev_descriptor;
+		back.disconnect();
+		if (binfo.is_valid()) {
+			binfo.bdev_descriptor = -1;
 		}
-		dslog(me, "close bdev %s - OK, client=%s, fd=%d\n", me->back.bdev_name, who, prev_fd);
+		dslog(this, "close bdev %s - OK, client=%s, fd=%d\n", back.bdev_name, who, prev_fd);
 		return 0;
 	}
 
@@ -162,21 +161,20 @@ class server_spdk_ram {
 		if (bdev_io) spdk_bdev_free_io(bdev_io);
 	}
 
-	static void exec_io(void *ctx, class gusli::server_io_req& io) {
-		server_spdk_ram *me = (server_spdk_ram *)ctx;
+	void exec_io(gusli::server_io_req& io) override {
 		my_assert(io.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		*((io_ranges_counter*)io.get_private_exec_u64_addr()) = io_ranges_counter(io);	// Attach ranges execution to io
-		auto *desc = me->back.bdev_desc;
-		auto *chan = me->back.bdev_io_channel;
-		dslog(me, PRINT_IO_REQ_FMT " Serving\n", PRINT_IO_REQ_ARGS(io));
+		auto *desc = back.bdev_desc;
+		auto *chan = back.bdev_io_channel;
+		dslog(this, PRINT_IO_REQ_FMT " Serving\n", PRINT_IO_REQ_ARGS(io));
 		int (*const exec_fn)(spdk_bdev_desc *, spdk_io_channel *, void *, uint64_t, uint64_t, spdk_bdev_io_completion_cb, void *) =
 					(io.params.op == gusli::G_READ) ? spdk_bdev_read : spdk_bdev_write;
 		if (io.params.num_ranges() <= 1) {
 				const gusli::io_map_t &map = io.params.map;
 				const int rv = exec_fn(desc, chan, map.data.ptr, map.offset_lba_bytes, map.data.byte_len, cmp_io_cb, &io);
 				if (rv != 0) {
-					dserr(me, PRINT_IO_REQ_FMT " io exec range[%u] error=%d (%s)\n", PRINT_IO_REQ_ARGS(io), 0, rv, spdk_strerror(-rv));
+					dserr(this, PRINT_IO_REQ_FMT " io exec range[%u] error=%d (%s)\n", PRINT_IO_REQ_ARGS(io), 0, rv, spdk_strerror(-rv));
 					cmp_io_cb(NULL, false, &io);
 				}
 		} else {
@@ -185,14 +183,12 @@ class server_spdk_ram {
 				const gusli::io_map_t &map = mio->entries[i];
 				const int rv = exec_fn(desc, chan, map.data.ptr, map.offset_lba_bytes, map.data.byte_len, cmp_io_cb, &io);
 				if (rv != 0) {
-					dserr(me, PRINT_IO_REQ_FMT " io exec range[%u] error=%d (%s)\n", PRINT_IO_REQ_ARGS(io), i, rv, spdk_strerror(-rv));
+					dserr(this, PRINT_IO_REQ_FMT " io exec range[%u] error=%d (%s)\n", PRINT_IO_REQ_ARGS(io), i, rv, spdk_strerror(-rv));
 					cmp_io_cb(NULL, false, &io);
 				}
 			}
 		}
 	}
-	#undef dslog
-	#undef dserr
  public:
 	server_spdk_ram(const char* _name, const char* listen_addr) {
 		strncpy(p.listen_address, listen_addr, sizeof(p.listen_address)-1);
@@ -200,10 +196,9 @@ class server_spdk_ram {
 		p.server_name = "SSRV";
 		p.has_external_polling_loop = true;
 		p.use_blocking_client_accept = false;	// Must do this if you want to run > 1 server on the same cpu core (spdk thread)
-		p.vfuncs = {.caller_context = this, .open1 = server_spdk_ram::open1, .close1 = server_spdk_ram::close1, .exec_io = server_spdk_ram::exec_io };
+		p.b = this;
 		binfo.clear();
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
-		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
 		back.bdev_name = _name;
 		back.my_srvr = this;
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
@@ -213,6 +208,6 @@ class server_spdk_ram {
 	}
 	~server_spdk_ram() { delete gs; }
 	int run_once(void) { return gs->run(); }
-	struct backend_dev_t *get_bdev(void) { return &back; }
-	const gusli::global_srvr_context::init_params &get_gparams(void) const { return p; }
+	#undef dslog
+	#undef dserr
 };

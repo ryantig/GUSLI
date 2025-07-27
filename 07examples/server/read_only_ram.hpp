@@ -28,43 +28,43 @@
 		so unit-tests can verify the correctness of reads
 	4. Completes io's immediately (syncronously)
 */
-class server_ro_lba {
-	#define dslog(s, fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", (s)->binfo.name, ##__VA_ARGS__); })
+class server_ro_lba : private gusli::srvr_backend_bdev_api {
+	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
 	gusli::global_srvr_context::init_params p;
 	gusli::bdev_info binfo;
-	static gusli::bdev_info open1(void *ctx, const char* who) {
-		server_ro_lba *me = (server_ro_lba*)ctx;
-		me->binfo.bdev_descriptor = open(me->binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
-		my_assert(me->binfo.bdev_descriptor > 0);
-		dslog(me, "open: fd=%d, remote client=%s\n", me->binfo.bdev_descriptor, who);
+	gusli::bdev_info open1(const char* who) override {
+		binfo.bdev_descriptor = open(binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+		my_assert(binfo.bdev_descriptor > 0);
+		binfo.block_size = 4096;			// 4[KB]
+		binfo.num_total_blocks = (1 << 20); // 4[GB]
+		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
+		dslog("open: fd=%d, remote client=%s\n", binfo.bdev_descriptor, who);
 		my_assert(strcmp(who, UNITEST_CLNT_NAME) == 0);
-		return me->binfo;
+		return binfo;
 	}
-	static int close1(void *ctx, const char* who) {
-		server_ro_lba *me = (server_ro_lba*)ctx;
-		const int prev_fd = me->binfo.bdev_descriptor;
-		if (me->binfo.is_valid()) {
-			close(me->binfo.bdev_descriptor);
-			me->binfo.bdev_descriptor = 0;
+	int close1(const char* who) override {
+		const int prev_fd = binfo.bdev_descriptor;
+		if (binfo.is_valid()) {
+			close(binfo.bdev_descriptor);
+			binfo.bdev_descriptor = 0;
 		}
-		const int rv = remove(me->binfo.name);
+		const int rv = remove(binfo.name);
 		my_assert(rv >= 0);
-		dslog(me, "close: fd=%d, rv=%d, who=%s\n", prev_fd, rv, who);
+		dslog("close: fd=%d, rv=%d, who=%s\n", prev_fd, rv, who);
 		return 0;
 	}
-	static void exec_io(void *ctx, class gusli::server_io_req& io) {
-		server_ro_lba *me = (server_ro_lba *)ctx;
+	void exec_io(class gusli::server_io_req& io) override {
 		my_assert(io.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		if (io.params.op == gusli::io_type::G_WRITE) {
 			io.set_error(gusli::E_BACKEND_FAULT);
 		} else if (io.params.num_ranges() <= 1) {
-			test_lba::map1_fill(io.params.map, me->binfo.block_size);
+			test_lba::map1_fill(io.params.map, binfo.block_size);
 		} else {
 			const gusli::io_multi_map_t* mio = io.get_multi_map();
-			dslog(me, "Serving IO: #rng = %u, buf_size=%lu[b]\n", io.params.num_ranges(), io.params.buf_size());
-			test_lba::mmio_print(mio, me->p.server_name);
-			test_lba::mmio_fill(mio, me->binfo.block_size);
+			dslog("Serving IO: #rng = %u, buf_size=%lu[b]\n", io.params.num_ranges(), io.params.buf_size());
+			test_lba::mmio_print(mio, p.server_name);
+			test_lba::mmio_fill( mio, binfo.block_size);
 		}
 		io.set_success(io.params.buf_size());
 	}
@@ -74,22 +74,19 @@ class server_ro_lba {
 		p.log = stderr;
 		p.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
 		p.has_external_polling_loop = use_extenral_loop;
-		p.vfuncs = {.caller_context = this, .open1 = server_ro_lba::open1, .close1 = server_ro_lba::close1, .exec_io = server_ro_lba::exec_io };
+		p.b = this;
 		binfo.clear();
-		binfo.block_size = 4096;			// 4[KB]
-		binfo.num_total_blocks = (1 << 20); // 4[GB]
-		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
 		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
-	}
-	void run(void) {
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
 		my_assert(rename_rv == 0);
+	}
+	void run(void) {
 		gusli::global_srvr_raii srvr(p);
 		my_assert(srvr.BREAKING_VERSION == 1);
 		int run_rv;
 		if (p.has_external_polling_loop) {
 			for (run_rv = 0; run_rv == 0; run_rv = srvr.run()) {
-				dslog(this, "User is doing interesting stuff here, throttle how much cpu server uses\n");
+				dslog("User is doing interesting stuff here, throttle how much cpu server uses\n");
 			}
 		} else {
 			run_rv = srvr.run();

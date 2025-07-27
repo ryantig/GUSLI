@@ -43,6 +43,13 @@ public:											// Note this is the same as base class, just add functions for
 	}
 };
 
+class srvr_backend_bdev_api {
+ public:
+	virtual bdev_info open1(const char* debug_reason) = 0;
+	virtual int      close1(const char* who) = 0;
+	virtual void    exec_io(server_io_req& io) = 0;	// use server_io_req methods to execute the io and set result
+};
+
 class global_srvr_context : no_implicit_constructors {	// Singletone: Library context
  protected: global_srvr_context() = default;
  public:
@@ -52,12 +59,7 @@ class global_srvr_context : no_implicit_constructors {	// Singletone: Library co
 		const char* server_name = NULL;				// For debug, server identifier
 		bool has_external_polling_loop = false;		// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
 		bool use_blocking_client_accept = true;		// If client is not connected, server has nothing to do so it may block. If you implement external polling loop, consider setting this to false
-		struct srvr_backend_callbacks {
-			void *caller_context;
-			bdev_info (*open1)(void *caller_context, const char* who) = 0;
-			int      (*close1)(void *caller_context, const char* who) = 0;
-			void    (*exec_io)(void *caller_context, server_io_req& io) = 0;		// use server_io_req methods to execute the io and set result
-		} vfuncs;
+		srvr_backend_bdev_api *b;
 	};
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
 	SYMBOL_EXPORT static global_srvr_context& get(void) noexcept; 				// Singletone
