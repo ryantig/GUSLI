@@ -248,7 +248,7 @@ class sock_t {
 	void __bind_server(const struct connect_addr &ca);
 	int  __connct_clnt(const struct connect_addr &ca);
  public:
-	sock_t() = default; // Make it trivially memset(0)
+	sock_t() { memset(this, 0, sizeof(*this)); }
 	sock_t(int fd, enum type t = type::S_UNK) : _fd(fd), epoll_fd(-1), _type(t) {}
 	void epoll_reply_wait(const char* debug_prefix_to_print_in_logs = "") const;
 	inline int fd(void) const { return _fd; }
