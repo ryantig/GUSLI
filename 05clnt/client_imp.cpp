@@ -19,7 +19,6 @@
 #include "00utils/utils.hpp"
 #include "client_imp.hpp"
 #include "io_executors.hpp"
-//#include <memory>				// unique_ptr static initialization
 
 namespace gusli {
 
@@ -103,8 +102,6 @@ int global_clnt_context::destroy(void) noexcept {
 		return -1;
 	free((char*)g->par.client_name);
 	g->bdevs.clear();
-	memset(g->lib_info_json, 0, sizeof(g->lib_info_json));
-	ASSERT_IN_PRODUCTION(g->is_initialized() == false);
 	return g->finish(LIB_COLOR, 0);
 }
 

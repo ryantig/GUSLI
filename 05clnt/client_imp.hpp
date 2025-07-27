@@ -192,17 +192,14 @@ struct bdevs_hash { 					// Hash table of connected servers
 class global_clnt_context_imp : public global_clnt_context, public base_library {
  public:
 	friend class global_clnt_context;
-	char lib_info_json[256];
 	struct init_params par;
 	bdevs_hash bdevs;
 	global_clnt_context_imp() : base_library(LIB_NAME) {
 		pr_info1("clnt_ctx[%p] - construct %lu[b]\n", this, sizeof(*this));
-		memset(lib_info_json, 0, sizeof(lib_info_json));
 	}
 	~global_clnt_context_imp() {
 		pr_info1("clnt_ctx[%p] - destruct\n", this);
 	}
-	bool is_initialized(void) const { return lib_info_json[0] != 0; }
 	enum connect_rv bdev_connect(void);
 	int server_disconenct(void);
 	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing nvme disk / etc.

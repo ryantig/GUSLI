@@ -292,10 +292,12 @@ class base_library {				// Generic interface for executable using libraries. Che
 	bool have_permissions_to_run(void) const;
  public:
 	const char *lib_name;			// Short name of the executable / main thread name / appear as 'ps'. May not be identical to its file name (and not found by ps -f)
+	char lib_info_json[256];
 	volatile bool shutting_down;	// Executable in error state, turning off, stop all threads
 	base_library(const char *lib_name);
 	int start( void);
 	int finish(const char* prefix, int rv);
+	bool is_initialized(void) const { return lib_info_json[0] != 0; }
 };
 
 /*****************************************************************************/

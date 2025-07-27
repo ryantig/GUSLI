@@ -161,7 +161,7 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 	SYMBOL_EXPORT [[nodiscard]] int init(const init_params& par) noexcept;	// Must be called first, returns negative on error, 0 or positive on success
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
 	static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
-	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically ot library features set.
+	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically to library features set.
 	SYMBOL_EXPORT [[nodiscard]] int destroy(void) noexcept;				// Must be called last, returns negative on error, 0 or positive on success
 
 	SYMBOL_EXPORT [[nodiscard]] enum connect_rv bdev_connect(      const backend_bdev_id& id) noexcept;	// Open block device, must be done before register buffers or submitting io

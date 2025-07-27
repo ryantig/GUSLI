@@ -550,7 +550,7 @@ uint32_t crc32_le_unoptimized(uint32_t crc, const unsigned char *p, size_t size)
 }
 
 /*****************************************************************************/
-void pr_start_lib(const char *exe_name, int argc, const char* const argv[], unsigned pid) {
+static void pr_start_lib(const char *exe_name, int argc, const char* const argv[], unsigned pid) {
 	#ifdef NDEBUG
 		static constexpr const char *opt_level = "RELEASE";
 	#else
@@ -571,6 +571,7 @@ void pr_start_lib(const char *exe_name, int argc, const char* const argv[], unsi
 }
 
 base_library::base_library(const char *_lib_name) : lib_name(_lib_name), shutting_down(false) {
+	memset(lib_info_json, 0, sizeof(lib_info_json));
 	pid = getpid();
 	pr_start_lib(_lib_name, 0, NULL, pid);
 }
@@ -595,6 +596,7 @@ int base_library::start(void) {
 
 int base_library::finish(const char* prefix, int rv) {
 	const __pid_t cur_pid = getpid();
+	memset(lib_info_json, 0, sizeof(lib_info_json));
 	if (pid != cur_pid) {
 		pr_emerg("%s: Error: library initialized from pid %u but destroyed from pid=%u\n", lib_name, pid, cur_pid);
 		rv = -5;
