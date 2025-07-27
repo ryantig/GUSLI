@@ -183,10 +183,8 @@ LFLAGS_EXE__STATIC = $(LFLAGS_EXT) # -static   Add this for container compilatio
 LFLAGS_EXE_DYNAMIC = -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME)
 ifeq ($(USE_CLANG)_$(shell clang -v 2>&1 | grep -c "clang version"), 1_1)
     #CFLAGS += -MJ $*.o.json
-    CFLAGS += -Wno-vla-cxx-extension -Wno-extra -Wno-invalid-constexpr -fno-threadsafe-statics -Wno-parentheses-equality -Wno-gnu-folding-constant -Wno-unused-private-field
     CC=clang++
 else
-    CFLAGS += -Wno-nonnull-compare
     CC=g++
 endif
 

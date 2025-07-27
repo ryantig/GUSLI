@@ -74,7 +74,6 @@ class bdev_backend_api {									// API to server 1 block device
 	const char* srv_addr;
 	struct bdev_stats_clnt stats;
 
-	uint32_t periodic_msec_passed;	// Amount of msec passed from previous periodic control path processing
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
 	sem_t wait_control_path;

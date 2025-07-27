@@ -5,9 +5,9 @@ Gusli (G3+ User Space Access Library) is a C++ library encapsulating IO (Read/Wr
 Documentation and description: https://docs.google.com/document/d/1xXLyA2Di2G04zfLy8dzMor9DC2PNqUuXhMEFA2ZYpO4
 
 ## Installation & Usage
-make all;
+`make all;`   Both g++ and clang++ are supported. clang example: `make USE_CLANG=1 all`
 - executable of unitests will be created in root dir
-make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/libg*; ll /usr/include/gus*;
+`make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/libg*; ll /usr/include/gus*;`
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
 - See examples directory for client/server implementation examples
 - See unit-tests directory to learn how to use the library
