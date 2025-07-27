@@ -20,10 +20,11 @@
 
 static volatile bool ctrl_c_pressed = false;
 class server_spdk_app_1_gusli_server {
- 	std::unique_ptr<server_spdk_ram> srvr;
+ 	std::unique_ptr<server_spdk_ram> srvrs[spdk_test::num_bdevs];
 	struct spdk_app_opts opts = {};
 	struct spdk_poller *gs_poller = NULL;
 	int app_start_rv = -ENOEXEC;
+	int srvrs_rv[spdk_test::num_bdevs];
 	int run_rv = -ENOEXEC;
 	int parse_opts(const int orig_argc, const char *orig_argv[]) {
 		int argc = orig_argc;
@@ -32,8 +33,8 @@ class server_spdk_app_1_gusli_server {
 		memcpy(argv, orig_argv, sizeof(char*)*orig_argc);
 		argv[argc++] = "-c";
 		argv[argc++] = "./07examples/server/spdk_bdev.conf";
-		argv[argc++] = "-b";
-		argv[argc++] = backend_dev_t::default_bdev_name;
+		//argv[argc++] = "-b";
+		//argv[argc++] = .....;
 		spdk_app_opts_init(&opts, sizeof(opts));
 		opts.name = "sample_app";
 		opts.rpc_addr = NULL;
@@ -46,15 +47,20 @@ class server_spdk_app_1_gusli_server {
 			ctrl_c_pressed = true;
 		}
 	}
-	static int run_g_server_once(void *arg) {
-		class server_spdk_app_1_gusli_server* me = (server_spdk_app_1_gusli_server*)arg;
-		me->run_rv = me->srvr->run_once();
-		return SPDK_POLLER_BUSY;  // Run at full rate to see the output clearly
+	inline int run_g_server_once(void) {
+		run_rv = ~0U;
+		for (int i = 0; i < spdk_test::num_bdevs; i++) {
+			srvrs_rv[i] = srvrs[i]->run_once();
+			run_rv &= srvrs_rv[i];					// Continue running as long as at least 1 server needs
+		}
+		// SPDK_NOTICELOG("sssssssssssssssssssssss ctr+c=%u run_rv={%d:%d/%d}\n", ctrl_c_pressed, run_rv, srvrs_rv[0], srvrs_rv[1]);
+		return SPDK_POLLER_BUSY;					// Run at full rate to see the output clearly
 	}
+	static int run_g_server_once_static(void *arg) { return ((server_spdk_app_1_gusli_server*)arg)->run_g_server_once(); }
 	void app_source_code(void) {
-		const uint64_t period_us = 0;  // Fastest polling frequency
+		const uint64_t period_us = 0;				// Fastest polling frequency
 		signal(SIGINT, signal_handler);
-		gs_poller = spdk_poller_register(run_g_server_once, (void*)this, period_us);
+		gs_poller = spdk_poller_register(run_g_server_once_static, (void*)this, period_us);
 		if (gs_poller == NULL) {
 			SPDK_ERRLOG("Failed to register background poller at %lu[usec]\n", period_us);
 			return;
@@ -69,7 +75,8 @@ class server_spdk_app_1_gusli_server {
 	static void app_source_code_static(void *arg1) { ((server_spdk_app_1_gusli_server*)arg1)->app_source_code(); }
  public:
 	server_spdk_app_1_gusli_server(const int argc, const char *argv[]) {
-		srvr = std::make_unique<server_spdk_ram>(backend_dev_t::default_bdev_name, spdk_srvr_listen_address);
+		for (int i = 0; i < spdk_test::num_bdevs; i++)
+			srvrs[i] = std::make_unique<server_spdk_ram>(spdk_test::bdev_name[i], spdk_test::srvr_listen_address[i]);
 		const int parse_rv = parse_opts(argc, argv);
 		if (parse_rv != 0) {
 			SPDK_ERRLOG("Error parsing args\n");

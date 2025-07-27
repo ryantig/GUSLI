@@ -39,8 +39,12 @@ inline int _unitest_log_fn(const char *fmt, ...) {
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
 
 #define MAX_SERVER_IN_FLIGHT_IO (256)
-static constexpr const char* spdk_srvr_listen_address = "/dev/shm/gs8888_uds";
-static constexpr const char* spdk_srvr_bdev0_uuid = "8888spdk5555uuid____";
+namespace spdk_test {
+	static constexpr const char* srvr_listen_address[] = {"/dev/shm/gs8888_uds",  "/dev/shm/gs9999aa_uds"};
+	static constexpr const char* srvr_bdevs_uuid[] = {    "8888spdk5555uuid____", "9999spdk5555uuid____"};
+	static constexpr const char* bdev_name[] = {          "dhs_bdev0",            "dhs_bdev1"};		// Same as spdk config file
+	static constexpr const int num_bdevs = 2;
+};
 
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>

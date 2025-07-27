@@ -47,6 +47,6 @@ cd ~/projects/spdk;
 if false; then				# Optionally check that all unitests pass
 	./test/unit/unittest.sh;
 	sudo ./build/examples/hello_bdev -c ./examples/bdev/hello_world/bdev.json -b Malloc0;
-	sudo ./build/examples/hello_bdev -c ${CONF_FILE} -b dhs_bdev;
+	sudo ./build/examples/hello_bdev -c ${CONF_FILE} -b dhs_bdev0;
 	sudo ./build/examples/bdevperf -c ${CONF_FILE} -q 1 -o 4096 -w write -t 3;
 fi

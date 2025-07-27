@@ -34,7 +34,6 @@ extern "C" {		// Spdk includes
 /***************************** spdk block device ***************************************/
 class backend_dev_t {
  public:
-	static constexpr const char* default_bdev_name = "dhs_bdev";
 	struct spdk_bdev       *bdev = NULL;
 	struct spdk_bdev_desc  *bdev_desc = NULL;
 	struct spdk_io_channel *bdev_io_channel = NULL;

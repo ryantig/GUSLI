@@ -20,45 +20,59 @@
 /*****************************************************************************/
 /* Simple test of clinet process: Connect to server, Write IO and verify it
    with read. Do 1 range and multi-range io. Stop the server at the end */
-int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, const char* srvr_addr) {
+int client_simple_test_of_server(const char* clnt_name, const int n_devs, const char* const bdev_uuid[], const char* const srvr_addr[]) {
 	gusli::global_clnt_context::init_params p;
 	p.client_name = clnt_name;
 	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;
-	char conf[256];
+	char conf[512];
 	{	// Generate config
 		int i = sprintf(conf,
 			"# version=1, Config file for gusli client lib\n"
 			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
-		i += sprintf(&conf[i], "%s N W D %s sec=0x04\n", bdev_uuid, srvr_addr);
+		for (int b = 0; b < n_devs; b++)
+			i += sprintf(&conf[i], "%s N W D %s sec=0x04\n", bdev_uuid[b], srvr_addr[b]);
 		p.config_file = &conf[0];
 	}
 	gusli::global_clnt_raii gc(p);
 	log_unitest("Client metadata= %s\n", gc.get_metadata_json());
-	struct gusli::backend_bdev_id bdev; bdev.set_from(spdk_srvr_bdev0_uuid);
-
-	// Map io buffers for read/write operations and auto open block devices
+	// Create io buffers
 	struct unitest_io my_io;
 	std::vector<gusli::io_buffer_t> io_bufs;
 	io_bufs.emplace_back(my_io.get_map());
-	my_assert(gc.bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
-	gusli::bdev_info info;
-	my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
-	log_line("Remote server %s opened and mapped bufs", info.name);
-	if (1) {
-		log_line("%s: Write->Read test", spdk_srvr_listen_address);
+
+	// Map io buffers for read/write operations and auto open block devices
+	for (int b = 0; b < n_devs; b++) {
+		log_line("Remote server %s, connecting...", srvr_addr[b]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
+		my_assert(gc.bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
+		gusli::bdev_info info;
+		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
+		my_assert(info.num_total_blocks > 0x100);			// We write to first few blocks
+		log_line("Remote server %s oppened and mapped bufs", info.name);
+	}
+
+	for (int b = 0; b < n_devs; b++) {
+		log_line("%s: Write->Read test of 1[blk]", srvr_addr[b]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
+		gusli::bdev_info info;
+		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
 		static constexpr const char *data = "Hello world";
-		my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, 0, info.block_size, my_io.io_buf);
+		const uint64_t lba = b * info.block_size;
+		my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, info.block_size, my_io.io_buf);
 		strcpy(my_io.io_buf, data);
 		my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
 		my_io.clean_buf();
 		my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);
 		my_assert(strcmp(data, my_io.io_buf) == 0);
 	}
-	if (1) {
+	for (int b = 0; b < n_devs; b++) {
+		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
+		gusli::bdev_info info;
+		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
+
 		const gusli::io_buffer_t& map = io_bufs[0];
 		static constexpr const int n_blocks = 6;
 		my_assert(map.byte_len >= info.block_size * (n_blocks + 1));
-		my_assert(info.num_total_blocks > 0x100);			// We write to first few blocks
 		#define n_block(i) (info.block_size * (i))
 		#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
 		const uint64_t lbas[3] = {n_block(0x0B), n_block(0x11), n_block(0x63)};
@@ -67,7 +81,7 @@ int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, c
 		   Content |     Range1    |  sgl  |         Range3        | Range1 |
 		   LBA     |     lbas[0]   |   2   |         lbas[1]       | lbas[2]|
 		*/
-		log_line("%s: IO-to-srvr-multi-range %u[blks] + 1sg block", spdk_srvr_listen_address, n_blocks);
+		log_line("%s: IO-to-srvr-multi-range %u[blks] + 1sg block", srvr_addr[b], n_blocks);
 		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
 		mio->n_entries = 3;
 		mio->reserved = 'r';
@@ -82,9 +96,11 @@ int client_simple_test_of_server(const char* clnt_name, const char* bdev_uuid, c
 		test_lba::mmio_verify_and_clean(mio, info.block_size);
 	}
 	const bool kill_server = true;
-	my_assert(gc.bufs_unregist(bdev, io_bufs, kill_server) == gusli::connect_rv::C_OK);
-	log_line("%s: Disconnect & Kill", spdk_srvr_listen_address);
-	gc.report_data_corruption(bdev, 0);			// Kill the server
+	for (int b = 0; b < n_devs; b++) {
+		log_line("%s: Disconnect & Kill", srvr_addr[b]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
+		my_assert(gc.bufs_unregist(bdev, io_bufs, kill_server) == gusli::connect_rv::C_OK);
+	}
 	log_uni_success("Client: Test OK\n");
 	return 0;
 }
