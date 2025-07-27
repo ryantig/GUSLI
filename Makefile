@@ -98,10 +98,10 @@ EXE_LIST_ALL=$(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_dyn $(UNITEST_SPDKS_EXE) $(
 # ********** Extract git information *********
 ifeq ($(COMPILATION_DATE),)
 	ifeq ($(BUILD_FOR_UNITEST),1)
-		COMPILATION_DATE := \\x1b\[1\;31m\!\!\!\!\ Non\ Production\ \!\!\!\!\\x1b\[0\;0m
+		COMPILATION_DATE := \!\!\!\!\ Non\ Production\ \!\!\!\!
 		CFLAGS += -DUNITEST_ENV=1
 	else
-		COMPILATION_DATE := BuildDate\($(shell date +%-d/%b/%Y:"%T")\)\[$(shell uname -r)\]
+		COMPILATION_DATE := \($(shell date +%-d/%b/%Y:"%T")\)\[$(shell uname -r)\]
 	endif
 endif
 ifeq ($(HAS_LOCAL_GIT),)

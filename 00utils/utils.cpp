@@ -550,30 +550,9 @@ uint32_t crc32_le_unoptimized(uint32_t crc, const unsigned char *p, size_t size)
 }
 
 /*****************************************************************************/
-static void pr_start_lib(const char *exe_name, int argc, const char* const argv[], unsigned pid) {
-	#ifdef NDEBUG
-		static constexpr const char *opt_level = "RELEASE";
-	#else
-		static constexpr const char *opt_level = "DEBUG";
-	#endif
-	static constexpr const char *comp_date = __stringify(COMPILATION_DATE);
-	pr_note("%s: %s, git=%s(" /*"%s:"*/ "0x%lx), TraceLevel=%d, opt=%s, pid=%u ", exe_name, comp_date, __stringify(VER_TAGID), /*__stringify(BRANCH_NAME),*/ COMMIT_ID, TRACE_LEVEL, opt_level, pid);
-	const bool is_sandbox_make_file = (comp_date[0] == 0x1b);	// Red warning
-	const bool is_sandbox_cpph_file = is_running_in_sandbox();
-	BUG_ON(is_sandbox_make_file != is_sandbox_cpph_file, "Sandbox Compilation error, do clean rebuild! {Makefile=%u cpp=%u, 1char=%u}\n", is_sandbox_make_file, is_sandbox_cpph_file, comp_date[0]);
-	if (argc) {
-		pr_note("%d[args]: ",argc);
-		for (int i = 0; i < argc; i++) {
-			pr_note("|%s| ", argv[i]);
-		}
-	}
-	pr_note("\n");
-}
-
 base_library::base_library(const char *_lib_name) : lib_name(_lib_name), shutting_down(false) {
 	memset(lib_info_json, 0, sizeof(lib_info_json));
 	pid = getpid();
-	pr_start_lib(_lib_name, 0, NULL, pid);
 }
 
 bool base_library::have_permissions_to_run(void) const {

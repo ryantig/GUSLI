@@ -84,7 +84,7 @@ int global_clnt_context::init(const struct init_params& _par) noexcept {
 		abort_exe_init_on_err()
 	const int rv = g->parse_conf();
 	pr_note1("initialized: %u devices, log_fd=%u rv=%d\n", g->bdevs.n_devices, fileno(g->par.log), rv);
-	sprintf(g->lib_info_json, this->metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, this->BREAKING_VERSION);
+	sprintf(g->lib_info_json, this->metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
 	return rv;
 }
 

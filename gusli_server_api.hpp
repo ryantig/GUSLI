@@ -64,7 +64,7 @@ class srvr_backend_bdev_api {						// Implement (derive from this class privetly
 	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;
 	SYMBOL_EXPORT [[nodiscard]] int run(void) noexcept; // Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
-	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"breaking_api_version\" : %u}}";
+	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 	class global_srvr_context_imp *impl = nullptr;		// Actual implementation of the gusli engine, dont touch
 };
 

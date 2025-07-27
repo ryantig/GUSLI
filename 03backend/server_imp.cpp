@@ -310,7 +310,7 @@ int global_srvr_context_imp::init(const char* metadata_json_format) noexcept {
 	if (rv < 0)
 		abort_exe_init_on_err();
 	pr_infoS(this, "initialized: conn=%c, {%s:%u}, rv=%d\n", sock.get_type(), b.par.listen_address, MGMT::COMM_PORT, rv);
-	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, srvr_backend_bdev_api::BREAKING_VERSION);
+	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
 	return 0;
 }
 

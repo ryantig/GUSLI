@@ -149,7 +149,8 @@ struct no_implicit_constructors {	// No copy/move/assign operations to prevent a
 
 class global_clnt_context : no_implicit_constructors {					// Singletone: Library context
  protected: global_clnt_context() = default;
-	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"breaking_api_version\" : %u}}";
+	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
+
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stdout;							// Redirect logs of the library to this file (must be already properly opened)
