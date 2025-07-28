@@ -37,10 +37,8 @@ cd dpdk && meson build && ninja -C build && cd ..;
 sudo scripts/pkgdep.sh;
 ./configure make
 
-# Set Up Hugepages (required for DPDK):
-sudo mkdir -p /mnt/huge;
-sudo mount -t hugetlbfs nodev /mnt/huge;
-sudo bash -c 'echo 4096 > /proc/sys/vm/nr_hugepages';
+source ./80scripts/service.sh # Source the service scripts
+GUSLI huge_pages_setup;		  # Set Up Hugepages (required for DPDK):
 
 CONF_FILE=`realpath ../gusli/07examples/server/spdk_bdev.conf`;
 cd ~/projects/spdk;

@@ -20,7 +20,7 @@ function echo_yellow() { echo -e "\e[0;33m$*\e[0m"; }
 
 function GUSLI() {
 	if [ $# -eq 0 ]; then
-		echo "params: show / clean "
+		echo "params: show / clean / huge_pages_setup"
 	elif [[ $1 == sh* ]]; then
 		cmd="ps -eLo pid,ppid,comm,user | grep gusli"; echo_green $cmd; eval $cmd;
 		cmd="ps -ef | grep gusli"; echo_green $cmd; eval $cmd;
@@ -29,5 +29,15 @@ function GUSLI() {
 		ps_prg=`pgrep -f gusli`; [ ! -z "$ps_prg" ] && sudo kill -9 ${ps_prg};
 		sudo rm /dev/shm/gs*;
 		GUSLI show;
+	elif [[ $1 == huge_pages* ]]; then
+		# Set Up Hugepages (required for DPDK):
+		if [ "`cat /proc/sys/vm/nr_hugepages`" == "0" ]; then
+			echo_green "Configuring huge pages";
+			sudo mkdir -p /mnt/huge;
+			sudo mount -t hugetlbfs nodev /mnt/huge;
+			sudo bash -c 'echo 4096 > /proc/sys/vm/nr_hugepages';
+		else
+			echo_green "huge pages already configured";
+		fi
 	fi
 }
