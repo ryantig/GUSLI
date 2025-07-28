@@ -333,6 +333,8 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
 }
 
+#include "../07examples/client/sample_client.hpp"
+
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
 void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
@@ -385,19 +387,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		if (1) _remote_server_bad_path_unitests(lib, info, map);
 		if (1) {
 			log_line("%s: IO-to-srvr-multi-range", UUID.SRVR_NAME[s]);
-			unitest_io my_io;
-			gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(1);
-			mio->init_num_entries(3);
-			mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(1), }, .offset_lba_bytes = n_block(0x0B)};
-			mio->entries[1] = (gusli::io_map_t){.data = {.ptr = io_bufs[1].ptr  , .byte_len = n_block(2), }, .offset_lba_bytes = n_block(0x11)};
-			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};
-			my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-			test_lba::mmio_print(mio, "clnt");
-			my_io.exec(gusli::G_READ, io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Sync-IO-OK
-			test_lba::mmio_verify_and_clean(mio, info.block_size);
-			my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);				// Async-OK
-			test_lba::mmio_verify_and_clean(mio, info.block_size);
-			my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
+			client_test_write_read_verify_multi(info, io_bufs);
 		}
 
 		if (s == 0) { // Lauch async perf read test on first server only

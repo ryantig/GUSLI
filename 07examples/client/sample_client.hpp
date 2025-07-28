@@ -18,6 +18,37 @@
 #include "07examples/client/io_submittion_example.hpp"
 
 /*****************************************************************************/
+int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std::vector<gusli::io_buffer_t> &io_bufs) {
+	unitest_io my_io;
+	const gusli::io_buffer_t& map = io_bufs[0];
+	static constexpr const int n_blocks = 6;
+	my_assert(map.byte_len >= info.block_size * (n_blocks + 1));
+	#define n_block(i) (info.block_size * (i))
+	#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
+	const uint64_t lbas[3] = {n_block(0x01B), n_block(0x21), n_block(0x63)};
+	/* IO of 7 ram blocks: {range1=2[blk], sgl=1[blk], range2=3[blk], range3=1[blk]}
+		Block   |   0   |   1   |   2   |   3   |   4   |   5   |   6    |
+		Content |     Range1    |  sgl  |         Range3        | Range1 |
+		LBA     |     lbas[0]   |   2   |         lbas[1]       | lbas[2]|
+	*/
+	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
+	mio->init_num_entries(3);
+	mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(2), }, .offset_lba_bytes = lbas[0]};
+	mio->entries[1] = (gusli::io_map_t){.data = {.ptr = mappend_block(3), .byte_len = n_block(3), }, .offset_lba_bytes = lbas[1]};
+	mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(6), .byte_len = n_block(1), }, .offset_lba_bytes = lbas[2]};
+	test_lba::mmio_print(mio, "clnt");
+	my_io.io.params.init_multi(gusli::G_NOP, info.bdev_descriptor, *mio);
+	test_lba::mmio_fill(mio, info.block_size);
+	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
+	test_lba::mmio_verify_and_clean(mio, info.block_size);
+	my_io.exec(gusli::G_READ , io_exec_mode::ASYNC_CB);
+	test_lba::mmio_verify_and_clean(mio, info.block_size);
+	my_io.exec(gusli::G_READ , io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Also verify blocking read
+	test_lba::mmio_verify_and_clean(mio, info.block_size);
+	my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
+	return 0;
+}
+
 /* Simple test of clinet process: Connect to server, Write IO and verify it
    with read. Do 1 range and multi-range io. Stop the server at the end */
 int client_simple_test_of_server(const char* clnt_name, const int n_devs, const char* const bdev_uuid[], const char* const srvr_addr[]) {
@@ -69,30 +100,8 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
 		gusli::bdev_info info;
 		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
-
-		const gusli::io_buffer_t& map = io_bufs[0];
-		static constexpr const int n_blocks = 6;
-		my_assert(map.byte_len >= info.block_size * (n_blocks + 1));
-		#define n_block(i) (info.block_size * (i))
-		#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
-		const uint64_t lbas[3] = {n_block(0x0B), n_block(0x11), n_block(0x63)};
-		/* IO of 7 ram blocks: {range1=2[blk], sgl=1[blk], range2=3[blk], range3=1[blk]}
-		   Block   |   0   |   1   |   2   |   3   |   4   |   5   |   6    |
-		   Content |     Range1    |  sgl  |         Range3        | Range1 |
-		   LBA     |     lbas[0]   |   2   |         lbas[1]       | lbas[2]|
-		*/
-		log_line("%s: IO-to-srvr-multi-range %u[blks] + 1sg block", srvr_addr[b], n_blocks);
-		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
-		mio->init_num_entries(3);
-		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(2), }, .offset_lba_bytes = lbas[0]};
-		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = mappend_block(3), .byte_len = n_block(3), }, .offset_lba_bytes = lbas[1]};
-		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(6), .byte_len = n_block(1), }, .offset_lba_bytes = lbas[2]};
-		test_lba::mmio_fill(mio, info.block_size);
-		my_io.io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-		my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
-		test_lba::mmio_verify_and_clean(mio, info.block_size);
-		my_io.exec(gusli::G_READ , io_exec_mode::ASYNC_CB);
-		test_lba::mmio_verify_and_clean(mio, info.block_size);
+		log_line("%s: IO-to-srvr-multi-range N[blks] + 1sg block", srvr_addr[b]);
+		client_test_write_read_verify_multi(info, io_bufs);
 	}
 	const bool kill_server = true;
 	for (int b = 0; b < n_devs; b++) {
