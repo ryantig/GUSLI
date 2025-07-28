@@ -83,8 +83,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		*/
 		log_line("%s: IO-to-srvr-multi-range %u[blks] + 1sg block", srvr_addr[b], n_blocks);
 		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
-		mio->n_entries = 3;
-		mio->reserved = 'r';
+		mio->init_num_entries(3);
 		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(2), }, .offset_lba_bytes = lbas[0]};
 		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = mappend_block(3), .byte_len = n_block(3), }, .offset_lba_bytes = lbas[1]};
 		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(6), .byte_len = n_block(1), }, .offset_lba_bytes = lbas[2]};

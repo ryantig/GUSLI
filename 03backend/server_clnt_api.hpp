@@ -124,6 +124,24 @@ struct base_shm_element {
 	uint32_t buf_idx;			// Index of buffer, same value on client and server, all fields of 'mem' can differ between client and server
 };
 
+/************************* Generic datapath logging **************************/
+#define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
+#define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
+#define PRINT_IO_REQ_FMT   "IO{%c:ofs=0x%lx, " PRINT_IO_BUF_FMT ", #rng=%d}"
+#define PRINT_IO_REQ_ARGS(c) (c).op, (c).map.offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map.data), (c).num_ranges()
+#define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
+#define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
+#define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"
+
+#if !defined(LIB_NAME) || !defined(LIB_COLOR)
+	#error: Including file must define the above to use generic client/server logging system
+#endif
+#define pr_info1(fmt, ...) ({ pr_info( LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
+#define pr_err1( fmt, ...) ({ pr_err(            LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
+#define pr_note1(fmt, ...) ({ pr_note(           LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
+#define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
+
+/***************************** Generic datapath ******************************/
 class datapath_t {
 	bool verify_buf_shared(    const io_buffer_t &buf) const;
 	bool verify_map_valid(     const io_map_t    &map) const {
@@ -206,15 +224,16 @@ inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) cons
 inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
 	io_csring *r = get();
 	io_csring_cqe::context_t comp;
-	const int rv = r->cq.remove(&comp, need_wakeup_srvr);
-	if (rv >= 0) {
+	const int cqe = r->cq.remove(&comp, need_wakeup_srvr);
+	if (cqe >= 0) {
 		server_io_req* io = comp.io_ptr;
 		BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
 		BUG_ON(!io->has_callback(), "How else would we notify the sender that IO finished?");
+		pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_CQE_ELEM_FMT ".rv[%ld]\n", PRINT_IO_REQ_ARGS(io->params), cqe, comp.rv);
 		io->set_success(comp.rv);
-		return rv;
+		return cqe;
 	}	// No completions arrived, client poller can go to sleep
-	return rv;
+	return cqe;
 }
 
 inline int datapath_t::srvr_receive_io(server_io_req &io, bool *need_wakeup_clnt) const {
@@ -229,19 +248,6 @@ inline int datapath_t::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt)
 	ASSERT_IN_PRODUCTION(rv >= 0);		// Todo: Server has to block to let client process the completions
 	return rv;
 }
-
-#define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
-#define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
-#define PRINT_IO_REQ_FMT   "IO{%c:ofs=0x%lx, " PRINT_IO_BUF_FMT ", #rng=%d}"
-#define PRINT_IO_REQ_ARGS(c) (c).op, (c).map.offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map.data), (c).num_ranges()
-#define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
-#define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
-#define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"
-
-#define pr_info1(fmt, ...) ({ pr_info( LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
-#define pr_err1( fmt, ...) ({ pr_err(            LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_note1(fmt, ...) ({ pr_note(           LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
 
 /******************************** Control Path ***********************/
 class MGMT : no_constructors_at_all {		// CLient<-->Server control path API

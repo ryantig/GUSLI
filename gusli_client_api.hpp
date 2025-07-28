@@ -85,12 +85,13 @@ struct io_map_t {								// IO mapping of data buffer to block device lba
 } __attribute__((aligned(sizeof(long))));
 
 struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] header followed by array of entries.
-	uint32_t n_entries;							// Number of elements in the array > 1.
-	uint32_t reserved;
+	uint32_t n_entries;							// Number of elements in the array > 1, typically 2 - 10K entries
+	uint32_t _reserved;							// Special private cookie to encode version and detect wrong client/srvr mapping. Dont touch
 	io_map_t entries[0];
 	uint64_t  my_size(void) const { return sizeof(*this) + n_entries*sizeof(entries[0]); }
 	uint64_t buf_size(void) const { uint64_t rv = 0; for (uint32_t i = 0; i < n_entries; i++) rv += entries[i].data.byte_len; return rv; }
-	bool is_valid(void) const { return (n_entries > 1); } // For 0,1 range, multi map is not needed
+	bool is_valid(void) const { return (n_entries > 1)&&(_reserved == 0x6f696d6d); } // For 0,1 range, multi map is not needed
+	bool init_num_entries(uint32_t n) { n_entries = n; _reserved = 0x6f696d6d; return is_valid(); }
 } __attribute__((aligned(sizeof(long))));
 
 class io_request {								// Data structure for issuing IO
@@ -118,6 +119,7 @@ class io_request {								// Data structure for issuing IO
 		uint64_t buf_size(void) const {   return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
 		uint32_t num_ranges(void) const { return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->n_entries  : 1); }
 		const class io_request *my_io_req(void) const { return (io_request*)this; }
+		bool is_valid(void) const { return _has_mm ? ((const io_multi_map_t*)map.data.ptr)->is_valid() : true; }
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
 	bool has_callback(void) const { return (params._comp_cb != NULL); }

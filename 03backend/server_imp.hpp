@@ -17,11 +17,11 @@
 #pragma once
 #include "utils.hpp"
 #include "gusli_server_api.hpp"
+#define LIB_NAME "GUSLIs"
+#define LIB_COLOR NV_COL_PURPL
 #include "server_clnt_api.hpp"
 namespace gusli {
 
-#define LIB_NAME "GUSLIs"
-#define LIB_COLOR NV_COL_PURPL
 #define pr_srv_id(s) (s)->b.par.server_name, (s)->binfo.name
 #define pr_infoS(srvr, fmt, ...) pr_info1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
 #define pr_errS( srvr, fmt, ...) pr_err1(  "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)

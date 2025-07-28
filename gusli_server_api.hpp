@@ -19,14 +19,14 @@
 #include <stdio.h>			// FILE, printf
 #include <string.h>			// memset, memcmp
 #include <stdint.h>			// uint64_t, uint32_t and such
-#include "gusli_client_api.hpp"	// for struct bdev_info
+#include "gusli_client_api.hpp"	// for struct bdev_info / io_request
 
 namespace gusli {
 
 class server_io_req : public io_request {			// Data structure for processing incomming IO from gusli client
-public:											// Note this is the same as base class, just add functions for the executor of the io
+ public:											// Note this is the same as base class, just add functions for the executor of the io
 	server_io_req() {}
-	SYMBOL_EXPORT bool is_valid(void) const { return (_exec == nullptr); }
+	SYMBOL_EXPORT bool is_valid(void) const { return (_exec == nullptr) && params.is_valid(); }		// Server use this to verify incomming io from client is in valid state
 	SYMBOL_EXPORT void start_execution(void) { out.rv = io_error_codes::E_IN_TRANSFER; }
 	SYMBOL_EXPORT int64_t get_raw_rv(void) const { return out.rv; }
 	SYMBOL_EXPORT const io_multi_map_t* get_multi_map(void) const { return (const io_multi_map_t*)params.map.data.ptr; }
@@ -36,7 +36,7 @@ public:											// Note this is the same as base class, just add functions for
 		out.rv = (int64_t)err;							// After this line 'this' may get free, if no callback
 		if (do_cb) params._comp_cb(params._comp_ctx);	// Here consider 'this' as destroyed
 	}
-	SYMBOL_EXPORT void set_success( uint64_t n_done_bytes) {
+	SYMBOL_EXPORT void set_success(uint64_t n_done_bytes) {
 		const bool do_cb = has_callback();
 		out.rv = (n_done_bytes == params.buf_size()) ? n_done_bytes : (int64_t)io_error_codes::E_BACKEND_FAULT;	// Partial io not supported
 		if (do_cb) params._comp_cb(params._comp_ctx);
@@ -59,9 +59,9 @@ class srvr_backend_bdev_api {						// Implement (derive from this class privetly
 	virtual void    exec_io(server_io_req& io) = 0;	// use server_io_req methods to execute the io and set result
 
  protected:
-	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;
+	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;// Cleans up 'impl'
 	/* Gusli API towards your class, USE this API to initialize/User the server */
-	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Call me from your derived class constructor upon error throws exception.  Get the version of the library to adapt application dynamically to library features set.
+	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Callfrom your derived class constructor. Initializes 'impl'. Upon error throws exception. Get the version of the library to adapt application dynamically to library features set.
 	SYMBOL_EXPORT_NO_DISCARD int run(void) noexcept; // Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";

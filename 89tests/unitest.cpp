@@ -138,8 +138,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		static constexpr const size_t multi_io_size = sizeof(gusli::io_multi_map_t) + n_ranges * sizeof(gusli::io_map_t);
 		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
 		char *p = my_io.io_buf;
-		mio->n_entries = n_ranges;
-		mio->reserved = 'r';
+		mio->init_num_entries(n_ranges);
 		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = &p[0], .byte_len = 2, }, .offset_lba_bytes = 7};	// "Hello world" -> "or"
 		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = &p[2], .byte_len = 4, }, .offset_lba_bytes = 1};	// "Hello world" -> "ello"
 		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = &p[6], .byte_len = 2, }, .offset_lba_bytes = 0};	// "Hello world" -> "He"
@@ -388,8 +387,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			log_line("%s: IO-to-srvr-multi-range", UUID.SRVR_NAME[s]);
 			unitest_io my_io;
 			gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(1);
-			mio->n_entries = 3;
-			mio->reserved = 'r';
+			mio->init_num_entries(3);
 			mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(1), }, .offset_lba_bytes = n_block(0x0B)};
 			mio->entries[1] = (gusli::io_map_t){.data = {.ptr = io_bufs[1].ptr  , .byte_len = n_block(2), }, .offset_lba_bytes = n_block(0x11)};
 			mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(3), }, .offset_lba_bytes = n_block(0x63)};

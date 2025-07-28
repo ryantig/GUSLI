@@ -154,9 +154,13 @@ class backend_io_executor {
 			srv->stats.inc(io);
 			client_io_ctx = io.params._comp_ctx;
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
-			DEBUG_ASSERT(io.is_valid());										// Verify no other executor connected to io
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
-			srv->b.exec_io(io);		// Launch io execution
+			if (io.is_valid()) {
+				srv->b.exec_io(io);		// Launch io execution
+			} else {
+				pr_errS(srv, "exec[%p].IO arrived to server in a wrong state, Memory corruption??? cannot execute\n", this);	// Verify no other executor connected to io
+				io.set_error(io_error_codes::E_INVAL_PARAMS);
+			}
 			return true;
 		} else {
 			delete this;

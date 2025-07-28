@@ -17,13 +17,12 @@
 #pragma once
 #include "utils.hpp"
 #include "gusli_client_api.hpp"
+#define LIB_NAME "GUSLIc"
+#define LIB_COLOR NV_COL_NONE
 #include "03backend/server_clnt_api.hpp"
 #include <semaphore.h>
 
 namespace gusli {
-
-#define LIB_NAME "GUSLIc"
-#define LIB_COLOR NV_COL_NONE
 
 /*****************************************************************************/
 enum bdev_type {							// Fast path to supported bdevs
