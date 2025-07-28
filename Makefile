@@ -20,26 +20,26 @@ UNAME := $(shell uname)# Which operating system we use?
 HT = $(shell uname -m)
 CFLAGS = $(EXTRA_CFLAGS)
 ifeq ($(UNAME),Darwin)
-	USE_DARWIN=1
-	CFLAGS += -m64
-	LIBS_PATH = -L/usr/lib
+    USE_DARWIN=1
+    CFLAGS += -m64
+    LIBS_PATH = -L/usr/lib
 else ifeq ($(HT),x86_64)
-	USE_64_BITS=1
-	CFLAGS += -m64
-	LIBS_PATH = -L/usr/lib64
+    USE_64_BITS=1
+    CFLAGS += -m64
+    LIBS_PATH = -L/usr/lib64
 else ifeq ($(HT),aarch64)
-	USE_ARM=1
-	CFLAGS += -march=armv8.1-a+crc+fp+simd
-	LIBS_PATH = -L/usr/lib64
+    USE_ARM=1
+    CFLAGS += -march=armv8.1-a+crc+fp+simd
+    LIBS_PATH = -L/usr/lib64
 else
-	$(error Unknown OS/Host)
+    $(error Unknown OS/Host)
 endif
 
 VERBOSE?=0
 ifeq ($(VERBOSE), 1)
-	ECHO_CMD =
+    ECHO_CMD =
 else
-	ECHO_CMD = @
+    ECHO_CMD = @
 endif
 
 # ********** Included directories of H files *********
@@ -62,9 +62,9 @@ SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST_CLN
 # ********** All objects will reside in separate directory **********
 OBJ_DIR_ROOT=99bin
 ifeq ($(BUILD_RELEASE),1)
-	OBJ_DIR=./$(OBJ_DIR_ROOT)/release
+    OBJ_DIR=./$(OBJ_DIR_ROOT)/release
 else
-	OBJ_DIR=./$(OBJ_DIR_ROOT)/debug
+    OBJ_DIR=./$(OBJ_DIR_ROOT)/debug
 endif
 
 $(shell mkdir -p $(OBJ_DIR))
@@ -86,9 +86,9 @@ LIB_COMN_NAME=$(PROJECT_PREFIX)_comn
 LIB_CLNT_NAME=$(PROJECT_PREFIX)_clnt
 LIB_SRVR_NAME=$(PROJECT_PREFIX)_srvr
 ifeq ($(BUILD_FOR_UNITEST),1)
-	INSTALL_DIR=./$(OBJ_DIR_ROOT)/inst
+    INSTALL_DIR=./$(OBJ_DIR_ROOT)/inst
 else
-	INSTALL_DIR=/usr
+    INSTALL_DIR=/usr
 endif
 UNITEST_EXE_PREFIX=z_
 UNITEST_CLNT_EXE=$(UNITEST_EXE_PREFIX)$(LIB_CLNT_NAME)_unitest
@@ -98,26 +98,26 @@ EXE_LIST_ALL=$(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_dyn $(UNITEST_SPDKS_EXE) $(
 
 # ********** Extract git information *********
 ifeq ($(COMPILATION_DATE),)
-	ifeq ($(BUILD_FOR_UNITEST),1)
-		COMPILATION_DATE := \!\!\!\!\ Non\ Production\ \!\!\!\!
-		CFLAGS += -DUNITEST_ENV=1
-	else
-		COMPILATION_DATE := \($(shell date +%-d/%b/%Y:"%T")\)\[$(shell uname -r)\]
-	endif
+    ifeq ($(BUILD_FOR_UNITEST),1)
+        COMPILATION_DATE := \!\!\!\!\ Non\ Production\ \!\!\!\!
+        CFLAGS += -DUNITEST_ENV=1
+    else
+        COMPILATION_DATE := \($(shell date +%-d/%b/%Y:"%T")\)\[$(shell uname -r)\]
+    endif
 endif
 ifeq ($(HAS_LOCAL_GIT),)
-	HAS_LOCAL_GIT=$(shell git rev-parse --is-inside-work-tree)
+    HAS_LOCAL_GIT=$(shell git rev-parse --is-inside-work-tree)
 endif
 ifeq ($(HAS_LOCAL_GIT),true)
-	COMMIT_ID=$(shell git log -n1 --format=%h)
-	VER_TAGID=$(shell git describe --abbrev=0)
-	BRANCH_NAME=$(shell git symbolic-ref 2>/dev/null --short --quiet HEAD || git rev-parse 2>/dev/null --abbrev-ref HEAD)
+    COMMIT_ID=$(shell git log -n1 --format=%h)
+    VER_TAGID=$(shell git describe --abbrev=0)
+    BRANCH_NAME=$(shell git symbolic-ref 2>/dev/null --short --quiet HEAD || git rev-parse 2>/dev/null --abbrev-ref HEAD)
 endif
 # Dummy commit info
 ifeq ($(COMMIT_ID),)
-	COMMIT_ID := 010101010
-	VER_TAGID := v3.1.0
-	BRANCH_NAME := Unknown
+    COMMIT_ID := 010101010
+    VER_TAGID := v3.1.0
+    BRANCH_NAME := Unknown
 endif
 
 # ********** Define Linker flags *********
@@ -126,32 +126,32 @@ LFLAGS_EXT =
 # ********** External libraries ********* check for lib using pkg-config and update flags appropriately
 EXTLIB=liburing
 ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
-	CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
-	LFLAGS_EXT = $(shell pkg-config --libs $(EXTLIB))
+    CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
+    LFLAGS_EXT = $(shell pkg-config --libs $(EXTLIB))
 endif
 
 SPDK_DIR = $(ROOT_DIR_RLTV)/../spdk
 ifneq ($(shell [ -d $(SPDK_DIR) ] && echo _spdk_exists),)
-	INCLUDES += -I$(realpath $(SPDK_DIR)/include)
-	CFLAGS += -DSUPPORT_SPDK=1
-	# Use SPDK's build system for linking only, not compilation flags
-	SPDK_ROOT_DIR := $(realpath $(SPDK_DIR))
-	export SPDK_ROOT_DIR
-	# Save current CFLAGS before including SPDK makefiles
-	SAVED_CFLAGS := $(CFLAGS)
-	include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
-	include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
-	# Restore our CFLAGS and only use SPDK for linking
-	CFLAGS := $(SAVED_CFLAGS)
-	# Use whole-archive linking for SPDK libraries to resolve circular dependencies
-	# Include bdev modules needed for malloc bdev functionality
-	LFLAGS_SPDK_SRVR = -Wl,--whole-archive \
-		$(addprefix $(SPDK_ROOT_DIR)/build/lib/libspdk_,$(addsuffix .a, \
-			event event_bdev event_accel event_keyring event_vmd event_sock event_iobuf \
-			bdev bdev_malloc bdev_null bdev_error bdev_gpt bdev_split bdev_delay \
-			init rpc jsonrpc json util log trace notify accel dma thread scheduler_dynamic \
-			env_dpdk sock keyring vmd)) \
-		-Wl,--no-whole-archive $(ENV_LINKER_ARGS) $(SYS_LIBS)
+    INCLUDES += -I$(realpath $(SPDK_DIR)/include)
+    CFLAGS += -DSUPPORT_SPDK=1
+    # Use SPDK's build system for linking only, not compilation flags
+    SPDK_ROOT_DIR := $(realpath $(SPDK_DIR))
+    export SPDK_ROOT_DIR
+    # Save current CFLAGS before including SPDK makefiles
+    SAVED_CFLAGS := $(CFLAGS)
+    include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
+    include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
+    # Restore our CFLAGS and only use SPDK for linking
+    CFLAGS := $(SAVED_CFLAGS)
+    # Use whole-archive linking for SPDK libraries to resolve circular dependencies
+    # Include bdev modules needed for malloc bdev functionality
+    LFLAGS_SPDK_SRVR = -Wl,--whole-archive \
+        $(addprefix $(SPDK_ROOT_DIR)/build/lib/libspdk_,$(addsuffix .a, \
+            event event_bdev event_accel event_keyring event_vmd event_sock event_iobuf \
+            bdev bdev_malloc bdev_null bdev_error bdev_gpt bdev_split bdev_delay \
+            init rpc jsonrpc json util log trace notify accel dma thread scheduler_dynamic \
+            env_dpdk sock keyring vmd)) \
+        -Wl,--no-whole-archive $(ENV_LINKER_ARGS) $(SYS_LIBS)
 endif
 
 # ********** Define compilation/Linker flags *********
@@ -159,22 +159,23 @@ CFLAGS += -DCOMPILATION_DATE=${COMPILATION_DATE} -DCOMMIT_ID=0x$(COMMIT_ID)UL -D
 CFLAGS += -Wall -Werror -Wextra -Wshadow -Werror=strict-aliasing -falign-functions=8 -std=c++2a
 CFLAGS += -fPIC -fvisibility=hidden
 ifeq ($(BUILD_RELEASE),1)
-	USE_SANITIZERS?=0
-	CFLAGS += -O2 -g -DNDEBUG
-	TRACE_LEVEL?=5
+    USE_SANITIZERS?=0
+    CFLAGS += -O2 -g -DNDEBUG
+    TRACE_LEVEL?=5
 else
-	USE_SANITIZERS?=0
-	CFLAGS += -g3 -ggdb3
-	TRACE_LEVEL?=7
+    USE_SANITIZERS?=0
+    CFLAGS += -g3 -ggdb3
+    TRACE_LEVEL?=7
 endif
 ifeq ($(USE_SANITIZERS),1)
-	CFLAGS += -fsanitize=leak -fsanitize=address -fsanitize=undefined
-	LFLAGS_ALL += -fsanitize=leak -fsanitize=address -fsanitize=undefined
+    CFLAGS += -fsanitize=leak -fsanitize=address -fsanitize=undefined
+    LFLAGS_ALL += -fsanitize=leak -fsanitize=address -fsanitize=undefined
+    USE_CLANG=0 # Clang does not support this yet
 endif
 
 ifeq ($(USE_THREAD_SANITIZER),1)
-	CFLAGS += -fsanitize=thread
-	LFLAGS_ALL += -fsanitize=thread
+    CFLAGS += -fsanitize=thread
+    LFLAGS_ALL += -fsanitize=thread
 endif
 CFLAGS += -DTRACE_LEVEL=$(TRACE_LEVEL)
 LFLAGS__SO = -shared $(LFLAGS_EXT) -Wl,--no-undefined $(LFLAGS_ALL)
@@ -191,26 +192,29 @@ endif
 # ********** Actions *********
 define print_compilation_info
 	@printf "===========================================\n"
-	@printf "Compilation info, Release=$(BUILD_RELEASE), COMMIT_ID=$(COMMIT_ID), $(CC), TRACE_LEVEL=$(TRACE_LEVEL) HT=$(HT)|\n"
-	@printf "\t* Proj    | $(ROOT_DIR_ABS) [$(ROOT_DIR_RLTV)]\n"
-	@printf "\t* CFLAGS  | $(CFLAGS)\n"
-	@printf "\t* INCLUDS | $(INCLUDES)\n"
-	@printf "\t* DFLAGS  | $(DFLAGS)\n"
-	@printf "\t* L-FLexe | $(LFLAGS_EXE)\n"
-	@printf "\t* L-FL.so | $(LFLAGS__SO)\n"
-	@printf "\t* LDynExe | $(LFLAGS_EXE_DYNAMIC)\n"
-	@printf "\t* LStaExe | $(LFLAGS_EXE__STATIC)\n"
-	@printf "\t* LS_SPDK | $(LFLAGS_SPDK_SRVR)\n"
-	@printf "\t* INSTALL | $(INSTALL_DIR)\n"
-	@printf "===========================================\n"
+	@printf "\e[0;32mCompilation info\e[0;0m: Release=$(BUILD_RELEASE), COMMIT_ID=$(COMMIT_ID), $(CC), TRACE_LEVEL=$(TRACE_LEVEL) HT=$(HT)|\n"
+	@if [ "$(USE_SANITIZERS)" = "1" ]; then \
+			printf "\t* Notice \e[1;33mSanitizers enabled\e[0;0m, clang not supported\n"; \
+	fi
+    @printf "\t* Proj    | $(ROOT_DIR_ABS) [$(ROOT_DIR_RLTV)]\n"
+    @printf "\t* CFLAGS  | $(CFLAGS)\n"
+    @printf "\t* INCLUDS | $(INCLUDES)\n"
+    @printf "\t* DFLAGS  | $(DFLAGS)\n"
+    @printf "\t* L-FLexe | $(LFLAGS_EXE)\n"
+    @printf "\t* L-FL.so | $(LFLAGS__SO)\n"
+    @printf "\t* LDynExe | $(LFLAGS_EXE_DYNAMIC)\n"
+    @printf "\t* LStaExe | $(LFLAGS_EXE__STATIC)\n"
+    @printf "\t* LS_SPDK | $(LFLAGS_SPDK_SRVR)\n"
+    @printf "\t* INSTALL | $(INSTALL_DIR)\n"
+    @printf "===========================================\n"
 endef
 
 define print_synamic_dependencies
-	@printf "Dynamic dependencies analysis:\n"
-	ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
-	ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
-	ldd $(EXE_LIST_ALL)
-	@printf "===========================================\n"
+    @printf "Dynamic dependencies analysis:\n"
+    ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
+    ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
+    ldd $(EXE_LIST_ALL)
+    @printf "===========================================\n"
 endef
 
 help:
