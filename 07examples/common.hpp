@@ -74,12 +74,22 @@ namespace test_lba {
 		for (uint32_t i = 0; i < mio->n_entries; i++)
 			map1_fill(mio->entries[i], block_size_bytes);
 	}
+	static inline void map1_verify(const gusli::io_map_t &m, uint32_t block_size_bytes) {
+		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
+			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
+			my_assert(*dst == (m.offset_lba_bytes + b));
+		}
+	}
 	static inline void map1_verify_and_clean(const gusli::io_map_t &m, uint32_t block_size_bytes) {
 		for (uint64_t b = 0; b < m.data.byte_len; b += block_size_bytes) {
 			uint64_t *dst = (uint64_t*)((uint64_t)m.data.ptr + b);
 			my_assert(*dst == (m.offset_lba_bytes + b));
 			*dst = -1;		// Future reads must execute to access the data again
 		}
+	}
+	static inline void mmio_verify(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
+		for (uint32_t i = 0; i < mio->n_entries; i++)
+			map1_verify(mio->entries[i], block_size_bytes);
 	}
 	static inline void mmio_verify_and_clean(const gusli::io_multi_map_t* mio, uint32_t block_size_bytes) {
 		for (uint32_t i = 0; i < mio->n_entries; i++)
