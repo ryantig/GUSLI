@@ -148,14 +148,14 @@ class t_shared_mem {
 		if (external_buf) {
 			void* _map = mmap(external_buf, n_bytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
 			if (_map == MAP_FAILED) {
-				pr_err("mmap fixed" PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
+				pr_err("Error allocating mmap fixed %p, len=0x%lx, " PRINT_EXTERN_ERR_FMT "\n", external_buf, n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 			}
 			is_external_buf = true;
 			buf = external_buf;
 		} else {
 			buf = mmap(0, n_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 			if (buf == MAP_FAILED) {
-				pr_err("mmap " PRINT_EXTERN_ERR_FMT "\n", PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
+				pr_err("Error allocating mmap len=0x%lx, " PRINT_EXTERN_ERR_FMT "\n", n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 			}
 		}
 	__out:

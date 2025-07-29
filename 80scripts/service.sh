@@ -17,14 +17,27 @@
 function echo_red() {    echo -e "\e[0;31m$*\e[0m"; }
 function echo_green() {  echo -e "\e[0;32m$*\e[0m"; }
 function echo_yellow() { echo -e "\e[0;33m$*\e[0m"; }
+function echo_title() {  echo -e "~~~~~~~~~~~~~ \e[16;34m$*\e[0;39m:"; }
 
 function GUSLI() {
 	if [ $# -eq 0 ]; then
 		echo "params: show / clean / huge_pages_setup"
 	elif [[ $1 == sh* ]]; then
-		cmd="ps -eLo pid,ppid,comm,user | grep gusli"; echo_green $cmd; eval $cmd;
-		cmd="ps -ef | grep gusli"; echo_green $cmd; eval $cmd;
-		cmd='ll /dev/shm/gs*'; echo_green $cmd; eval $cmd;
+		cmd="ps -eLo pid,ppid,comm,user | grep gusli"; echo_title "Processes"; eval $cmd;
+		#cmd="ps -ef | grep gusli"; echo_green $cmd; eval $cmd;
+		cmd="pgrep -fl gusli"; echo_green $cmd; eval $cmd;
+		cmd='ll /dev/shm/gs* 2>/dev/null'; #echo_green $cmd;
+		eval $cmd;
+		ps_prg=$(pgrep -f gusli);
+		echo_title "Shared mem bufs";
+		for process in $ps_prg; do
+			echo "Process $(cat /proc/$process/comm)[ $process ]:";
+			sudo grep -e /dev/shm/gs -e heap /proc/$process/maps;
+		done
+		for process in $ps_prg; do
+			echo_title "Process $(cat /proc/$process/comm)[ $process ]: stack";
+			sudo cat /proc/$process/stack;
+		done
 	elif [[ $1 == cl* ]]; then
 		ps_prg=`pgrep -f gusli`; [ ! -z "$ps_prg" ] && sudo kill -9 ${ps_prg};
 		sudo rm /dev/shm/gs*;
