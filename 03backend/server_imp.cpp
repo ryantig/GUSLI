@@ -33,7 +33,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 	} else {
 		shm_ptr = &dp.shm_ring;
 	}
-	int rv = shm_ptr->init_consumer(pr->name, n_bytes, (pr->is_io_buf ? (void*)pr->client_pointer : NULL));
+	int rv = shm_ptr->init_consumer(pr->name, n_bytes);
 	if (rv == 0) {	// Verify cookie
 		rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
 	}
@@ -136,6 +136,8 @@ class backend_io_executor {
 			srv->stats.inc(*p);
 			srv->send_to(msg, n_send_bytes, addr);
 		}
+		if (io.params.is_multi_range())
+			free(io.params.map.data.ptr);	// Copied scatter gather list
 		delete this;
 	}
 	static void static_io_done_cb(backend_io_executor *me) { me->_io_done_cb();	}
@@ -156,9 +158,14 @@ class backend_io_executor {
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
 			if (io.is_valid()) {
-				srv->b.exec_io(io);		// Launch io execution
+				if (srv->dp.srvr_remap_io_bufs_to_my(io)) {
+					srv->b.exec_io(io);		// Launch io execution
+				} else {
+					pr_errS(srv, "exec[%p].IO buffers cannot be remapped. autofail io\n", this);
+					io.set_error(io_error_codes::E_INVAL_PARAMS);
+				}
 			} else {
-				pr_errS(srv, "exec[%p].IO arrived to server in a wrong state, Memory corruption??? cannot execute\n", this);	// Verify no other executor connected to io
+				pr_errS(srv, "exec[%p].IO arrived to server in a wrong state, Memory corruption??? autofail io\n", this);	// Verify no other executor connected to io
 				io.set_error(io_error_codes::E_INVAL_PARAMS);
 			}
 			return true;

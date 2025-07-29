@@ -380,14 +380,16 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 		// Map app buffers for read operations
 		log_line("Remote server %s: map bufs", UUID.SRVR_NAME[s]);
+		unitest_io my_io;
 		std::vector<gusli::io_buffer_t> io_bufs;
 		io_bufs.reserve(2);
-		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffers for mass io tests
-		io_bufs.emplace_back(__alloc_io_buffer(info, 100));							// another small buffer for testing multiple registrations
-		const gusli::io_buffer_t& map = io_bufs[0];
+		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffer for mass io tests
+		io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 
-		if (1) _remote_server_bad_path_unitests(lib, info, map);
+		if (1) _remote_server_bad_path_unitests(lib, info, io_bufs[0]);
+		for (int j = 0; j < 2; j++)
+			client_test_write_read_verify_1blk(info, my_io, j * 17 * info.block_size);	// Test 1 block write-read on lba's 0 and 17
 		if (1) {
 			log_line("%s: IO-to-srvr-multi-range", UUID.SRVR_NAME[s]);
 			client_test_write_read_verify_multi(info, io_bufs);
@@ -395,7 +397,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 		if (s == 0) { // Lauch async perf read test on first server only
 			log_line("IO-to-srvr-perf %u[Mio]", (num_ios_preassure >> 20));
-			all_ios_t ios(map, info);
+			all_ios_t ios(io_bufs[0], info);
 			for (int i = 0; i < 4; i++)
 				ios.launch_perf_reads(num_ios_preassure);
 		}
@@ -428,6 +430,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
 		for (gusli::io_buffer_t& buf : io_bufs)
 			free(buf.ptr);
+		my_io.io_buf = nullptr;	// Because we already freed it in the line above
 		io_bufs.clear();
 	}
 
