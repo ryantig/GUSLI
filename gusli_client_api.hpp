@@ -116,12 +116,13 @@ class io_request {								// Data structure for issuing IO
 		template<class C, typename F> void set_completion(C ctx, F cb) { _comp_ctx = (void*)ctx, _comp_cb = (void (*)(void*))cb; _async_no_comp = false; }
 									  void set_blocking(void) {          _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = false; }
 									  void set_async_pollable(void) {    _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = true; }
-		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf, len, lba); }
-		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0); }
-		uint64_t buf_size(void) const {   return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
-		uint32_t num_ranges(void) const { return (_has_mm ? ((const io_multi_map_t*)map.data.ptr)->n_entries  : 1); }
+		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf,        len,          lba); }
+		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0  ); }
+		bool is_multi_range(void) const { return _has_mm; }
+		uint64_t buf_size(void) const {   return (is_multi_range() ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
+		uint32_t num_ranges(void) const { return (is_multi_range() ? ((const io_multi_map_t*)map.data.ptr)->n_entries  : 1); }
 		const class io_request *my_io_req(void) const { return (io_request*)this; }
-		bool is_valid(void) const { return _has_mm ? ((const io_multi_map_t*)map.data.ptr)->is_valid() : true; }
+		bool is_valid(void) const { return true; }						// Boiler-plate for future usage
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
 	bool has_callback(void) const { return (params._comp_cb != NULL); }
@@ -131,7 +132,7 @@ class io_request {								// Data structure for issuing IO
 	SYMBOL_EXPORT_NO_DISCARD enum cancel_rv try_cancel(void) noexcept;	// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running
  protected:																// Below extra 16[b] for execution state
 	class io_request_executor_base* _exec;								// During execution executor attaches to IO, Server side uses it to execute io
- 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
+	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
 	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
 private:
 	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;	// Internal function, dont touch

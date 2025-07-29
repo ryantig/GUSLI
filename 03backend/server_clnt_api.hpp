@@ -119,12 +119,6 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= (num_max_inflight_io+1); }	// +1 for debug, so according to max io's ring will never be full so producer will never have to block
 };
 
-struct base_shm_element {
-	t_shared_mem mem;
-	void *other_party_ptr;		// For debug only: Client stores servers mem pointer, Server store client side pointer
-	uint32_t buf_idx;			// Index of buffer, same value on client and server, all fields of 'mem' can differ between client and server
-};
-
 /************************* Generic datapath logging **************************/
 #define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
 #define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
@@ -142,14 +136,32 @@ struct base_shm_element {
 #define pr_note1(fmt, ...) ({ pr_note(           LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
 #define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
 
+/************************* Clnet-Srvr Common memBuf **************************/
+struct base_shm_element {
+	t_shared_mem mem;
+	void *other_party_ptr;		// For debug only: Client stores servers mem pointer, Server store client side pointer
+	uint32_t buf_idx;			// Index of buffer, same value on client and server, all fields of 'mem' can differ between client and server
+	void* convert_to_my(io_buffer_t &buf) const {
+		const size_t offset = (size_t)buf.ptr - (size_t)other_party_ptr;
+		void* const rv = (void*)((size_t)mem.get_buf() + offset);
+		if (mem.is_mapped(rv, buf.byte_len)) {
+			pr_verb1("Remapping[%di].io_buf{ %p -> %p }\n", buf_idx, buf.ptr, rv);
+			return buf.ptr = rv;
+		}
+		pr_verb1("Remapping[%di].io_buf{ %p not in my buffer }\n", buf_idx, buf.ptr);
+		return NULL;
+	}
+};
+
 /***************************** Generic datapath ******************************/
 class datapath_t {
 	bool verify_buf_shared(    const io_buffer_t &buf) const;
+	bool remap_io_buf_to_local(      io_buffer_t &buf) const;
 	bool verify_map_valid(     const io_map_t    &map) const {
 		return (map.is_valid_for(block_size) &&
 				(map.get_offset_end_lba() < num_total_bytes) &&
 				verify_buf_shared(map.data)); }
-	bool verify_io_param_valid(const server_io_req  &io ) const;
+	bool verify_io_param_valid(const server_io_req &io) const;
  public:
 	t_shared_mem shm;						// Mapped Submition/completion queues.
 	std::vector<struct base_shm_element> shm_io_bufs;	// Mapped User external io buffers
@@ -159,12 +171,13 @@ class datapath_t {
 	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { /*shm_io_bufs.reserve(16);*/}
 	~datapath_t() {}
 	io_csring *get(void) const { return (io_csring *)shm.get_buf(); }
-	int shared_buf_find(const io_buffer_t &buf) const;
-	int shared_buf_find(const uint32_t buf_idx) const;
-	int clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
-	int clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
-	int srvr_receive_io(   server_io_req &io, bool *need_wakeup_clnt_producer) const;
-	int srvr_finish_io(    server_io_req &io, bool *need_wakeup_clnt_consumer) const;
+	int  shared_buf_find(const io_buffer_t &buf) const;
+	int  shared_buf_find(const uint32_t buf_idx) const;
+	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
+	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
+	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
+	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
+	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
 	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm.~t_shared_mem(); }
 };
 
@@ -185,17 +198,53 @@ inline int datapath_t::shared_buf_find(const uint32_t buf_idx) const {
 }
 
 inline bool datapath_t::verify_buf_shared(const io_buffer_t &buf) const {
-	for (const base_shm_element& shm_buf  : shm_io_bufs) {
+	for (const base_shm_element& shm_buf : shm_io_bufs) {
 		if (shm_buf.mem.is_mapped((void*)buf.ptr, buf.byte_len))
 			return true;
 	}
 	return false;	// Not contained in any mapped range
 }
 
+inline bool datapath_t::remap_io_buf_to_local(io_buffer_t &buf) const {
+	for (const base_shm_element& shm_buf : shm_io_bufs) {
+		if (shm_buf.convert_to_my(buf)) {
+			return true;
+		} else { } /* We dont know in which range the io resides so try with a different buffer */
+	}
+	return false;	// Not contained in any mapped range
+}
+
+inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
+	if (!remap_io_buf_to_local(io.params.map.data))			// Remap the 1 range io buffer or scatter gather buffer
+		return false;
+	if (io.params.is_multi_range()) {
+		const size_t sgl_len = io.params.map.data.byte_len;
+		const io_multi_map_t* mm = io.get_multi_map();
+		      io_multi_map_t* nm = nullptr;
+		// Must Replace the sgl because we cant change it in shared memory. Why?
+		//	1. Client owns sgl and may traverse it after io finishes
+		//	2. Client may retry the io so sgl must remain as in first try
+		if (posix_memalign((void **)&nm, 4096,sgl_len) != 0) {
+			pr_err1("Realloc_sgl oom error len=0x%lx[b]\n", sgl_len);
+			return false;
+		}
+		pr_verb1("Realloc_sgl len=0x%lx[b], n_entries=%u { %p -> %p }\n", sgl_len, mm->n_entries, mm, nm);
+		memcpy(nm, mm, sgl_len);
+		for (uint32_t i = 0; i < nm->n_entries; i++) {
+			if (!remap_io_buf_to_local(nm->entries[i].data)) {
+				free(nm);
+				return false;
+			}
+		}
+		io.params.map.data.ptr = (void*)nm;
+	}
+	return true;
+}
+
 inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
 	if (unlikely(io.params._async_no_comp))				// Polling mode not supported yet
 		return false;
-	if (!io.params._has_mm)
+	if (!io.params.is_multi_range())
 		return verify_map_valid(io.params.map);			// 1-range mapping is valid
 	const io_multi_map_t* mm = io.get_multi_map();
 	if (!mm->is_valid())								// Scatter gather is valid

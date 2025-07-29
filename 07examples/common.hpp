@@ -99,7 +99,7 @@ namespace test_lba {
 		log_unitest("%s map: len=0x%lx[b], off=0x%lx[b], %p\n",prefix, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
 	}
 	static inline void mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
-		log_unitest("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
+		log_unitest("\t%s: mio=%p, size=0x%lx[b], buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
 		for (uint32_t i = 0; i < mio->n_entries; i++) {
 			const gusli::io_map_t& m = mio->entries[i];
 			log_unitest("\t\t%u) len=0x%lx[b], off=0x%lx[b], %p\n", i, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
