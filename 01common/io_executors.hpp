@@ -313,7 +313,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	struct io_uring uring;
 	int num_completed;				// Number of completed io ranges so far
 	bool had_failure;
-	prep_func_t prep_op;  // Pointer to prep function
+	prep_func_t prep_fn;
 	bool init_uring_queue(void) {
 		io_uring_params p = {};
 		const int urv = io_uring_queue_init_params(num_ranges, &uring, &p);
@@ -337,7 +337,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			pr_err1("exec[%p].o[%p] Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
 			had_failure = true;
 		} else {
-			prep_op(sqe, io->params.bdev_descriptor, map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
+			prep_fn(sqe, io->params.bdev_descriptor, map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
 			sqe->user_data = (__u64)this;
 		}
 		return !had_failure;
@@ -351,7 +351,7 @@ public:
 	uring_request_executor(class io_request& _io) : io_request_executor_base(_io, false) {
 		num_completed = 0;
 		had_failure = false;
-		prep_op = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
+		prep_fn = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
 		if (!init_uring_queue()) return;
 		if (num_ranges > 1) {
 			const io_multi_map_t *mm = get_mm();

@@ -183,6 +183,6 @@ class t_shared_mem {
 	int init_consumer(const char* _name, size_t _n_bytes, void* external_buf = NULL) { return _init(_name, _n_bytes, false, external_buf); }
 	void* get_buf(void) const { return buf; }
 	const char* get_producer_name(void) const { return name; }
-	bool is_mapped(const void* ptr, size_t len = 0) const { return (ptr >= buf) && (((size_t)ptr + len) <= ((size_t)buf + n_bytes)); }
+	bool is_mapped(      const void* ptr, size_t len = 0) const { return (ptr >= buf) && (((size_t)ptr + len) <= ((size_t)buf + n_bytes)); }
 	bool is_exact_mapped(const void* ptr, size_t len = 0) const { return (ptr == buf) && (len == n_bytes); }
 };

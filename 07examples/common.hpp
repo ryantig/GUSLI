@@ -95,6 +95,9 @@ namespace test_lba {
 		for (uint32_t i = 0; i < mio->n_entries; i++)
 			map1_verify_and_clean(mio->entries[i], block_size_bytes);
 	}
+	static inline void map1_print(const gusli::io_map_t &m, const char* prefix) {
+		log_unitest("%s map: len=0x%lx[b], off=0x%lx[b], %p\n",prefix, m.data.byte_len, m.offset_lba_bytes, m.data.ptr);
+	}
 	static inline void mmio_print(const gusli::io_multi_map_t* mio, const char* prefix) {
 		log_unitest("\t%s: mio=%p, size=0x%lx, buf_size=0x%lx\n", prefix, mio, mio->my_size(), mio->buf_size());
 		for (uint32_t i = 0; i < mio->n_entries; i++) {
