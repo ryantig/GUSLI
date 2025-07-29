@@ -517,7 +517,7 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 	const size_t size = msg.build_unr_buf();
 	auto *pr = &msg.pay.c_unreg_buf;
 	pr->build_io_buffer(id, io.ptr, (io.byte_len / info.block_size), dp.shm_io_bufs[vec_idx].buf_idx);
-	pr_info1("UnRegist[%di].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s\n", pr->buf_idx, vec_idx, PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name);
+	pr_info1("UnRegist[%di].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s, srvr_ptr=%p\n", pr->buf_idx, vec_idx, PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name, dp.shm_io_bufs[vec_idx].other_party_ptr);
 	ASSERT_IN_PRODUCTION(strncmp(pr->name, dp.shm_io_bufs[vec_idx].mem.get_producer_name(), sizeof(pr->name)) == 0);
 	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 	if (send_to(msg, size) >= 0) {
@@ -582,10 +582,17 @@ bool bdev_backend_api::check_incoming() {
 			ASSERT_IN_PRODUCTION(info.block_size >= 1);
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
+			if (pr->is_io_buf) {
+				const int vec_idx = dp.shared_buf_find(pr->buf_idx);
+				BUG_ON(vec_idx < 0, "Server gave ack on unknown registered memory\n");
+				dp.shm_io_bufs[vec_idx].other_party_ptr = (void*)pr->server_pointer;
+			}
+			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
 			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::unreg_ack)) {
 			const auto *pr = &msg.pay.s_unreg_ack;
+			pr_info1("UnRegistAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
 			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::server_kick)) {

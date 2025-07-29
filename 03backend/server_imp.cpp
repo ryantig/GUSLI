@@ -24,13 +24,14 @@
 namespace gusli {
 
 /******************************** Communicate with client ********************/
-int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) {
+int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	t_shared_mem *shm_ptr;
 	if (pr->is_io_buf) {
 		base_shm_element *new_map = &dp.shm_io_bufs.emplace_back();
 		new_map->buf_idx = pr->buf_idx;
+		new_map->other_party_ptr = (void*)pr->client_pointer;
 		shm_ptr = &new_map->mem;
 	} else {
 		shm_ptr = &dp.shm;
@@ -39,24 +40,25 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg) 
 	if (rv == 0) {	// Verify cookie
 		rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
 	}
-	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes};
-	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
-	pr_infoS(this, "Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), (int)dp.shm_io_bufs.size()-1, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
-	BUG_ON(rv, "Todo: instead of relying that clnt/server addresses are identical, IO should talk in buffer indices");
+	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes}; my_buf = buf.ptr;
+	const int vec_idx = (int)dp.shm_io_bufs.size() - 1;
+	pr_infoS(this, "Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
+	BUG_ON(rv, "Todo: this error is still unsupported");
 	return rv;
 }
 
-int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg) {
+int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_unreg_buf;
-	const int vec_idx = dp.shared_buf_find(pr->buf_idx);
-	if (vec_idx < 0) return -1;
-	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
-	const io_buffer_t buf = {.ptr = NULL, .byte_len = n_bytes};
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
+	const int vec_idx = dp.shared_buf_find(pr->buf_idx);
+	if (vec_idx < 0)
+		return -1;								// Unknown (unregistered) buffer ????
+	ASSERT_IN_PRODUCTION((void*)pr->client_pointer == dp.shm_io_bufs[vec_idx].other_party_ptr);
+	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
+	const io_buffer_t buf = {.ptr = dp.shm_io_bufs[vec_idx].mem.get_buf(), .byte_len = n_bytes}; my_buf = buf.ptr;
 	const int rv = 0;
-	const int buf_idx = (pr->is_io_buf ? (int)pr->buf_idx : -1);
 	dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
-	pr_infoS(this, "UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", buf_idx, (pr->is_io_buf ? 'i' : 'r'), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
+	pr_infoS(this, "UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
@@ -239,16 +241,16 @@ int global_srvr_context_imp::run_once(void) noexcept {
 		// Todo: Initialize datapath of consumer here
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::register_buf)) {
-		const int reg_rv = __clnt_bufs_register(msg);
+		void* my_buf = nullptr;
+		const int reg_rv = __clnt_bufs_register(msg, my_buf);
 		const size_t n_send_bytes = msg.build_reg_ack();
-		msg.pay.s_register_ack.server_pointer = 0x0;		// Not needed
-		msg.pay.s_register_ack.rv = reg_rv;		// Leave other fields untouched
+		msg.pay.s_register_ack.init_with(my_buf, reg_rv);
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::unreg_buf)) {
-		const int reg_rv = __clnt_bufs_unregist(msg);
+		void* my_buf = nullptr;
+		const int reg_rv = __clnt_bufs_unregist(msg, my_buf);
 		const size_t n_send_bytes = msg.build_unr_ack();
-		msg.pay.s_unreg_ack.server_pointer = 0x0;		// Not needed
-		msg.pay.s_unreg_ack.rv = reg_rv;		// Leave other fields untouched
+		msg.pay.s_unreg_ack.init_with(my_buf, reg_rv);
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::close_nice)) {
 		__clnt_close("nice_close");

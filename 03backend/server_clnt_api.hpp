@@ -121,6 +121,7 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 
 struct base_shm_element {
 	t_shared_mem mem;
+	void *other_party_ptr;		// For debug only: Client stores servers mem pointer, Server store client side pointer
 	uint32_t buf_idx;			// Index of buffer, same value on client and server, all fields of 'mem' can differ between client and server
 };
 
@@ -335,12 +336,18 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 					is_io_buf = true;
 				}
 				void build_io_buffer(const char*_name) { strncpy(name, _name, sizeof(name)); is_io_buf = true; }
+				int  get_buf_idx( void) const { return is_io_buf ? (int)buf_idx : -1; }
+				char get_buf_type(void) const { return is_io_buf ? 'i' : 'r'; }
 			 } c_register_buf, c_unreg_buf;
 			struct t_register_ack {
 				char name[8 + sizeof(backend_bdev_id)];
 				uint64_t server_pointer;
 				int32_t rv;
-				uint32_t reserved;
+				uint32_t buf_idx   : 16;
+				uint32_t is_io_buf : 16;
+				void init_with(void* srvr_ptr, int _rv) { server_pointer = (uint64_t)srvr_ptr; rv = _rv; }		// Leave other fields (buf_idx, is_io_buf) untouched
+				int  get_buf_idx( void) const { return is_io_buf ? (int)buf_idx : -1; }
+				char get_buf_type(void) const { return is_io_buf ? 'i' : 'r'; }
 			} s_register_ack, s_unreg_ack;
 			struct t_close_nice {
 				struct backend_bdev_id volume;

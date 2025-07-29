@@ -61,8 +61,8 @@ class global_srvr_context_imp : public base_library  {
 	bool has_connencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(void);
-	[[nodiscard]] int  __clnt_bufs_register(const MGMT::msg_content &msg);
-	[[nodiscard]] int  __clnt_bufs_unregist(const MGMT::msg_content &msg);
+	[[nodiscard]] int  __clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf);
+	[[nodiscard]] int  __clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf);
 	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
 	void __clnt_close(const char* reason);
 	void do_shut_down(int err_code) { exit_error_code = err_code; shutting_down = true;}

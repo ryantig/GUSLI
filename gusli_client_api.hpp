@@ -74,6 +74,7 @@ struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, same
 		const uint64_t align = (byte_len | (uint64_t)ptr);
 		return !((align % block_size) || (align % 4096) || (ptr == nullptr) || (byte_len == 0));	// Kernel pages/bdev-blocks can be larger. 512[B] not supported
 	}
+	void init(void* p, uint64_t len) { ptr = p; byte_len = len; }
 } __attribute__((aligned(sizeof(long))));
 
 struct io_map_t {								// IO mapping of data buffer to block device lba
