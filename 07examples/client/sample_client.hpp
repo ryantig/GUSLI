@@ -18,6 +18,17 @@
 #include "07examples/client/io_submittion_example.hpp"
 
 /*****************************************************************************/
+int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io &my_io, const uint64_t lba) {
+	static constexpr const char *data = "Hello world";
+	my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, info.block_size, my_io.io_buf);
+	strcpy(my_io.io_buf, data);
+	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
+	my_io.clean_buf();
+	my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);
+	my_assert(strcmp(data, my_io.io_buf) == 0);
+	return 0;
+}
+
 int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std::vector<gusli::io_buffer_t> &io_bufs) {
 	unitest_io my_io;
 	const gusli::io_buffer_t& map = io_bufs[0];
@@ -87,14 +98,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
 		gusli::bdev_info info;
 		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
-		static constexpr const char *data = "Hello world";
-		const uint64_t lba = b * info.block_size;
-		my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, info.block_size, my_io.io_buf);
-		strcpy(my_io.io_buf, data);
-		my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
-		my_io.clean_buf();
-		my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);
-		my_assert(strcmp(data, my_io.io_buf) == 0);
+		client_test_write_read_verify_1blk(info, my_io, (b * info.block_size));
 	}
 	for (int b = 0; b < n_devs; b++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
