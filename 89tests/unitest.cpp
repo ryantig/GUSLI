@@ -329,7 +329,10 @@ static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_
 void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	log_line("Remote server %s:no reply test", UUID.SRVR_NAME[0]);
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[0]);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
+	const auto con_rv = lib.bdev_connect(bdev);
+	if (con_rv == gusli::connect_rv::C_OK)
+		log_uni_failure("There is another server process running in parallel to unitest. Kill it and rerun!\n\n");
+	my_assert(con_rv == gusli::connect_rv::C_NO_RESPONSE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
 }
 
@@ -402,9 +405,11 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Non existent buffers
-		log_line("%s: Rereg-Unreg bufs again", UUID.SRVR_NAME[s]);
-		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
-		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
+		for (int j = 0; j < 3; j++) {
+			log_line("%s: Rereg-Unreg bufs again (iter=%d)", UUID.SRVR_NAME[s], j);
+			my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
+			my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
+		}
 		log_line("%s: Disconnect from server", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
