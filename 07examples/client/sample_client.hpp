@@ -18,14 +18,19 @@
 #include "07examples/client/io_submittion_example.hpp"
 
 /*****************************************************************************/
+#define n_block(i) (info.block_size * (i))
+#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
 int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io &my_io, const uint64_t lba) {
-	static constexpr const char *data = "Hello world";
-	my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, info.block_size, my_io.io_buf);
-	strcpy(my_io.io_buf, data);
+	char *user_buf = my_io.io_buf + n_block(3);		// We use a short io, so take offset in io buffer, to test address translation
+	my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, n_block(2), user_buf);
+	gusli::io_map_t& map = my_io.io.params.map;
+	test_lba::map1_print(map, "clnt");
+	test_lba::map1_fill( map, info.block_size);
 	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
 	my_io.clean_buf();
 	my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);
-	my_assert(strcmp(data, my_io.io_buf) == 0);
+	my_assert(map.data.ptr == user_buf);
+	test_lba::map1_verify_and_clean(map, info.block_size);
 	return 0;
 }
 
@@ -34,8 +39,6 @@ int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std:
 	const gusli::io_buffer_t& map = io_bufs[0];
 	static constexpr const int n_blocks = 6;
 	my_assert(map.byte_len >= info.block_size * (n_blocks + 1));
-	#define n_block(i) (info.block_size * (i))
-	#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
 	const uint64_t lbas[3] = {n_block(0x01B), n_block(0x21), n_block(0x63)};
 	/* IO of 7 ram blocks: {range1=2[blk], sgl=1[blk], range2=3[blk], range3=1[blk]}
 		Block   |   0   |   1   |   2   |   3   |   4   |   5   |   6    |
@@ -47,9 +50,9 @@ int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std:
 	mio->entries[0].init(mappend_block(0), n_block(2), lbas[0]);
 	mio->entries[1].init(mappend_block(3), n_block(3), lbas[1]);
 	mio->entries[2].init(mappend_block(6), n_block(1), lbas[2]);
-	test_lba::mmio_print(mio, "clnt");
 	my_io.io.params.init_multi(gusli::G_NOP, info.bdev_descriptor, *mio);
-	test_lba::mmio_fill(mio, info.block_size);
+	test_lba::mmio_print(mio, "clnt");
+	test_lba::mmio_fill( mio, info.block_size);
 	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
 	test_lba::mmio_verify_and_clean(mio, info.block_size);
 	my_io.exec(gusli::G_READ , io_exec_mode::ASYNC_CB);
