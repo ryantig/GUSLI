@@ -232,7 +232,7 @@ class sync_request_executor : public blocking_request_executor {
  public:
 	void run(void) override {
 		const int fd = io->params.bdev_descriptor;
-		if (!io->params._has_mm) {
+		if (io->params.num_ranges() == 1) {
 			_do_1_map(fd, op(), io->params.map);
 		} else {
 			const io_multi_map_t *mm = get_mm();

@@ -47,7 +47,7 @@ class bitmap {
 		return num;
 	}
  public:
- 	// Static utils
+	// Static utils
 	static constexpr uint32_t BITS_PER_LONG = 64;
 	static uint64_t BIT_MASK( int nr) { return (1UL << (nr % BITS_PER_LONG)); }
 	static uint64_t BIT_WORD( int nr) { return         (nr / BITS_PER_LONG); }
@@ -55,7 +55,7 @@ class bitmap {
 	static uint64_t BITMAP_LAST_WORD_MASK( int nbits) { return (~0UL >> ((-nbits) & (BITS_PER_LONG - 1))); }
 	static inline int hweight64(uint64_t x)	{return __builtin_popcountll(x); }
 
- 	bitmap(uint64_t& p0, uint32_t _n_bits) : bmp(&p0), n_bits(_n_bits) {};
+	bitmap(uint64_t& p0, uint32_t _n_bits) : bmp(&p0), n_bits(_n_bits) {};
 	inline uint32_t size( void) const { return n_bits; }
 	inline void set_bit(  int nr) { bmp[BIT_WORD(nr)] |=  BIT_MASK(nr); }
 	inline void clear_bit(int nr) { bmp[BIT_WORD(nr)] &= ~BIT_MASK(nr); }
@@ -100,8 +100,8 @@ template <int N_bits>
 class small_ints_set : public bitmap {		// Stores a bit field, turned on bit for element in a set
 	uint64_t arr[(N_bits + bitmap::BITS_PER_LONG - 1) / bitmap::BITS_PER_LONG] = {0};
  public:
- 	small_ints_set(void) : bitmap(arr[0], N_bits) {}
- 	small_ints_set(int _n_bits) : bitmap(arr[0], _n_bits) { DEBUG_ASSERT(_n_bits <= N_bits); }
+	small_ints_set(void) : bitmap(arr[0], N_bits) {}
+	small_ints_set(int _n_bits) : bitmap(arr[0], _n_bits) { DEBUG_ASSERT(_n_bits <= N_bits); }
 	void insert(uint32_t x) { ASSERT_IN_PRODUCTION(x < size()); set_bit(x); }
 	void remove(uint32_t x) { clear_bit(x); }
 };

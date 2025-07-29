@@ -22,7 +22,7 @@ static volatile bool ctrl_c_pressed = false;
 static volatile bool shutdown_in_progress = false;
 
 class server_spdk_app_1_gusli_server {
- 	std::unique_ptr<server_spdk_ram> srvrs[spdk_test::num_bdevs];
+	std::unique_ptr<server_spdk_ram> srvrs[spdk_test::num_bdevs];
 	struct spdk_app_opts opts = {};
 	struct spdk_poller *gs_poller = NULL;
 	int app_start_rv = -ENOEXEC;
