@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "07examples/client/io_submittion_example.hpp"
+#include "07examples/client/sample_client.hpp"
 
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
@@ -144,9 +145,10 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		mio->entries[2].init(&p[6], 2, 0);	// "Hello world" -> "He"
 		mio->entries[3].init(&p[8], 1, 6);	// "Hello world" -> "w"
 		my_io.io.params.init_multi(gusli::G_READ, my_io.io.params.bdev_descriptor, *mio);
-		my_assert(mio->my_size()  == multi_io_size);
-		my_assert(mio->buf_size() == multi_io_read_length);
-		my_assert(my_io.io.params.buf_size() == multi_io_read_length);
+		my_assert(multi_io_size        == mio->my_size());
+		my_assert(multi_io_size        == my_io.io.params.map.data.byte_len);
+		my_assert(multi_io_read_length == mio->buf_size());
+		my_assert(multi_io_read_length == my_io.io.params.buf_size());
 		for_each_exec_mode(i) {
 			my_io.clean_buf();
 			my_io.exec(gusli::G_READ, (io_exec_mode)i);
@@ -291,10 +293,9 @@ static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
 	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 }
 
-#define n_block(i) (info.block_size * (i))
-#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
 void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
 	(void)lib;
+	#define dst_block(i) mappend_block(map.ptr, i)
 	gusli::io_request io;
 	io.params.bdev_descriptor = info.bdev_descriptor;
 	io.submit_io(); my_assert(io.get_error() != 0);			// No completion function
@@ -308,12 +309,12 @@ void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gus
 	io.submit_io(); 										// Wrong mapping of first range, it is zeroed
 	mio->entries[1] = mio->entries[0].init((void*)(1 << 20), (1 << 20), (1 << 20));
 	io.submit_io(); 										// Wrong mapping of first range, it is not inside shared memory area
-	mio->entries[1] = mio->entries[0].init(mappend_block(2), n_block(1), n_block(3));
+	mio->entries[1] = mio->entries[0].init(dst_block(2), n_block(1), n_block(3));
 	io.submit_io(); 										// Correct mapping, but scatter gather itself is not inside shared memory area
 	free(mio);
-	mio = (gusli::io_multi_map_t*)mappend_block(0);
+	mio = (gusli::io_multi_map_t*)dst_block(0);
 	mio->n_entries = 2;
-	mio->entries[1] = mio->entries[0].init(mappend_block(3), n_block(2), 1);
+	mio->entries[1] = mio->entries[0].init(dst_block(3), n_block(2), 1);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 	io.submit_io(); 										// Partial block offset
 	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = (1UL << 62);
@@ -336,8 +337,6 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	my_assert(con_rv == gusli::connect_rv::C_NO_RESPONSE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
 }
-
-#include "../07examples/client/sample_client.hpp"
 
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>

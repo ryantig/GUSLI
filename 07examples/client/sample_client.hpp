@@ -19,7 +19,7 @@
 
 /*****************************************************************************/
 #define n_block(i) (info.block_size * (i))
-#define mappend_block(i) ((void*)((uint64_t)map.ptr + n_block(i)))
+#define mappend_block(p, i) ((void*)((uint64_t)(p) + n_block(i)))
 int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io &my_io, const uint64_t lba) {
 	char *user_buf = my_io.io_buf + n_block(3);		// We use a short io, so take offset in io buffer, to test address translation
 	my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, n_block(2), user_buf);
@@ -37,19 +37,36 @@ int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io 
 int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std::vector<gusli::io_buffer_t> &io_bufs) {
 	unitest_io my_io;
 	const gusli::io_buffer_t& map = io_bufs[0];
-	static constexpr const int n_blocks = 6;
-	my_assert(map.byte_len >= info.block_size * (n_blocks + 1));
-	const uint64_t lbas[3] = {n_block(0x01B), n_block(0x21), n_block(0x63)};
-	/* IO of 7 ram blocks: {range1=2[blk], sgl=1[blk], range2=3[blk], range3=1[blk]}
+	const uint64_t lbas[5] = {n_block(0x01B), n_block(0x21), n_block(0x63), n_block(0x52), n_block(0x51)};
+	/* IO of 7 ram blocks, 3 ranges: {range0=2[blk], sgl=1[blk], range1=3[blk], range2=1[blk]}
 		Block   |   0   |   1   |   2   |   3   |   4   |   5   |   6    |
-		Content |     Range1    |  sgl  |         Range3        | Range1 |
+		--------+-------+-------|---------------+-------+-------+--------|
+		Content |     Range0    |  sgl  |         Range1        | Range2 |
 		LBA     |     lbas[0]   |   2   |         lbas[1]       | lbas[2]|
 	*/
-	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
-	mio->init_num_entries(3);
-	mio->entries[0].init(mappend_block(0), n_block(2), lbas[0]);
-	mio->entries[1].init(mappend_block(3), n_block(3), lbas[1]);
-	mio->entries[2].init(mappend_block(6), n_block(1), lbas[2]);
+	my_assert(map.byte_len >= info.block_size * 7);
+	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(map.ptr, 2);			// Scatter gather in third block
+	if (true) {
+		mio->init_num_entries(3);
+		mio->entries[0].init(mappend_block(map.ptr, 0), n_block(2), lbas[0]);
+		mio->entries[1].init(mappend_block(map.ptr, 3), n_block(3), lbas[1]);
+		mio->entries[2].init(mappend_block(map.ptr, 6), n_block(1), lbas[2]);
+	}
+	if (io_bufs.size() > 1) {
+		const gusli::io_buffer_t& ext = io_bufs[1];
+		/* + 3 block to IO (first and last in second range): {range3=2[blk], range4=1[blk]}
+			Block   |   0    |   1   |    ......     | last-1 |  last  |
+			--------+--------+-------|---------------+--------+--------|
+			Content | Range4 |       |               |      Range3     |
+			LBA     | lbas[4]|       |               |      lbas[3]    |
+		*/
+		my_assert(ext.byte_len >= info.block_size * 3);
+		const uint64_t l = (ext.byte_len / info.block_size) - 2;				// Last 2 block in mapped area
+		mio->init_num_entries(mio->n_entries + 2);
+		mio->entries[3].init(mappend_block(ext.ptr, l), n_block(2), lbas[3]);
+		mio->entries[4].init(mappend_block(ext.ptr, 0), n_block(1), lbas[4]);
+	}
+	my_assert(mio->my_size() < info.block_size);					// There is enough space in a block to fit sgl
 	my_io.io.params.init_multi(gusli::G_NOP, info.bdev_descriptor, *mio);
 	test_lba::mmio_print(mio, "clnt");
 	test_lba::mmio_fill( mio, info.block_size);
