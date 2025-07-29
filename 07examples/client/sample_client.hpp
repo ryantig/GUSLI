@@ -44,9 +44,9 @@ int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std:
 	*/
 	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)mappend_block(2);			// Scatter gather in third block
 	mio->init_num_entries(3);
-	mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(0), .byte_len = n_block(2), }, .offset_lba_bytes = lbas[0]};
-	mio->entries[1] = (gusli::io_map_t){.data = {.ptr = mappend_block(3), .byte_len = n_block(3), }, .offset_lba_bytes = lbas[1]};
-	mio->entries[2] = (gusli::io_map_t){.data = {.ptr = mappend_block(6), .byte_len = n_block(1), }, .offset_lba_bytes = lbas[2]};
+	mio->entries[0].init(mappend_block(0), n_block(2), lbas[0]);
+	mio->entries[1].init(mappend_block(3), n_block(3), lbas[1]);
+	mio->entries[2].init(mappend_block(6), n_block(1), lbas[2]);
 	test_lba::mmio_print(mio, "clnt");
 	my_io.io.params.init_multi(gusli::G_NOP, info.bdev_descriptor, *mio);
 	test_lba::mmio_fill(mio, info.block_size);

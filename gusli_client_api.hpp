@@ -74,13 +74,14 @@ struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, same
 		const uint64_t align = (byte_len | (uint64_t)ptr);
 		return !((align % block_size) || (align % 4096) || (ptr == nullptr) || (byte_len == 0));	// Kernel pages/bdev-blocks can be larger. 512[B] not supported
 	}
-	void init(void* p, uint64_t len) { ptr = p; byte_len = len; }
+	const  io_buffer_t&     init(void* p, uint64_t len) { ptr = p; byte_len = len; return *this; }
+	static io_buffer_t construct(void* p, uint64_t len) { io_buffer_t rv; return rv.init(p, len); }
 } __attribute__((aligned(sizeof(long))));
 
 struct io_map_t {								// IO mapping of data buffer to block device lba
 	io_buffer_t data;
 	uint64_t offset_lba_bytes;					// Starting offset of the io on blockdevice, all address must be aligned to blocks.
-	void init(void* ptr, uint64_t len, uint64_t offset) { data.ptr = ptr; data.byte_len = len; offset_lba_bytes = offset; }
+	const io_map_t &init(void* ptr, uint64_t len, uint64_t offset) { data.init(ptr, len); offset_lba_bytes = offset; return *this; }
 	bool is_valid_for(uint64_t block_size) const { return data.is_valid_for(block_size) && ((offset_lba_bytes % block_size) == 0); }
 	uint64_t get_offset_end_lba(void) const { return (offset_lba_bytes + data.byte_len); }
 } __attribute__((aligned(sizeof(long))));

@@ -72,7 +72,7 @@ class unitest_io {
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
 	unitest_io() { my_assert(posix_memalign((void**)&io_buf, buf_align, buf_len) == 0);	}
 	~unitest_io() { if (io_buf) free(io_buf); }
-	gusli::io_buffer_t get_map(void) const { return gusli::io_buffer_t{ .ptr = io_buf, .byte_len = buf_len }; }
+	gusli::io_buffer_t get_map(void) const { return gusli::io_buffer_t::construct(io_buf, buf_len); }
 	const unitest_io& exec(gusli::io_type _op, io_exec_mode _mode) {
 		mode = _mode;
 		has_callback_arrived = false;

@@ -40,7 +40,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 	if (rv == 0) {	// Verify cookie
 		rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
 	}
-	const io_buffer_t buf = {.ptr = shm_ptr->get_buf(), .byte_len = n_bytes}; my_buf = buf.ptr;
+	const io_buffer_t buf = io_buffer_t::construct(shm_ptr->get_buf(), n_bytes); my_buf = buf.ptr;
 	const int vec_idx = (int)dp.shm_io_bufs.size() - 1;
 	pr_infoS(this, "Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
 	BUG_ON(rv, "Todo: this error is still unsupported");
@@ -55,7 +55,7 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, 
 		return -1;								// Unknown (unregistered) buffer ????
 	ASSERT_IN_PRODUCTION((void*)pr->client_pointer == dp.shm_io_bufs[vec_idx].other_party_ptr);
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
-	const io_buffer_t buf = {.ptr = dp.shm_io_bufs[vec_idx].mem.get_buf(), .byte_len = n_bytes}; my_buf = buf.ptr;
+	const io_buffer_t buf = io_buffer_t::construct(dp.shm_io_bufs[vec_idx].mem.get_buf(), n_bytes); my_buf = buf.ptr;
 	const int rv = 0;
 	dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
 	pr_infoS(this, "UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);

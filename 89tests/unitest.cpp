@@ -43,7 +43,7 @@ struct bdev_uuid_cache {
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	std::vector<gusli::io_buffer_t> mem;
-	mem.emplace_back(gusli::io_buffer_t{ .ptr = NULL, .byte_len = (1UL << 30) });
+	mem.emplace_back(gusli::io_buffer_t::construct(NULL, (1UL << 30)));
 	gusli::backend_bdev_id bdev;
 	bdev.set_from("NonExist_bdev");
 	log_line("test wrong bdev %s", bdev.uuid);
@@ -139,10 +139,10 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
 		char *p = my_io.io_buf;
 		mio->init_num_entries(n_ranges);
-		mio->entries[0] = (gusli::io_map_t){.data = {.ptr = &p[0], .byte_len = 2, }, .offset_lba_bytes = 7};	// "Hello world" -> "or"
-		mio->entries[1] = (gusli::io_map_t){.data = {.ptr = &p[2], .byte_len = 4, }, .offset_lba_bytes = 1};	// "Hello world" -> "ello"
-		mio->entries[2] = (gusli::io_map_t){.data = {.ptr = &p[6], .byte_len = 2, }, .offset_lba_bytes = 0};	// "Hello world" -> "He"
-		mio->entries[3] = (gusli::io_map_t){.data = {.ptr = &p[8], .byte_len = 1, }, .offset_lba_bytes = 6};	// "Hello world" -> "w"
+		mio->entries[0].init(&p[0], 2, 7);	// "Hello world" -> "or"
+		mio->entries[1].init(&p[2], 4, 1);	// "Hello world" -> "ello"
+		mio->entries[2].init(&p[6], 2, 0);	// "Hello world" -> "He"
+		mio->entries[3].init(&p[8], 1, 6);	// "Hello world" -> "w"
 		my_io.io.params.init_multi(gusli::G_READ, my_io.io.params.bdev_descriptor, *mio);
 		my_assert(mio->my_size()  == multi_io_size);
 		my_assert(mio->buf_size() == multi_io_read_length);
@@ -180,7 +180,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		gusli::bdev_info bdi;
 		my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_OK);
 		my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
-		my_io.io.params.map.data.byte_len = 1 * bdi.block_size;	my_assert(bdi.block_size == 4096);
+		my_io.io.params.map.data.byte_len = 1 * bdi.block_size;
+		my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
 		for_each_exec_mode(i) {
 			my_io.exec(gusli::G_READ, (io_exec_mode)i);
@@ -305,14 +306,14 @@ void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gus
 	io.submit_io(); 										// < 2 ranges are not allowed
 	mio->n_entries = 2;
 	io.submit_io(); 										// Wrong mapping of first range, it is zeroed
-	mio->entries[1] = mio->entries[0] = (gusli::io_map_t){.data = {.ptr = (void*)(1 << 20), .byte_len = (1 << 20), }, .offset_lba_bytes = (1 << 20)};
+	mio->entries[1] = mio->entries[0].init((void*)(1 << 20), (1 << 20), (1 << 20));
 	io.submit_io(); 										// Wrong mapping of first range, it is not inside shared memory area
-	mio->entries[1] = mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(2), .byte_len = n_block(1), }, .offset_lba_bytes = n_block(3)};
+	mio->entries[1] = mio->entries[0].init(mappend_block(2), n_block(1), n_block(3));
 	io.submit_io(); 										// Correct mapping, but scatter gather itself is not inside shared memory area
 	free(mio);
 	mio = (gusli::io_multi_map_t*)mappend_block(0);
 	mio->n_entries = 2;
-	mio->entries[1] = mio->entries[0] = (gusli::io_map_t){.data = {.ptr = mappend_block(3), .byte_len = n_block(2), }, .offset_lba_bytes = 1};
+	mio->entries[1] = mio->entries[0].init(mappend_block(3), n_block(2), 1);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 	io.submit_io(); 										// Partial block offset
 	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = (1UL << 62);
