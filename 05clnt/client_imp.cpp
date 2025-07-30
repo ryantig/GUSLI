@@ -466,9 +466,9 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 		dp.num_total_bytes = info.num_total_blocks * info.block_size;
 		const uint64_t n_bytes = align_up(sizeof(io_csring), (uint64_t)dp.block_size);
 		pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
-		ASSERT_IN_PRODUCTION(dp.shm.init_producer(pr->name, n_bytes) == 0);
-		*(uint64_t*)dp.shm.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
-		const io_buffer_t buf = io_buffer_t::construct(dp.shm.get_buf(), n_bytes);
+		ASSERT_IN_PRODUCTION(dp.shm_ring.init_producer(pr->name, n_bytes) == 0);
+		*(uint64_t*)dp.shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
+		const io_buffer_t buf = io_buffer_t::construct(dp.shm_ring.get_buf(), n_bytes);
 		pr_verb1("Register[-1r].vec[-1] " PRINT_IO_BUF_FMT ", to=%s\n", PRINT_IO_BUF_ARGS(buf), addr);
 		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) >= 0) {

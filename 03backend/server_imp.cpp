@@ -34,7 +34,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 		new_map->other_party_ptr = (void*)pr->client_pointer;
 		shm_ptr = &new_map->mem;
 	} else {
-		shm_ptr = &dp.shm;
+		shm_ptr = &dp.shm_ring;
 	}
 	int rv = shm_ptr->init_consumer(pr->name, n_bytes, (pr->is_io_buf ? (void*)pr->client_pointer : NULL));
 	if (rv == 0) {	// Verify cookie

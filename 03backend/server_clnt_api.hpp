@@ -163,14 +163,14 @@ class datapath_t {
 				verify_buf_shared(map.data)); }
 	bool verify_io_param_valid(const server_io_req &io) const;
  public:
-	t_shared_mem shm;						// Mapped Submition/completion queues.
+	t_shared_mem shm_ring;						// Mapped Submition/completion queues.
 	std::vector<struct base_shm_element> shm_io_bufs;	// Mapped User external io buffers
 	uint32_t shm_io_file_running_idx;
 	uint32_t block_size;
 	uint64_t num_total_bytes;
 	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { /*shm_io_bufs.reserve(16);*/}
 	~datapath_t() {}
-	io_csring *get(void) const { return (io_csring *)shm.get_buf(); }
+	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
 	int  shared_buf_find(const io_buffer_t &buf) const;
 	int  shared_buf_find(const uint32_t buf_idx) const;
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
@@ -178,7 +178,7 @@ class datapath_t {
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
-	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm.~t_shared_mem(); }
+	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm_ring.~t_shared_mem(); }
 };
 
 inline int datapath_t::shared_buf_find(const io_buffer_t &buf) const {
