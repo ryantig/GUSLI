@@ -153,7 +153,7 @@ class backend_io_executor {
 	bool has_io_to_do(void) const { return (sqe_indx >= 0); }
 	bool run(void) {
 		if (has_io_to_do()) {
-			srv->stats.inc(io);
+			srv->stats.inc(io);			// Dont access io maps as they are not remapped yet
 			client_io_ctx = io.params._comp_ctx;
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);

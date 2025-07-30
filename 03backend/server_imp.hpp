@@ -39,7 +39,7 @@ struct bdev_stats_srvr {
 		if (p.sender_ready_for_work) n_w_sub++;
 	}
 	void inc(const io_request& io) {
-		if (io.params.num_ranges() > 1)
+		if (io.params.is_multi_range())
 			n_io_range_multi++;
 		else
 			n_io_range_single++;
