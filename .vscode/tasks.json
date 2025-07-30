@@ -5,7 +5,7 @@
 			"label": "GusliBuild",
 			"type": "shell",
 			"command": "make",
-			"args": ["all", "BUILD_FOR_UNITEST=1", "BUILD_RELEASE=0"],
+			"args": ["all", "BUILD_FOR_UNITEST=1", "BUILD_RELEASE=0", "BUILD_ALSO_INSTALLS_DYN_LIBS=0"],
 			"options": {"cwd": "${workspaceFolder}/"},
 			"problemMatcher": ["$gcc"],
 			"group": {"kind": "build", "isDefault": true }

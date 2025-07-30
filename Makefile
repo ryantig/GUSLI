@@ -16,6 +16,7 @@
 BUILD_RELEASE?=1
 USE_CLANG?=0
 BUILD_FOR_UNITEST?=1
+BUILD_ALSO_INSTALLS_DYN_LIBS?=1
 UNAME := $(shell uname)# Which operating system we use?
 HT = $(shell uname -m)
 CFLAGS = $(EXTRA_CFLAGS)
@@ -94,7 +95,14 @@ UNITEST_EXE_PREFIX=z_
 UNITEST_CLNT_EXE=$(UNITEST_EXE_PREFIX)$(LIB_CLNT_NAME)_unitest
 UNITEST_SPDKS_EXE=$(UNITEST_EXE_PREFIX)$(PROJECT_PREFIX)_spdk_server_dyn
 UNITEST_SPDK2_EXE=$(UNITEST_EXE_PREFIX)$(PROJECT_PREFIX)_spdk_both_unitest
-EXE_LIST_ALL=$(UNITEST_CLNT_EXE) $(UNITEST_CLNT_EXE)_dyn $(UNITEST_SPDKS_EXE) $(UNITEST_SPDK2_EXE)
+EXE_LIST_ALL=$(UNITEST_CLNT_EXE) $(UNITEST_SPDK2_EXE) # Static executables
+ifeq ($(BUILD_ALSO_INSTALLS_DYN_LIBS),1)
+    # Install .so and generate dynamic link executables
+    EXE_LIST_ALL += $(UNITEST_CLNT_EXE)_dyn $(UNITEST_SPDKS_EXE)
+    TARGET_BINARIES_RULE = install $(EXE_LIST_ALL)
+else
+    TARGET_BINARIES_RULE = $(EXE_LIST_ALL)
+endif
 
 # ********** Extract git information *********
 ifeq ($(COMPILATION_DATE),)
@@ -194,7 +202,7 @@ define print_compilation_info
 	@printf "===========================================\n"
 	@printf "\e[0;32mCompilation info\e[0;0m: Release=$(BUILD_RELEASE), COMMIT_ID=$(COMMIT_ID), $(CC), TRACE_LEVEL=$(TRACE_LEVEL) HT=$(HT)|\n"
 	@if [ "$(USE_SANITIZERS)" = "1" ]; then \
-			printf "\t* Notice \e[1;33mSanitizers enabled\e[0;0m, clang not supported\n"; \
+		printf "\t* Notice \e[1;33mSanitizers enabled\e[0;0m, clang not supported\n"; \
 	fi
     @printf "\t* Proj    | $(ROOT_DIR_ABS) [$(ROOT_DIR_RLTV)]\n"
     @printf "\t* CFLAGS  | $(CFLAGS)\n"
@@ -205,26 +213,29 @@ define print_compilation_info
     @printf "\t* LDynExe | $(LFLAGS_EXE_DYNAMIC)\n"
     @printf "\t* LStaExe | $(LFLAGS_EXE__STATIC)\n"
     @printf "\t* LS_SPDK | $(LFLAGS_SPDK_SRVR)\n"
-    @printf "\t* INSTALL | $(INSTALL_DIR)\n"
+    @printf "===========================================\n"
+    @printf "\t* INSTALL | Enabled=$(BUILD_ALSO_INSTALLS_DYN_LIBS), dir=$(INSTALL_DIR)\n"
+    @printf "\t* ExeList | $(EXE_LIST_ALL)\n"
     @printf "===========================================\n"
 endef
 
 define print_synamic_dependencies
     @printf "Dynamic dependencies analysis:\n"
-    ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so
-    ldd $(OBJ_DIR)/$(LIB_SRVR_NAME).so
-    ldd $(EXE_LIST_ALL)
+    @if [ "$(BUILD_ALSO_INSTALLS_DYN_LIBS)" = "1" ]; then \
+        @ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so; \
+    else printf "\t*\e[1;33m.so libs not generated\e[0;0m\n"; \
+    fi
+    @ldd $(EXE_LIST_ALL)
     @printf "===========================================\n"
 endef
 
 help:
 	$(call print_compilation_info);
-	@printf "Usage |\e[0;32mmake $(LIB_CLNT_NAME).a\e[0;0m| for building the client lib\n"
-	@printf "Usage |\e[0;32mmake $(LIB_SRVR_NAME).a\e[0;0m| for building the server lib\n"
 	@printf "Usage |\e[0;32mmake all\e[0;0m| for building libs + executable unitest\n"
+	@printf "Usage |\e[0;32mmake all BUILD_FOR_UNITEST=0 BUILD_RELEASE=1 BUILD_ALSO_INSTALLS_DYN_LIBS=1 VERBOSE=1\e[0;0m|\n"
 	@printf "\n\n\n\n"
 
-all: $(SOURCES_ALL) install $(EXE_LIST_ALL)
+all: $(SOURCES_ALL) $(TARGET_BINARIES_RULE)
 	$(if $(filter 1,$(VERBOSE)),$(call print_compilation_info))
 	$(if $(filter 1,$(VERBOSE)),$(call print_synamic_dependencies))
 	$(info +--->100% Done!)
