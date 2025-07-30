@@ -410,6 +410,13 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 			my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		}
+		if (1) {		// Verify reg/unreg did not ruin original user buffers virtual mem mapping
+			for (gusli::io_buffer_t& b : io_bufs) {
+				char* p = (char*)b.ptr;
+				p[b.byte_len/2] = p[b.byte_len-1] = p[0] = 'a';		// Write to start/middle/end of buffer
+				my_assert('a' == (p[b.byte_len/2] ^ p[b.byte_len-1] ^ p[0]));		// Write to start/middle/end of buffer
+			}
+		}
 		log_line("%s: Disconnect from server", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
