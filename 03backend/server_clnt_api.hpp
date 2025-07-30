@@ -15,10 +15,8 @@
  * limitations under the License.
  */
 #pragma once
-#include <stdio.h>
-#include "gusli_client_api.hpp"
 #include <time.h>
-#include "00utils/atomics.hpp"
+#include "shared_mem_bufs.hpp"
 #include "gusli_server_api.hpp"
 
 namespace gusli {
@@ -119,103 +117,37 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= (num_max_inflight_io+1); }	// +1 for debug, so according to max io's ring will never be full so producer will never have to block
 };
 
-/************************* Generic datapath logging **************************/
-#define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
-#define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
-#define PRINT_IO_REQ_FMT   "IO{%c:ofs=0x%lx, " PRINT_IO_BUF_FMT ", #rng=%d}"
-#define PRINT_IO_REQ_ARGS(c) (c).op, (c).map.offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map.data), (c).num_ranges()
-#define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
-#define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
-#define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"
-
-#if !defined(LIB_NAME) || !defined(LIB_COLOR)
-	#error: Including file must define the above to use generic client/server logging system
-#endif
-#define pr_info1(fmt, ...) ({ pr_info( LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
-#define pr_err1( fmt, ...) ({ pr_err(            LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_note1(fmt, ...) ({ pr_note(           LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
-
-/************************* Clnet-Srvr Common memBuf **************************/
-struct base_shm_element {
-	t_shared_mem mem;
-	void *other_party_ptr;		// For debug only: Client stores servers mem pointer, Server store client side pointer
-	uint32_t buf_idx;			// Index of buffer, same value on client and server, all fields of 'mem' can differ between client and server
-	void* convert_to_my(io_buffer_t &buf) const {
-		const size_t offset = (size_t)buf.ptr - (size_t)other_party_ptr;
-		void* const rv = (void*)((size_t)mem.get_buf() + offset);
-		if (mem.is_mapped(rv, buf.byte_len)) {
-			pr_verb1("Remapping[%di].io_buf{ %p -> %p }\n", buf_idx, buf.ptr, rv);
-			return buf.ptr = rv;
-		}
-		pr_verb1("Remapping[%di].io_buf{ %p not in my buffer }\n", buf_idx, buf.ptr);
-		return NULL;
-	}
-};
-
 /***************************** Generic datapath ******************************/
-class datapath_t {
-	bool verify_buf_shared(    const io_buffer_t &buf) const;
-	bool remap_io_buf_to_local(      io_buffer_t &buf) const;
+class datapath_t {												// Datapath of block device
 	bool verify_map_valid(     const io_map_t    &map) const {
 		return (map.is_valid_for(block_size) &&
 				(map.get_offset_end_lba() < num_total_bytes) &&
-				verify_buf_shared(map.data)); }
+				shm_io_bufs->does_include(map.data)); }
 	bool verify_io_param_valid(const server_io_req &io) const;
+	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
  public:
 	t_shared_mem shm_ring;						// Mapped Submition/completion queues.
-	std::vector<struct base_shm_element> shm_io_bufs;	// Mapped User external io buffers
+	shm_io_bufs_t *shm_io_bufs = nullptr;
 	uint32_t shm_io_file_running_idx;
-	uint32_t block_size;
+	uint32_t block_size;						// Todo: const pointer to binfo
 	uint64_t num_total_bytes;
-	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { /*shm_io_bufs.reserve(16);*/}
+	void create(bool is_producer) {
+		shm_io_bufs = new shm_io_bufs_t();
+		if (is_producer)
+			get()->init();
+	}
+	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { }
 	~datapath_t() {}
-	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
-	int  shared_buf_find(const io_buffer_t &buf) const;
-	int  shared_buf_find(const uint32_t buf_idx) const;
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
 	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
-	void destroy(void) {  shm_io_bufs.clear(); shm_io_bufs.reserve(shm_io_bufs.capacity()); shm_ring.~t_shared_mem(); }
+	void destroy(void) { if (shm_io_bufs) delete shm_io_bufs; shm_io_bufs = nullptr; shm_ring.~t_shared_mem(); }
 };
 
-inline int datapath_t::shared_buf_find(const io_buffer_t &buf) const {
-	for (int i = 0; i < (int)shm_io_bufs.size(); i++) {
-		if (shm_io_bufs[i].mem.is_exact_mapped((void*)buf.ptr, buf.byte_len))
-			return i;
-	}
-	return -1;	// Not an element in the vector
-}
-
-inline int datapath_t::shared_buf_find(const uint32_t buf_idx) const {
-	for (int i = 0; i < (int)shm_io_bufs.size(); i++) {
-		if (shm_io_bufs[i].buf_idx == buf_idx)
-			return i;
-	}
-	return -1;	// Not an element in the vector
-}
-
-inline bool datapath_t::verify_buf_shared(const io_buffer_t &buf) const {
-	for (const base_shm_element& shm_buf : shm_io_bufs) {
-		if (shm_buf.mem.is_mapped((void*)buf.ptr, buf.byte_len))
-			return true;
-	}
-	return false;	// Not contained in any mapped range
-}
-
-inline bool datapath_t::remap_io_buf_to_local(io_buffer_t &buf) const {
-	for (const base_shm_element& shm_buf : shm_io_bufs) {
-		if (shm_buf.convert_to_my(buf)) {
-			return true;
-		} else { } /* We dont know in which range the io resides so try with a different buffer */
-	}
-	return false;	// Not contained in any mapped range
-}
-
 inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
-	if (!remap_io_buf_to_local(io.params.map.data))			// Remap the 1 range io buffer or scatter gather buffer
+	if (!shm_io_bufs->remap_to_local(io.params.map.data))			// Remap the 1 range io buffer or scatter gather buffer
 		return false;
 	if (io.params.is_multi_range()) {
 		const size_t sgl_len = io.params.map.data.byte_len;
@@ -231,7 +163,7 @@ inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 		pr_verb1("Realloc_sgl len=0x%lx[b], n_entries=%u { %p -> %p }\n", sgl_len, mm->n_entries, mm, nm);
 		memcpy(nm, mm, sgl_len);
 		for (uint32_t i = 0; i < nm->n_entries; i++) {
-			if (!remap_io_buf_to_local(nm->entries[i].data)) {
+			if (!shm_io_bufs->remap_to_local(nm->entries[i].data)) {
 				free(nm);
 				return false;
 			}
@@ -253,7 +185,7 @@ inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
 		if (!verify_map_valid(mm->entries[i]))			// Each entry is valid
 			return false;
 	}
-	return verify_buf_shared(io.params.map.data);		// Scatter-gather is accesible to server
+	return shm_io_bufs->does_include(io.params.map.data);		// Scatter-gather is accesible to server
 }
 inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) const {
 	server_io_req *sio = (server_io_req*)&io;

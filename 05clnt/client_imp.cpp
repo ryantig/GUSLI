@@ -217,7 +217,7 @@ uint32_t server_bdev::get_num_uses(void) const {
 	if ((conf.type == FS_FILE) || (conf.type == KERNEL_BDEV))
 		return b.f.n_mapped_bufs;
 	if (conf.type == NVMESH_UM)
-		return (uint32_t)b.dp.shm_io_bufs.size();
+		return (uint32_t)b.dp.shm_io_bufs->size();
 	return 0;
 }
 
@@ -475,7 +475,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 			check_incoming();
 		} else
 			goto _out;
-		dp.get()->init();
+		dp.create(true);
 	}
 	if (MGMT::set_large_io_buffers)
 		sock.set_io_buffer_size(1<<19, 1<<19);
@@ -496,10 +496,9 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	const size_t size = msg.build_reg_buf();
 	auto *pr = &msg.pay.c_register_buf;
 	pr->build_io_buffer(id, io.ptr, (io.byte_len / info.block_size), dp.shm_io_file_running_idx++);
-	pr_info1("Register[%ui].vec[%u] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s\n", pr->buf_idx, (int)dp.shm_io_bufs.size(), PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name);
-	base_shm_element *new_map = &dp.shm_io_bufs.emplace_back();
+	pr_info1("Register[%ui].vec[%u] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s\n", pr->buf_idx, (uint32_t)dp.shm_io_bufs->size(), PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name);
+	base_shm_element *new_map = dp.shm_io_bufs->insert(pr->buf_idx);
 	ASSERT_IN_PRODUCTION(new_map->mem.init_producer(pr->name, io.byte_len, (void*)io.ptr) == 0);
-	new_map->buf_idx = pr->buf_idx;
 	*(uint64_t*)new_map->mem.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
 	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 	if (send_to(msg, size) >= 0) {
@@ -511,18 +510,19 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 }
 
 int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io) {
-	const int vec_idx = dp.shared_buf_find(io);
+	const int vec_idx = dp.shm_io_bufs->find(io);
 	if (vec_idx < 0) return -1;
+	const base_shm_element &curbuf = (*dp.shm_io_bufs)[vec_idx];
 	MGMT::msg_content msg;
 	const size_t size = msg.build_unr_buf();
 	auto *pr = &msg.pay.c_unreg_buf;
-	pr->build_io_buffer(id, io.ptr, (io.byte_len / info.block_size), dp.shm_io_bufs[vec_idx].buf_idx);
-	pr_info1("UnRegist[%di].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s, srvr_ptr=%p\n", pr->buf_idx, vec_idx, PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name, dp.shm_io_bufs[vec_idx].other_party_ptr);
-	ASSERT_IN_PRODUCTION(strncmp(pr->name, dp.shm_io_bufs[vec_idx].mem.get_producer_name(), sizeof(pr->name)) == 0);
+	pr->build_io_buffer(id, io.ptr, (io.byte_len / info.block_size), curbuf.buf_idx);
+	pr_info1("UnRegist[%di].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, name=%s, srvr_ptr=%p\n", pr->buf_idx, vec_idx, PRINT_IO_BUF_ARGS(io), (io.byte_len / info.block_size), pr->name, curbuf.other_party_ptr);
+	ASSERT_IN_PRODUCTION(strncmp(pr->name, curbuf.mem.get_producer_name(), sizeof(pr->name)) == 0);
 	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 	if (send_to(msg, size) >= 0) {
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
-		dp.shm_io_bufs.erase(dp.shm_io_bufs.begin() + vec_idx);
+		dp.shm_io_bufs->remove_idx(vec_idx);
 		return 0;
 	} else {
 		return -1;
@@ -583,9 +583,7 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
-				const int vec_idx = dp.shared_buf_find(pr->buf_idx);
-				BUG_ON(vec_idx < 0, "Server gave ack on unknown registered memory\n");
-				dp.shm_io_bufs[vec_idx].other_party_ptr = (void*)pr->server_pointer;
+				BUG_ON(!dp.shm_io_bufs->add_other_party_ptr(pr->buf_idx, (void*)pr->server_pointer), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
