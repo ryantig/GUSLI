@@ -55,9 +55,9 @@ INCLUDES += -I/usr/include -I. -I./00utils -I./01common -I./03backend -I./05clnt
 SOURCES_BASE = 00utils/utils.cpp
 SOURCES_CLNT = 05clnt/client_imp.cpp
 SOURCES_SRVR = 03backend/server_imp.cpp
-SOURCES_TEST_CLNT = 89tests/unitest.cpp
-SOURCES_SPDK_SRVR_APP = 89tests/sample_app_spdk_server.cpp
-SOURCES_SPDK_BOTH_APP = 89tests/sample_app_spdk_both.cpp
+SOURCES_TEST_CLNT = unitest/unitest.cpp
+SOURCES_SPDK_SRVR_APP = unitest/sample_app_spdk_server.cpp
+SOURCES_SPDK_BOTH_APP = unitest/sample_app_spdk_both.cpp
 SOURCES_ALL = $(SOURCES_BASE) $(SOURCES_CLNT) $(SOURCES_SRVR) $(SOURCES_TEST_CLNT) $(SOURCES_SPDK_BOTH_APP) $(SOURCES_SPDK_SRVR_APP)
 
 # ********** All objects will reside in separate directory **********
