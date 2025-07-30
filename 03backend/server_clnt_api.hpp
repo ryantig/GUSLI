@@ -414,6 +414,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				char extra_info[32];					// Information about wrong command
 			} wrong_cmd;
 			struct t_dp_cmd  {							// Client is producer of submitions, Server is producer of completions
+				uint64_t reserved;
 				uint32_t sender_added_new_work;			// Boolean: Producer notifies consumer that it added new work for it to consume (Unblock consumer from blocked-read)
 				uint32_t sender_ready_for_work;			// Boolean: Consumer notifies producer that it is ready to consume new work     (Unblock producer from blocked-write)
 			} dp_submit, dp_complete;
@@ -436,8 +437,8 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	BUIL_MSG_RET }
 		size_t build_skick(void) {   hdr.init(MGMT::msg::server_kick);	BUIL_MSG_RET }
 		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	BUIL_MSG_RET }
-		size_t build_dp_subm(void) { hdr.init(MGMT::msg::dp_submit);	BUIL_MSG_RET }
-		size_t build_dp_comp(void) { hdr.init(MGMT::msg::dp_complete);	BUIL_MSG_RET }
+		size_t build_dp_subm(void) { hdr.init(MGMT::msg::dp_submit);	pay.dp_submit.reserved = 0UL;   BUIL_MSG_RET }
+		size_t build_dp_comp(void) { hdr.init(MGMT::msg::dp_complete);	pay.dp_complete.reserved = 0UL; BUIL_MSG_RET }
 
 		bool is_full(int n_bytes) const { return (n_bytes >= (int)sizeof(t_header)) && (n_bytes == (int)get_msg_size()); }
 	} __attribute__((aligned(sizeof(long))));
