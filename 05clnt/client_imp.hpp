@@ -50,12 +50,6 @@ struct bdev_config {
 	void init_kernel_bdev(const char *path  ) { type = KERNEL_BDEV; how = EXCLUSIVE_RW; strncpy(conn.local_bdev_path, path, sizeof(conn.local_bdev_path)-1); }
 };
 
-class bdev_no_backend_api {									// When there is no server, and client emulates it
- public:
-	uint32_t n_mapped_bufs;
-	bdev_no_backend_api() : n_mapped_bufs(0) { }
-};
-
 struct bdev_stats_clnt {
 	uint64_t n_doorbels_wakeup_srvr;
 	void clear(void) { memset(this, 0, sizeof(*this)); }
@@ -66,7 +60,6 @@ struct bdev_stats_clnt {
 };
 
 class bdev_backend_api {									// API to server 1 block device
-	static constexpr const uint32_t minimal_delay = 100;	// Minimal rate of control path changes propagations X[millisec],
 	sock_t sock;											// Socket through which clnt talks to server
 	connect_addr ca;										// Connected server address
 	time_t last_keepalive;
@@ -82,7 +75,6 @@ class bdev_backend_api {									// API to server 1 block device
  public:
 	char security_cookie[16];								// Used for handshake with server, to verify library is authorized to access this bdev
 	class datapath_t dp;
-	class bdev_no_backend_api f;							// Todo: Properly union with dp and other fields
 	bdev_info info;											// block device information visible for user
 	bdev_backend_api() { io_listener_tid = 0; info.clear(); memset(security_cookie, 0, 16); }
 	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
@@ -91,7 +83,6 @@ class bdev_backend_api {									// API to server 1 block device
 	int close(     const backend_bdev_id& id, const bool do_kill_server = false);
 	int dp_wakeup_server(void);
 	static void* io_completions_listener(bdev_backend_api *_self);
-	uint32_t suggested_control_past_rate(void) const { return minimal_delay * (is_control_path_ok ? 10 : 1); } // Slower ping to DS in steady state of good path, faster response to disaster recovery
 };
 
 struct server_bdev {					// Reflection of server (how to communicate with it)

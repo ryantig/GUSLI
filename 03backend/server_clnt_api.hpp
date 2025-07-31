@@ -136,6 +136,10 @@ class datapath_t {												// Datapath of block device
 		if (is_producer)
 			get()->init();
 	}
+	void create_client_local(shm_io_bufs_global_t *_ext_g) {		// No server at all, client manages bdevs directly (no communication with server)
+		shm_io_bufs = _ext_g;
+	}
+	bool has_remote(void) const { return shm_ring.get_buf() != NULL; }
 	datapath_t() : block_size(0), num_total_bytes(0) { }
 	~datapath_t() {}
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;

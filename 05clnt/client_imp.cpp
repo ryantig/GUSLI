@@ -142,6 +142,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 			info->block_size = 1;
 			strcpy(info->name, "LocalFile");
 			info->num_total_blocks = (1 << 30);	// 1[GB] file
+			bdev->b.dp.create_client_local(_impl(&global_clnt_context::get())->shm_io_bufs);
 			return C_OK;
 		} else
 			return C_WRONG_ARGUMENTS;
@@ -160,6 +161,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 				info->num_total_blocks = sb.st_size;
 			}
 			snprintf(info->name, sizeof(info->name), "Kernel_bdev(%u,0x%x)", (int)sb.st_dev, (int)sb.st_rdev);
+			bdev->b.dp.create_client_local(_impl(&global_clnt_context::get())->shm_io_bufs);
 			return C_OK;
 		} else {
 			return C_NO_DEVICE;
@@ -180,17 +182,13 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
-	} else if (bdev->conf.type == NVMESH_UM) {
+	} else if ((bdev->conf.type == NVMESH_UM) || (bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (size_t i = 0; i < bufs.size(); i++) {
 			const int map_rv = bdev->b.map_buf(id, bufs[i]);
 			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
-	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
-		bdev->b.f.n_mapped_bufs += (uint32_t)bufs.size();
-		pr_info1("Register[%u]bufs, remains[%u] name=%s\n", (uint32_t)bufs.size(), bdev->b.f.n_mapped_bufs, bdev->b.info.name);
-		return C_OK;
 	} else {
 		return C_NO_DEVICE;
 	}
@@ -203,19 +201,13 @@ enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& i
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
-	} else if (bdev->conf.type == NVMESH_UM) {
+	} else if ((bdev->conf.type == NVMESH_UM) || (bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
-		for (int i = (int)bufs.size()-1; i >= 0; i--) {
+		for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
 			const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
 			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
-	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
-		if (bdev->b.f.n_mapped_bufs < bufs.size())		// Only counter, not really map of buffers
-			return C_WRONG_ARGUMENTS;
-		bdev->b.f.n_mapped_bufs -= (uint32_t)bufs.size();
-		pr_info1("UnRegist[%u]bufs, remains[%u] name=%s\n", (uint32_t)bufs.size(), bdev->b.f.n_mapped_bufs, bdev->b.info.name);
-		return C_OK;
 	} else {
 		return C_NO_DEVICE;
 	}
@@ -223,9 +215,7 @@ enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& i
 
 uint32_t server_bdev::get_num_uses(void) const {
 	nvTODO("Count in air io's, not only registered mem bufs");
-	if ((conf.type == FS_FILE) || (conf.type == KERNEL_BDEV))
-		return b.f.n_mapped_bufs;
-	if (conf.type == NVMESH_UM)
+	if ((conf.type == FS_FILE) || (conf.type == KERNEL_BDEV) || (conf.type == NVMESH_UM))
 		return (uint32_t)b.dp.reg_bufs_set.size();
 	return 0;
 }
@@ -506,6 +496,7 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	if (!g_map)
 		return -__LINE__;			// Buffer rejected by global hash
 	if (!dp.reg_bufs_set.add(g_map->buf_idx)) {
+		pr_err1("%s: Wrong register buf request to " PRINT_IO_BUF_FMT ", it is already registered to this bdevs as " PRINT_REG_IDX_FMT "\n", info.name, PRINT_IO_BUF_ARGS(io), g_map->buf_idx);
 		dp.shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
 		return -__LINE__;			// Already mapped to this block device
 	}
@@ -514,38 +505,40 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	auto *pr = &msg.pay.c_register_buf;
 	pr->build_io_buffer(*g_map, info.block_size);
 	pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
-	*(uint64_t*)g_map->mem.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
-	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
-	if (send_to(msg, size) >= 0) {
+	if (dp.has_remote()) {
+		*(uint64_t*)g_map->mem.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
+		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+		if (send_to(msg, size) < 0)
+			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
-		return 0;
 	}
-	return -__LINE__;
+	return 0;
 }
 
 int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io) {
 	const base_shm_element *g_map = dp.shm_io_bufs->find1(io);
 	if (!g_map) {
-		pr_err("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
+		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
 		return -__LINE__;
 	}
 	if (!dp.reg_bufs_set.has(g_map->buf_idx)) {
-		pr_err("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
+		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
 		return -__LINE__;
 	}
 	MGMT::msg_content msg; (void)id;
 	const size_t size = msg.build_unr_buf();
 	auto *pr = &msg.pay.c_unreg_buf;
 	pr->build_io_buffer(*g_map, info.block_size);
-	pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
+	pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
 	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
-	if (send_to(msg, size) >= 0) {
+	if (dp.has_remote()) {
+		if (send_to(msg, size) < 0)
+			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
-		ASSERT_IN_PRODUCTION(dp.reg_bufs_set.del(g_map->buf_idx));
-		dp.shm_io_bufs->dec_ref(g_map);
-		return 0;
 	}
-	return -__LINE__;
+	ASSERT_IN_PRODUCTION(dp.reg_bufs_set.del(g_map->buf_idx));
+	dp.shm_io_bufs->dec_ref(g_map);
+	return 0;
 }
 
 int bdev_backend_api::close(const struct backend_bdev_id& id, const bool do_kill_server) {
@@ -630,7 +623,7 @@ bool bdev_backend_api::check_incoming() {
 			}
 			if (need_wakeup_srvr) { // We dont send more than ring size ios so server never runs out of completion entries
 				// Find bdev by message address and call bdev->b.dp_wakeup_server()); // because client is ready to accept new completions
-				pr_err("%s: completion list full (throttling not implemented). IO may stuck. Probably user app sent too much IO's in air (more than allowed)...\n", server_path);
+				pr_err1("%s: completion list full (throttling not implemented). IO may stuck. Probably user app sent too much IO's in air (more than allowed)...\n", server_path);
 			}
 		} else {
 			BUG_ON(true, "Unhandled message %s\n", msg.hdr.type);
