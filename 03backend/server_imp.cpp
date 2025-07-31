@@ -27,36 +27,32 @@ namespace gusli {
 int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
-	t_shared_mem *shm_ptr;
+	const t_shared_mem *shm_ptr;
 	if (pr->is_io_buf) {
-		shm_ptr = &dp.shm_io_bufs->insert(pr->buf_idx, (void*)pr->client_pointer)->mem;
+		shm_ptr = &dp.shm_io_bufs->insert_on_server(pr->name, pr->buf_idx, (void*)pr->client_pointer, n_bytes)->mem;
+		BUG_ON(!dp.reg_bufs_set.add(pr->buf_idx), "Client allowed second registration on buf index=%u", pr->buf_idx);
 	} else {
+		ASSERT_IN_PRODUCTION(dp.shm_ring.init_consumer(pr->name, n_bytes) == 0);
 		shm_ptr = &dp.shm_ring;
 	}
-	int rv = shm_ptr->init_consumer(pr->name, n_bytes);
-	if (rv == 0) {	// Verify cookie
-		rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
-	}
+	// Verify cookie
+	const int rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
 	const io_buffer_t buf = io_buffer_t::construct(shm_ptr->get_buf(), n_bytes); my_buf = buf.ptr;
-	const int vec_idx = (int)dp.shm_io_bufs->size() - 1;
-	pr_infoS(this, "Register[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
-	BUG_ON(rv, "Todo: this error is still unsupported");
+	pr_infoS(this, PRINT_REG_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
 int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_unreg_buf;
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
-	const int vec_idx = dp.shm_io_bufs->find(pr->buf_idx);
-	if (vec_idx < 0)
-		return -1;								// Unknown (unregistered) buffer ????
-	const base_shm_element &curbuf = (*dp.shm_io_bufs)[vec_idx];
-	ASSERT_IN_PRODUCTION((void*)pr->client_pointer == curbuf.other_party_ptr);
-	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
-	const io_buffer_t buf = io_buffer_t::construct(curbuf.mem.get_buf(), n_bytes); my_buf = buf.ptr;
+	BUG_ON(!dp.reg_bufs_set.del(pr->buf_idx), "Client allowed unregister of unknown buf index=%u for bdev", pr->buf_idx);
+	base_shm_element *g_map = dp.shm_io_bufs->find2(pr->buf_idx);
+	BUG_ON(!g_map, "Client allowed unregister of unknown buf index=%u globally", pr->buf_idx);
+	ASSERT_IN_PRODUCTION((void*)pr->client_pointer == g_map->other_party_ptr);
+	const io_buffer_t buf = g_map->get_buf(); my_buf = buf.ptr;
 	const int rv = 0;
-	dp.shm_io_bufs->remove_idx(vec_idx);
-	pr_infoS(this, "UnRegist[%d%c].vec[%d] " PRINT_IO_BUF_FMT ", n_blocks=0x%lx, clnt_ptr=0x%lx, rv=%d, name=%s\n", pr->get_buf_idx(), pr->get_buf_type(), vec_idx, PRINT_IO_BUF_ARGS(buf), (n_bytes / binfo.block_size), pr->client_pointer, rv, pr->name);
+	dp.shm_io_bufs->dec_ref(g_map);
+	pr_infoS(this, PRINT_UNR_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
@@ -243,7 +239,7 @@ int global_srvr_context_imp::run_once(void) noexcept {
 			pr_errS(this, "Open failed by backend rv=%d\n", binfo.bdev_descriptor);
 			msg.pay.s_hello_ack.info.bdev_descriptor = 0;
 		}
-		dp.create(false);
+		dp.create(false, this->shm_io_bufs);
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::register_buf)) {
 		void* my_buf = nullptr;

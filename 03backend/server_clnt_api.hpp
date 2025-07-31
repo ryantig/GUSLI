@@ -126,24 +126,24 @@ class datapath_t {												// Datapath of block device
 	bool verify_io_param_valid(const server_io_req &io) const;
 	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
  public:
-	t_shared_mem shm_ring;						// Mapped Submition/completion queues.
-	shm_io_bufs_t *shm_io_bufs = nullptr;
-	uint32_t shm_io_file_running_idx;
+	t_shared_mem shm_ring;							// Mapped Submition/completion queues.
+	shm_io_bufs_global_t *shm_io_bufs = nullptr;	// Pointer to global structure
+	shm_io_bufs_unuque_set_for_bdev reg_bufs_set;
 	uint32_t block_size;						// Todo: const pointer to binfo
 	uint64_t num_total_bytes;
-	void create(bool is_producer) {
-		shm_io_bufs = new shm_io_bufs_t();
+	void create(bool is_producer, shm_io_bufs_global_t *_ext_g) {
+		shm_io_bufs = _ext_g;
 		if (is_producer)
 			get()->init();
 	}
-	datapath_t() : shm_io_file_running_idx(0), block_size(0), num_total_bytes(0) { }
+	datapath_t() : block_size(0), num_total_bytes(0) { }
 	~datapath_t() {}
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
 	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
-	void destroy(void) { if (shm_io_bufs) delete shm_io_bufs; shm_io_bufs = nullptr; shm_ring.~t_shared_mem(); }
+	void destroy(void) { ASSERT_IN_PRODUCTION(reg_bufs_set.size() == 0); shm_ring.~t_shared_mem(); }
 };
 
 inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
@@ -309,14 +309,13 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 					buf_idx = 0xffff;							// Irrelevant
 					is_io_buf = false;
 				}
-				void build_io_buffer(struct backend_bdev_id volume, void* ptr, uint32_t _num_blocks, int i) {
-					snprintf(name, sizeof(name), "/gs%.16s_%03d", volume.uuid, i);
-					client_pointer = (uint64_t)ptr;
-					num_blocks = _num_blocks;
-					buf_idx = i;
+				void build_io_buffer(const base_shm_element &m, uint32_t block_size) {
+					snprintf(name, sizeof(name), "%s", m.mem.get_producer_name());
+					client_pointer = (uint64_t)m.mem.get_buf();
+					num_blocks = (m.mem.get_n_bytes() / (size_t)block_size);
+					buf_idx = m.buf_idx;
 					is_io_buf = true;
 				}
-				void build_io_buffer(const char*_name) { strncpy(name, _name, sizeof(name)); is_io_buf = true; }
 				int  get_buf_idx( void) const { return is_io_buf ? (int)buf_idx : -1; }
 				char get_buf_type(void) const { return is_io_buf ? 'i' : 'r'; }
 			 } c_register_buf, c_unreg_buf;

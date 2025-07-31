@@ -192,12 +192,9 @@ class global_clnt_context_imp : public global_clnt_context, public base_library 
 	friend class global_clnt_context;
 	struct init_params par;
 	bdevs_hash bdevs;
-	global_clnt_context_imp() : base_library(LIB_NAME) {
-		pr_info1("clnt_ctx[%p] - construct %lu[b]\n", this, sizeof(*this));
-	}
-	~global_clnt_context_imp() {
-		pr_info1("clnt_ctx[%p] - destruct\n", this);
-	}
+	class shm_io_bufs_global_t *shm_io_bufs;
+	global_clnt_context_imp();
+	~global_clnt_context_imp();
 	enum connect_rv bdev_connect(void);
 	int server_disconenct(void);
 	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing nvme disk / etc.
