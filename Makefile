@@ -52,7 +52,7 @@ INCLUDES :=
 INCLUDES += -I/usr/include -I. -I./00utils -I./01common -I./03backend -I./05clnt
 
 # ********** *.cpp sources *********
-SOURCES_BASE = 00utils/utils.cpp
+SOURCES_BASE = 00utils/utils.cpp 01common/shared_mem_bufs.cpp
 SOURCES_CLNT = 05clnt/client_imp.cpp
 SOURCES_SRVR = 03backend/server_imp.cpp
 SOURCES_TEST_CLNT = unitest/unitest.cpp
