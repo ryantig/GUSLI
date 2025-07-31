@@ -125,8 +125,21 @@ class t_shared_mem {
 	}
 	void _destroy(void) {
 		debug_print("--");
+		if (buf)  {
+			int unmap_rv = munmap(buf, n_bytes);
+			if (unmap_rv != 0) {
+				pr_err("Error munmap len=0x%lx, buf=%p " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
+				// To avoid segmentation fault when user continues to use this pointer, leave it as mapped to deleted shm file
+			} else if (is_external_buf) {	// Was in the heap before we remapped it to shared memory, return back to the heap
+				// Note!!! This operation fragments the heap because kernel will assign different physical pages. So dont do that alot
+				void* map_rv = mmap(buf, n_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+				if (map_rv == MAP_FAILED) {
+					pr_err("Error returning len=0x%lx, buf=%p to heam from shm. User app may seg fault " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
+				}
+			}
+			buf = NULL;
+		}
 		if (name) { shm_unlink(name); free(name); name = NULL; }
-		if (buf)  { if (!is_external_buf) munmap(buf, n_bytes); buf = NULL; }
 		n_bytes = 0;
 	}
 	void unsafe_clear(void) { memset((void*)this, 0, sizeof(*this)); }
