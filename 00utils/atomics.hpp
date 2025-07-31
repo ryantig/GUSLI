@@ -131,6 +131,7 @@ class t_shared_mem {
 	}
 	void unsafe_clear(void) { memset((void*)this, 0, sizeof(*this)); }
 	int _init(const char* _name, size_t _n_bytes, bool is_producer, void* external_buf) {
+		BUG_ON(_n_bytes <= 0, "Wrong usage, size must be positive");
 		int rv = 0;
 		if (is_producer) {
 			shm_unlink(_name);
@@ -182,7 +183,14 @@ class t_shared_mem {
 	int init_producer(const char* _name, size_t _n_bytes, void* external_buf = NULL) { return _init(_name, _n_bytes, true,  external_buf); }
 	int init_consumer(const char* _name, size_t _n_bytes, void* external_buf = NULL) { return _init(_name, _n_bytes, false, external_buf); }
 	void* get_buf(void) const { return buf; }
+	size_t get_n_bytes(void) const { return n_bytes; }
 	const char* get_producer_name(void) const { return name; }
 	bool is_mapped(      const void* ptr, size_t len = 0) const { return (ptr >= buf) && (((size_t)ptr + len) <= ((size_t)buf + n_bytes)); }
 	bool is_exact_mapped(const void* ptr, size_t len = 0) const { return (ptr == buf) && (len == n_bytes); }
+	bool is_intersect(   const void* ptr, size_t len)     const {
+		if (ptr <= buf)
+			return ((size_t)ptr + len)     > (size_t)buf;
+		else
+			return ((size_t)buf + n_bytes) > (size_t)ptr;
+	}
 };

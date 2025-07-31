@@ -143,6 +143,7 @@ public:
 #define NV_COL_PURPL "\x1b[1;35m" // Purple
 #define NV_COL_BLUE "\x1b[16;34m" // Blue
 #define NV_COL_WHITE_BOLD "\x1b[1;37m"
+#define NV_COL_WHITE_UNDER "\x1b[4m"
 #ifndef TRACE_LEVEL
 	#define TRACE_LEVEL (5)
 #endif
