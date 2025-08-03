@@ -66,7 +66,7 @@ class io_request_executor_base : no_implicit_constructors {
 	void log_free(                                                 ) const { pr_verb1("exec[%p].o[%p].free"                                                          "\n", this, io                  ); }
 	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]] "                            PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes,     PRINT_EXTERN_ERR_ARGS); }
 	void log_cancel(                                               ) const { pr_verb1("exec[%p].o[%p].was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
-	void log_put(                                           char rv) const { pr_verb1("exec[%p].o[%p].put[%c(%d%d)]"                                                       "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
+	void log_put(                                           char rv) const { pr_verb1("exec[%p].o[%p].put[%c(%d%d)]"                                                 "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
  protected:
 	void log_io_range_failed(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1("exec[%p].o[%p].range[0x%lx].len[0x%lx].failed[%ld]: "    PRINT_EXTERN_ERR_FMT "\n", this, io, lba, len,     rv, PRINT_EXTERN_ERR_ARGS); }
 	void log_io_range_succes(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1("exec[%p].o[%p].range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        this, io, lba, len,     rv); }
@@ -85,7 +85,7 @@ class io_request_executor_base : no_implicit_constructors {
 				total_bytes = (uint64_t)cur_rv;
 				log_set_rv();
 			}
-		}
+		}	// Else: dont access ->io, it might already free, when IO was canceled
 		if (is_async_executor) cmp.lock.unlock();
 		__dec_ref(true);
 	}
@@ -111,6 +111,7 @@ class io_request_executor_base : no_implicit_constructors {
 			rv = io_request::cancel_rv::G_ALLREADY_DONE;
 		} else {
 			cmp.was_canceled = true;
+			this->io = NULL;								// After cacnel finishes, user can free the io
 			rv = io_request::cancel_rv::G_CANCELED;
 		}
 		if (is_async_executor) cmp.lock.unlock();
@@ -411,3 +412,6 @@ public:
 };
 }; // namespace gusli
 #endif
+
+/*****************************************************************************/
+#include <thread>			// thread::sleep

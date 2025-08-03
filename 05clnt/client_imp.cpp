@@ -373,7 +373,7 @@ io_request_executor_base* io_request::__disconnect_executor_atomic(void) noexcep
 
 enum io_error_codes io_request::get_error(void) noexcept {
 	if (out.rv == io_error_codes::E_IN_TRANSFER) {
-		DEBUG_ASSERT(!is_blocking_io());
+		DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
 		if (params._async_no_comp) {
 			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor, rv=%ld", out.rv);
 			if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER)
@@ -397,18 +397,25 @@ enum io_error_codes io_request::get_error(void) noexcept {
 	return (enum io_error_codes)out.rv;
 }
 
-enum io_request::cancel_rv io_request::try_cancel(void) noexcept {
-	if (out.rv == io_error_codes::E_IN_TRANSFER) {
-		DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
-		auto* orig_exec = __disconnect_executor_atomic();		// IO finished / Canceled
-		if (orig_exec) {		// Executor still running
-			const enum cancel_rv crv = orig_exec->cancel();
-			if (crv == cancel_rv::G_CANCELED) {
-				out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
-				return io_request::cancel_rv::G_CANCELED;
-			} // Else: Already done
+enum io_request::cancel_rv io_request::try_cancel(bool blocking_wait) noexcept {
+	if (out.rv != io_error_codes::E_IN_TRANSFER)
+		return io_request::cancel_rv::G_ALLREADY_DONE;
+	DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
+	if (unlikely((blocking_wait))) {			// Wait for IO to finish, may stuck for a long time in this loop
+		while (get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
+			std::this_thread::sleep_for(std::chrono::microseconds(10));
 		}
+		BUG_ON(_exec, "IO has was finished, It must not have a valid executor, rv=%ld", out.rv);
+		return io_request::cancel_rv::G_ALLREADY_DONE;
 	}
+	auto* orig_exec = __disconnect_executor_atomic();		// IO finished / Canceled
+	if (orig_exec) {		// Executor still running
+		const enum cancel_rv crv = orig_exec->cancel();
+		if (crv == cancel_rv::G_CANCELED) {
+			out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
+			return io_request::cancel_rv::G_CANCELED;
+		} // Else: Already done during call to executor cancel
+	}     // Else: Already done before call to executor cancel
 	return io_request::cancel_rv::G_ALLREADY_DONE;
 }
 }	// namespace
