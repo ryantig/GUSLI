@@ -83,7 +83,7 @@ class base_shm_element {			// Represents a unique shared mem region (with approp
 class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing buffers for the entire process
 	std::vector<base_shm_element> bufs;							// All Mapped io buffers
 	uint32_t client_unique_buf_idx_generator;
-	t_lock_spinlock lock_;
+	t_lock_mutex lock_;
 	int n_refs;													// Amount of objects using this global construct (Multiple servers in the same process, Client & Server if fork() is used in tests, etc )
 	static constexpr const size_t max_num_mapped_ranges = 16;	// Too much io ranges will make datapath slow, because we serch them linearly. Solve this in future
 	static constexpr const char* file_fmt = "/gs_iobuf_%06d";	// Buffer with index 'x' will have this file format under /dev/shm
@@ -93,6 +93,7 @@ class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing
  public:
 	static shm_io_bufs_global_t* get(const char* debug_who);	// Singletone refs
 	static void                  put(const char* debug_who);
+	t_lock_mutex& with_lock(void) { return lock_; }
 
 	// Memory register / Unregister API
 	size_t size(void) const { return bufs.size(); }

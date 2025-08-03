@@ -492,6 +492,7 @@ _out:
 int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	if (!io.is_valid_for(info.block_size))
 		return -__LINE__;
+	t_lock_guard l(dp.shm_io_bufs->with_lock());
 	const base_shm_element *g_map = dp.shm_io_bufs->insert_on_client(io);
 	if (!g_map)
 		return -__LINE__;			// Buffer rejected by global hash
@@ -516,6 +517,7 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 }
 
 int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io) {
+	t_lock_guard l(dp.shm_io_bufs->with_lock());
 	const base_shm_element *g_map = dp.shm_io_bufs->find1(io);
 	if (!g_map) {
 		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
@@ -595,6 +597,7 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
+				//t_lock_guard l(dp.shm_io_bufs->with_lock());
 				BUG_ON(!dp.shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);

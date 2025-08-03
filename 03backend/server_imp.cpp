@@ -28,6 +28,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	const t_shared_mem *shm_ptr;
+	t_lock_guard l(dp.shm_io_bufs->with_lock());
 	if (pr->is_io_buf) {
 		shm_ptr = &dp.shm_io_bufs->insert_on_server(pr->name, pr->buf_idx, (void*)pr->client_pointer, n_bytes)->mem;
 		BUG_ON(!dp.reg_bufs_set.add(pr->buf_idx), "Client allowed second registration on buf index=%u", pr->buf_idx);
@@ -45,6 +46,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_unreg_buf;
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
+	t_lock_guard l(dp.shm_io_bufs->with_lock());
 	BUG_ON(!dp.reg_bufs_set.del(pr->buf_idx), "Client allowed unregister of unknown buf index=%u for bdev", pr->buf_idx);
 	base_shm_element *g_map = dp.shm_io_bufs->find2(pr->buf_idx);
 	BUG_ON(!g_map, "Client allowed unregister of unknown buf index=%u globally", pr->buf_idx);

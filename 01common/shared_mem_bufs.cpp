@@ -29,6 +29,7 @@ shm_io_bufs_global_t* shm_io_bufs_global_t::get(const char* debug_who) {
 		shm_io_bufs_singleton = new shm_io_bufs_global_t();
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".construct\n", PRINT_GLOBAL_BUF_ARGS());
 	} else {
+		t_lock_guard l(shm_io_bufs_singleton->lock_);
 		shm_io_bufs_singleton->n_refs++;
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".did_inc\n", PRINT_GLOBAL_BUF_ARGS());
 	}
@@ -40,6 +41,7 @@ void shm_io_bufs_global_t::put(const char* debug_who) {
 		pr_err1(PRINT_GLOBAL_BUF_FMT ".put_be4_get\n", PRINT_GLOBAL_BUF_ARGS());
 		return;
 	}
+	t_lock_guard l(shm_io_bufs_singleton->lock_);
 	shm_io_bufs_singleton->n_refs--;
 	pr_info1(PRINT_GLOBAL_BUF_FMT ".did_dec\n", PRINT_GLOBAL_BUF_ARGS());
 	if (shm_io_bufs_singleton->n_refs > 0)
