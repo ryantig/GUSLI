@@ -69,6 +69,8 @@ class base_shm_element {			// Represents a unique shared mem region (with approp
 	}
 	const io_buffer_t get_buf() const { return io_buffer_t::construct(mem.get_buf(), mem.get_n_bytes()); }
  private:
+	base_shm_element           (const base_shm_element&) = delete;
+	base_shm_element& operator=(const base_shm_element&) = delete;
 	base_shm_element& move(base_shm_element& o) noexcept {	// Move constructor
 		mem = std::move(o.mem);
 		other_party_ptr = o.other_party_ptr;

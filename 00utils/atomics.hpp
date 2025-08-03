@@ -180,10 +180,12 @@ class t_shared_mem {
 		debug_print("++");
 		return rv;
 	}
+	t_shared_mem(           const t_shared_mem&) = delete;			// Deleted copy constructor and copy assignment. Force use std::move() to avoid resource leak/ double free
+	t_shared_mem& operator=(const t_shared_mem&) = delete;
  public:
 	t_shared_mem() : name(NULL), buf(NULL), n_bytes(0), is_external_buf(false) { }
 	t_shared_mem(t_shared_mem&& o) noexcept : name(o.name), buf(o.buf), n_bytes(o.n_bytes), is_external_buf(o.is_external_buf) { o.unsafe_clear(); }	// Allow inserting class into container
-	t_shared_mem& operator=(t_shared_mem&& o) {			// Allow removal of elements from a container
+	t_shared_mem& operator=(t_shared_mem&& o) noexcept {			// Allow removal of elements from a container
 		debug_print("==");
 		if (this != &o) {
 			this->_destroy();
