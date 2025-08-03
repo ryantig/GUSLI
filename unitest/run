@@ -25,12 +25,46 @@ function UNITEST_compile_success() {
 	LD_LIBRARY_PATH=./99bin/inst/lib ./z_gusli_clnt_unitest_dyn -h;
 }
 
+EXP_DIR=./unitest/expected_results
+
 function UNITEST_SPDK_both() {
 	echo_green ".....Test ctrl+c";
-	rm out_*;
-	sudo ./z_gusli_spdk_both_unitest @s 2>&1 | tee -a out_srvr.txt &
-	     ./z_gusli_spdk_both_unitest @c 2>&1 | tee -a out_clnt.txt
+	mkdir -p ${EXP_DIR};
+	rm ${EXP_DIR}/out_*;
+	sudo ./z_gusli_spdk_both_unitest @s 2>&1 | tee -a ${EXP_DIR}/out_srvr.txt &
+	     ./z_gusli_spdk_both_unitest @c 2>&1 | tee -a ${EXP_DIR}/out_clnt.txt
 	wait;
+	GUSLI show;
+}
+
+function UNITEST_self_basic() {
+	mkdir -p ${EXP_DIR};
+	rm ${EXP_DIR}/out_self.txt;
+	./z_gusli_clnt_unitest 2>&1 | tee -a ${EXP_DIR}/out_self.txt
+}
+
+function full_ci() {
+	rm -f core.*;
+	make all;
+	GUSLI clear;
+	ulimit -c unlimited;
+	core_pat_file="/proc/sys/kernel/core_pattern";
+	prev_cor_pat=`cat ${core_pat_file}`;
+	sudo bash -c "echo 'core.%e.%p' > ${core_pat_file}";
+	new_cor_pat=`cat ${core_pat_file}`;
+	echo "$prev_cor_pat --> $new_cor_pat"
+	cmd="ulimit -c";
+	echo_green "************************ Starting CI";
+	UNITEST_compile_success;
+	for i in {1..5}; do ./z_gusli_clnt_unitest -n 8 -c 64; done;
+	for i in {1..2}; do ./z_gusli_clnt_unitest; done;
+	for i in {1..5}; do UNITEST_SPDK_both; done;
+	if ls core* 1> /dev/null 2>&1; then
+		echo_red "Core files found, Test failed!!";
+		ls core*;
+	else
+		echo_green "************************ CI Done";
+	fi
 	GUSLI show;
 }
 
@@ -40,15 +74,19 @@ case "$1" in
   spdk_both) UNITEST_SPDK_both;;
   all|All)
 	UNITEST_compile_success;
-	 ./z_gusli_clnt_unitest;
+	UNITEST_self_basic;
 	UNITEST_SPDK_both;
 	echo_green "************************ All tests Done";
+	;;
+  ci|CI|Ci)
+	full_ci;
 	;;
   *)
 	echo $"Usage: $0 {1 of the options below}";
 	echo_yellow "  ------------ Unitests of sub components:";
 	echo "    spdk_both         - SPDK backend server with client, simple io";
-	echo "    all               - Full CI test suit";
+	echo "    all               - all tests 1 by 1";
+	echo "    ci                - Full CI test suit";
 	exit 2
 esac
 RETVAL=$?
