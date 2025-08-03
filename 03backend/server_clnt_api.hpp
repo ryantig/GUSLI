@@ -147,7 +147,7 @@ class datapath_t {												// Datapath of block device
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
-	void destroy(void) { ASSERT_IN_PRODUCTION(reg_bufs_set.size() == 0); shm_ring.~t_shared_mem(); }
+	void destroy(void) { ASSERT_IN_PRODUCTION(reg_bufs_set.size() == 0); shm_ring = t_shared_mem{}; }
 };
 
 inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
