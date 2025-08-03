@@ -37,7 +37,7 @@ class unitest_io {
 	static constexpr const int buf_len = (1 << 16);	// 64K
 	const int buf_align = sysconf(_SC_PAGESIZE);
 	sem_t wait;					// Block sender until io returns
-	bool has_callback_arrived;
+	bool is_waiting_for_callback;
 	bool _expect_success = true;
 	bool _verbose = true;
 	char _should_try_cancel = 0;
@@ -49,7 +49,7 @@ class unitest_io {
 		const gusli::io_error_codes io_rv = c->io.get_error();
 		my_assert(io_rv != gusli::io_error_codes::E_IN_TRANSFER);							// When callback is is done and cannot be in air
 		my_assert(io_rv != gusli::io_error_codes::E_CANCELED_BY_CALLER);					// If canceled by caller, callback cannot arrive
-		c->has_callback_arrived = true;
+		c->is_waiting_for_callback = false;
 		c->print_io_comp();
 		if (c->_should_try_cancel)
 			my_assert(c->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
@@ -57,7 +57,7 @@ class unitest_io {
 	}
 	void assert_rv(void) {
 		const gusli::io_error_codes io_rv = io.get_error();
-		my_assert(has_callback_arrived == false);
+		my_assert(is_waiting_for_callback == false);
 		if (io_rv == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
 			n_cancl++;
 			my_assert(_should_try_cancel == 'C');		// Blocking cancel waits for IO to finish
@@ -76,7 +76,6 @@ class unitest_io {
 	gusli::io_buffer_t get_map(void) const { return gusli::io_buffer_t::construct(io_buf, buf_len); }
 	const unitest_io& exec(gusli::io_type _op, io_exec_mode _mode) {
 		mode = _mode;
-		has_callback_arrived = false;
 		const int n_bytes = (int)io.params.buf_size();
 		my_assert(n_bytes < buf_len);
 		if (_verbose) log_unitest("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", n_ios, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
@@ -90,6 +89,7 @@ class unitest_io {
 			io.params.set_blocking();
 		} else {my_assert(false); }
 		io.params.try_using_uring_api = ((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
+		is_waiting_for_callback = io.has_callback();
 		io.submit_io();
 		if (_should_try_cancel) {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
@@ -97,11 +97,12 @@ class unitest_io {
 		}
 		if (mode == io_exec_mode::ASYNC_CB) {
 			if (io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
-				print_io_comp();
+				print_io_comp();							// Callback will not come
+				my_assert(is_waiting_for_callback == true);
+				is_waiting_for_callback = false;
 			} else {
-				my_assert(sem_wait(&wait) == 0);			// Otherwise callback will not come
-				my_assert(has_callback_arrived == true);
-				has_callback_arrived = false;
+				my_assert(sem_wait(&wait) == 0);			// Callback already arrived
+				my_assert(is_waiting_for_callback == false);
 			}
 		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			while (io.get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
