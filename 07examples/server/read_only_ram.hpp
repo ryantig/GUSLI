@@ -34,7 +34,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 	gusli::bdev_info open1(const char* who) override {
 		binfo.bdev_descriptor = open(binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
 		my_assert(binfo.bdev_descriptor > 0);
-		binfo.block_size = 4096;			// 4[KB]
+		binfo.block_size = UNITEST_SERVER_BLOCK_SIZE;
 		binfo.num_total_blocks = (1 << 20); // 4[GB]
 		binfo.num_max_inflight_io = MAX_SERVER_IN_FLIGHT_IO;
 		dslog("open: fd=%d, remote client=%s\n", binfo.bdev_descriptor, who);

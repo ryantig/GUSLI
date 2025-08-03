@@ -38,7 +38,8 @@ inline int _unitest_log_fn(const char *fmt, ...) {
 #define log_line(fmt, ...) log_unitest("----------------- " fmt " -----------------\n",          ##__VA_ARGS__)
 #define my_assert(expr) ({ if (!(expr)) { fprintf(stderr, "Assertion failed: " #expr ", %s() %s[%d] ", __PRETTY_FUNCTION__, __FILE__, __LINE__); std::abort(); } })
 
-#define MAX_SERVER_IN_FLIGHT_IO (256)
+#define MAX_SERVER_IN_FLIGHT_IO    (256U)
+#define UNITEST_SERVER_BLOCK_SIZE (4096U)
 namespace spdk_test {
 	static constexpr const char* srvr_listen_address[] = {"/dev/shm/gs8888_uds",  "/dev/shm/gs9999aa_uds"};
 	static constexpr const char* srvr_bdevs_uuid[] = {    "8888spdk5555uuid____", "9999spdk5555uuid____"};

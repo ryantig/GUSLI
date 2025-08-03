@@ -63,6 +63,36 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	}
 }
 
+int base_lib_mem_registration_bad_path(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
+	my_assert(lib.bdev_connect(bdev) == gusli::C_OK);
+	unitest_io my_io[2];
+	std::vector<gusli::io_buffer_t> mem;
+	mem.reserve(2);
+	mem.emplace_back(my_io[0].get_map());
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Register same buffer again
+	const uint64_t ofst = (mem[0].byte_len / 2);
+	mem[0].ptr = (void*)((char*)mem[0].ptr + ofst);
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Overlapping buff
+	mem[0].ptr = (void*)((char*)mem[0].ptr - 2*ofst);
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Overlapping buff
+	mem[0].byte_len = 0;
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// zero length buffer
+	mem.clear();
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Empty vector of ranges
+	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);				// Cannot disconnect with mapped buffers
+	mem.emplace_back(my_io[1].get_map());
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);				// 2 ranges io[0] and io[1]
+	mem.emplace_back(my_io[0].get_map());
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);			// Unregister 2 buffers in reverse order io[1] and io[0]
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);
+	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+	my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Double disconnect
+	my_assert(lib.bdev_connect(   bdev) == gusli::C_OK);			// Verify can connect and disconnect again
+	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+	return 0;
+}
+
 int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
 	unitest_io my_io;
 	static constexpr const char *data = "Hello world";
@@ -191,19 +221,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
 		}
 
-		{ 	// Dummy-Register buffer with kernel bdev
-			std::vector<gusli::io_buffer_t> mem; mem.reserve(2);
-			mem.emplace_back(my_io.get_map());
-			mem.emplace_back(my_io.get_map());
-			my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-			my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);			// Cannot disconnect with mapped buffers
-			my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
-		}
-
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
-		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Double disconnect
-		my_assert(lib.bdev_connect(   bdev) == gusli::C_OK);			// Verify can connect and disconnect again
-		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		base_lib_mem_registration_bad_path(lib, bdev);
 	}
 	return 0;
 }
@@ -293,8 +312,7 @@ static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
 	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 }
 
-void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
-	(void)lib;
+static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
 	#define dst_block(i) mappend_block(map.ptr, i)
 	gusli::io_request io;
 	io.params.bdev_descriptor = info.bdev_descriptor;
@@ -321,11 +339,18 @@ void _remote_server_bad_path_unitests(gusli::global_clnt_context& lib, const gus
 	io.submit_io(); 										// LBA outside of block device range
 }
 
-static gusli::io_buffer_t __alloc_io_buffer(const gusli::bdev_info info, uint32_t n_blocks) {
+static gusli::io_buffer_t __alloc_io_buffer(const uint32_t block_size, uint32_t n_blocks) {
 	gusli::io_buffer_t map;
-	map.byte_len = info.block_size * n_blocks;
-	my_assert(posix_memalign(&map.ptr, info.block_size, map.byte_len) == 0);
+	map.byte_len = block_size * n_blocks;
+	my_assert(posix_memalign(&map.ptr, block_size, map.byte_len) == 0);
 	return map;
+}
+static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_bufs) {
+	for (const gusli::io_buffer_t& b : io_bufs) {
+		char* p = (char*)b.ptr;
+		p[b.byte_len/2] = p[b.byte_len-1] = p[0] = 'a';						// Write to  start/middle/end of buffer
+		my_assert('a' == (p[b.byte_len/2] ^ p[b.byte_len-1] ^ p[0]));		// Read from start/middle/end of buffer
+	}
 }
 
 void client_no_server_reply_test(gusli::global_clnt_context& lib) {
@@ -362,6 +387,8 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			exit(0);
 		}
 	}
+
+	// Connect to all servers, important not to do this 1 by 1, to test multiple bdevs
 	for (int s = 0; s < n_servers; s++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
 		gusli::bdev_info info;
@@ -377,17 +404,33 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		}
 		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
+	}
+
+	unitest_io my_io;
+	std::vector<gusli::io_buffer_t> io_bufs;
+	io_bufs.reserve(2);
+	io_bufs.emplace_back(__alloc_io_buffer(UNITEST_SERVER_BLOCK_SIZE, MAX_SERVER_IN_FLIGHT_IO));
+	io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
+
+	for (int s = 0; s < n_servers; s++) {
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
+		gusli::bdev_info info;
+		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		const bool is_unaligned_block = ((info.block_size % UNITEST_SERVER_BLOCK_SIZE) != 0);
+		my_assert(!is_unaligned_block);	// Else: unitest io buffer is not properly alligned
+		my_assert(info.num_max_inflight_io >= MAX_SERVER_IN_FLIGHT_IO);	// Else: not enough unitest buffers for all io's
 
 		// Map app buffers for read operations
-		log_line("Remote server %s: map bufs", UUID.SRVR_NAME[s]);
-		unitest_io my_io;
-		std::vector<gusli::io_buffer_t> io_bufs;
-		io_bufs.reserve(2);
-		io_bufs.emplace_back(__alloc_io_buffer(info, info.num_max_inflight_io));	// shared buffer for mass io tests
-		io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
+		log_line("Remote server %s, uuid=%s: map bufs", info.name, UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
+	}
 
-		if (1) _remote_server_bad_path_unitests(lib, info, io_bufs[0]);
+	// Simple io test vs each server
+	for (int s = 0; s < n_servers; s++) {
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
+		gusli::bdev_info info;
+		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		if (1) _remote_server_bad_path_io_unitests(info, io_bufs[0]);
 		for (int j = 0; j < 2; j++)
 			client_test_write_read_verify_1blk(info, my_io, j * 17 * info.block_size);	// Test 1 block write-read on lba's 0 and 17
 		if (1) {
@@ -407,17 +450,13 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Cannot disconnect with mapped buffers
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Non existent buffers
-		for (int j = 0; j < 3; j++) {
+		for (int j = 0; j < 2; j++) {
 			log_line("%s: Rereg-Unreg bufs again (iter=%d)", UUID.SRVR_NAME[s], j);
 			my_assert(lib.bdev_bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
 			my_assert(lib.bdev_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 		}
 		if (1) {		// Verify reg/unreg did not ruin original user buffers virtual mem mapping
-			for (gusli::io_buffer_t& b : io_bufs) {
-				char* p = (char*)b.ptr;
-				p[b.byte_len/2] = p[b.byte_len-1] = p[0] = 'a';		// Write to start/middle/end of buffer
-				my_assert('a' == (p[b.byte_len/2] ^ p[b.byte_len-1] ^ p[0]));		// Write to start/middle/end of buffer
-			}
+			__verify_mapped_properly(io_bufs);
 		}
 		log_line("%s: Disconnect from server", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
@@ -428,11 +467,11 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
-		for (gusli::io_buffer_t& buf : io_bufs)
-			free(buf.ptr);
-		my_io.io_buf = nullptr;	// Because we already freed it in the line above
-		io_bufs.clear();
 	}
+	for (gusli::io_buffer_t& buf : io_bufs)
+		free(buf.ptr);
+	my_io.io_buf = nullptr;	// Because we already freed it in the line above
+	io_bufs.clear();
 
 	// Wait for all servers process to finish
 	if (launch_server_as_process) {
@@ -521,24 +560,26 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 
 void unitest_raii_api(const gusli::global_clnt_raii* lib) {
 	log_line("/dev/zero read with auto open/close");
-	unitest_io my_io;
+	unitest_io my_io[2];
 	gusli::backend_bdev_id bdev;
 	bdev.set_from(UUID.DEV_ZERO);
 	// Register buffer with kernel bdev - forces an auto open
 	std::vector<gusli::io_buffer_t> mem0, mem1;
-	mem0.emplace_back(my_io.get_map());
-	mem1.emplace_back(my_io.get_map());
+	mem0.emplace_back(my_io[0].get_map());
+	mem1.emplace_back(my_io[1].get_map());
 	my_assert(lib->bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
-	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was autoopened open
+	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was auto-opened open
 	my_assert(lib->bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);
-	my_io.io.params.init_1_rng(gusli::G_NOP, lib->get_bdev_descriptor(bdev), (1 << 14), 4096, my_io.io_buf);
-	my_io.expect_success(true).clean_buf();
-	my_io.exec(gusli::G_READ, SYNC_BLOCKING_1_BY_1);
-	my_assert(strcmp("", my_io.io_buf) == 0);
+	my_io[0].io.params.init_1_rng(gusli::G_NOP, lib->get_bdev_descriptor(bdev), (1 << 14), 4096, my_io[0].io_buf);
+	my_io[0].expect_success(true).clean_buf();
+	my_io[0].exec(gusli::G_READ, SYNC_BLOCKING_1_BY_1);
+	my_assert(strcmp("", my_io[0].io_buf) == 0);
 	my_assert(lib->bufs_unregist(bdev, mem0) == gusli::connect_rv::C_OK);
 	my_assert(gusli::global_clnt_context::get().bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify still open
 	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_OK);			// Auto closed here
 	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_NO_RESPONSE);	// Verify was autoclosed
+	__verify_mapped_properly(mem0);
+	__verify_mapped_properly(mem1);
 }
 
 /*****************************************************************************/
