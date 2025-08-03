@@ -40,7 +40,7 @@ class unitest_io {
 	bool has_callback_arrived;
 	bool _expect_success = true;
 	bool _verbose = true;
-	bool _should_try_cancel = false;
+	char _should_try_cancel = 0;
  public:
 	unsigned int n_ios = 0;		// Number of executed ios
 	unsigned int n_cancl = 0;	// Number of canceled ios
@@ -60,11 +60,12 @@ class unitest_io {
 		my_assert(has_callback_arrived == false);
 		if (io_rv == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
 			n_cancl++;
+			my_assert(_should_try_cancel == 'C');		// Blocking cancel waits for IO to finish
 		} else {
 			const bool io_succeeded = (io_rv == gusli::io_error_codes::E_OK);
 			my_assert(io_succeeded == _expect_success);
 		}
-		_should_try_cancel = false;
+		_should_try_cancel = 0;
 	}
 	void print_io_comp(void) { n_ios++; if (_verbose) log_unitest("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op, io.get_error()); }
  public:
@@ -92,7 +93,7 @@ class unitest_io {
 		io.submit_io();
 		if (_should_try_cancel) {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
-			(void)io.try_cancel();
+			(void)io.try_cancel(_should_try_cancel == 'B');
 		}
 		if (mode == io_exec_mode::ASYNC_CB) {
 			if (io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER) {
@@ -115,8 +116,8 @@ class unitest_io {
 		assert_rv();
 		return *this;
 	}
-	void exec_cancel(gusli::io_type _op, io_exec_mode _mode) {
-		_should_try_cancel = true;
+	void exec_cancel(gusli::io_type _op, io_exec_mode _mode, bool is_blocking_cancel = false) {
+		_should_try_cancel = is_blocking_cancel ? 'B' : 'C';
 		exec(_op, _mode);
 	}
 	unitest_io& expect_success(bool val) { _expect_success = val; return *this; }

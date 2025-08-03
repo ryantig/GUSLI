@@ -145,17 +145,19 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Race-Cancel in-air-io test %d[iters]", n_iters);
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
-			const uint64_t time_start = get_cur_timestamp_unix();
-			for (int n = 0; n < n_iters; n++) {
-				my_io.clean_buf();
-				my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
-				if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
-					my_assert(strcmp(data, my_io.io_buf) == 0);
+			for (int do_blocking_cancel = 0; do_blocking_cancel < 2; do_blocking_cancel++) {
+				const uint64_t time_start = get_cur_timestamp_unix();
+				for (int n = 0; n < n_iters; n++) {
+					my_io.clean_buf();
+					my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i, do_blocking_cancel);
+					if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
+						my_assert(strcmp(data, my_io.io_buf) == 0);
+				}
+				const uint64_t time_end = get_cur_timestamp_unix();
+				const uint64_t n_micro_sec = (time_end - time_start);
+				log_unitest("Test summary[%s]: Blocking=%d.canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), do_blocking_cancel, my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+				my_io.clear_stats();
 			}
-			const uint64_t time_end = get_cur_timestamp_unix();
-			const uint64_t n_micro_sec = (time_end - time_start);
-			log_unitest("Test summary[%s]: canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
-			my_io.clear_stats();
 		}
 		my_io.enable_prints(true).clear_stats();
 		fflush(stderr);
