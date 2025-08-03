@@ -437,7 +437,8 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 	int conn_rv;
 	srv_addr = addr;
 	(void)id;
-	const bool blocking_connect = true;
+	const bool blocking_connect = true; // (s_type != sock_t::type::S_UDP);
+	pr_info1("Conencting to |%s|, blocking=%u\n", addr, blocking_connect);
 	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca, blocking_connect);
@@ -658,7 +659,7 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 		char old_name[32], new_name[32];
 		snprintf(new_name, sizeof(new_name), "%sciol", global_clnt_context::thread_names_prefix);
 		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
-		pr_info1("\t\t\tListener started, renaming %s->%s\n", old_name, new_name);
+		pr_info1("\t\t\tListener started, renaming %s->%s for %s\n", old_name, new_name, bdev->info.name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);

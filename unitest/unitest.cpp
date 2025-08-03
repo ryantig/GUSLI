@@ -39,7 +39,7 @@ struct bdev_uuid_cache {
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
 	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
 	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2"};
-	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "u127.0.0.1" /*udp*/, "t127.0.0.2" /*tcp*/ };
+	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/ };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -356,8 +356,10 @@ static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_b
 }
 
 void client_no_server_reply_test(gusli::global_clnt_context& lib) {
-	log_line("Remote server %s:no reply test", UUID.SRVR_NAME[0]);
-	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[0]);
+	static constexpr const int si = 0;		// Server index
+	log_line("Remote server %s(%s): no reply test", UUID.SRVR_NAME[si], UUID.SERVER_PATH[si]);
+	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[si]);
+	my_assert(UUID.SERVER_PATH[si][0] != 'u');			// udp will just get stuck waiting for server, this test should run on uds or tcp
 	const auto con_rv = lib.bdev_connect(bdev);
 	if (con_rv == gusli::connect_rv::C_OK)
 		log_uni_failure("There is another server process running in parallel to unitest. Kill it and rerun!\n\n");
@@ -396,7 +398,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		gusli::bdev_info info;
 		{
 			int n_attempts = 0;
-			enum gusli::connect_rv con_rv = lib.bdev_connect(bdev);
+			enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
 			for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));	// Wait for servers to be up
 				con_rv = lib.bdev_connect(bdev);
