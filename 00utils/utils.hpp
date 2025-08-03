@@ -127,7 +127,7 @@ public:
 #define ASSERT_IN_PRODUCTION(cond) BUG_ON(!(cond), "Assertion failed!")
 #ifdef NDEBUG
 	static constexpr const char *opt_level = "RELEASE";
-	#define DEBUG_ASSERT(...)
+	#define DEBUG_ASSERT(...) ({ })
 #else
 	static constexpr const char *opt_level = "DEBUG";
 	#define DEBUG_ASSERT  ASSERT_IN_PRODUCTION
