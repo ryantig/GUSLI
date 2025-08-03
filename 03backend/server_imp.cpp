@@ -348,6 +348,7 @@ srvr_backend_bdev_api::~srvr_backend_bdev_api() noexcept {
 	if (impl) {
 		(void)impl->destroy();  // We have nothing to do if destroy returns failure
 		delete impl;
+		impl = nullptr;
 	}
 }
 

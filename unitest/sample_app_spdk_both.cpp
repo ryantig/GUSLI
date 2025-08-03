@@ -25,7 +25,7 @@ static int run_server(int argc, const char **argv) {
 
 static int run_client(__pid_t pid) {
 	#ifdef SUPPORT_SPDK
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));	// Wait for servers to be up and ready to acept client
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));	// Wait for servers to be up and ready to acept client
 		const int rv = client_simple_test_of_server("[GS_Clnt_]", spdk_test::num_bdevs, spdk_test::srvr_bdevs_uuid, spdk_test::srvr_listen_address);
 		if (pid)
 			wait_for_process(pid, "client_wait_for_server_done");

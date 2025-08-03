@@ -187,6 +187,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		}
 	}
  public:
+	int last_run_once_rv = 0;					// Stores last run once rv for debugging, not mandatory
 	server_spdk_ram(const char* _name, const char* listen_addr) {
 		my_assert(this->BREAKING_VERSION == 1);
 		strncpy(par.listen_address, listen_addr, sizeof(par.listen_address)-1);
@@ -200,10 +201,10 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		back.my_srvr = this;
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
 		my_assert(rename_rv == 0);
-		dslog(this, "metadata=|%s|\n", create_and_get_metadata_json());
+		dslog(this, "construced, metadata=|%s|\n", create_and_get_metadata_json());
 	}
-	int run_once(void) { return gusli::srvr_backend_bdev_api::run(); }
-	virtual ~server_spdk_ram() = default;	// Just avoid clang warning of missing default virtual destructor
+	int run_once(void) { return last_run_once_rv = gusli::srvr_backend_bdev_api::run(); }
+	virtual ~server_spdk_ram() { dslog(this, "Destructor\n"); }
 	#undef dslog
 	#undef dserr
 };

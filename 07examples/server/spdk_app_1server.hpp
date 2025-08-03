@@ -26,7 +26,6 @@ class server_spdk_app_1_gusli_server {
 	struct spdk_app_opts opts = {};
 	struct spdk_poller *gs_poller = NULL;
 	int app_start_rv = -ENOEXEC;
-	int srvrs_rv[spdk_test::num_bdevs];
 	int run_rv = -ENOEXEC;
 	int parse_opts(const int orig_argc, const char *orig_argv[]) {
 		int argc = orig_argc;
@@ -59,15 +58,15 @@ class server_spdk_app_1_gusli_server {
 	}
 	inline int run_g_server_once(void) {
 		run_rv = ~0U;
-		for (int i = 0; i < spdk_test::num_bdevs; i++) {
-			srvrs_rv[i] = srvrs[i]->run_once();
-			run_rv &= srvrs_rv[i];					// Continue running as long as at least 1 server needs
-		}
-		// SPDK_NOTICELOG("1-run ctr+c=%u run_rv={%d:%d/%d}\n", ctrl_c_pressed, run_rv, srvrs_rv[0], srvrs_rv[1]);
+		for (int i = 0; i < spdk_test::num_bdevs; i++)
+			run_rv &= srvrs[i]->run_once();					// Continue running as long as at least 1 server needs
+		// SPDK_NOTICELOG("1-run ctr+c=%u run_rv={%d:%d/%d}\n", ctrl_c_pressed, run_rv, srvrs[0].last_run_once_rv, srvrs[1].last_run_once_rv);
 		return SPDK_POLLER_BUSY;					// Run at full rate to see the output clearly
 	}
 	static int run_g_server_once_static(void *arg) { return ((server_spdk_app_1_gusli_server*)arg)->run_g_server_once(); }
 	void app_source_code(void) {
+		for (int i = 0; i < spdk_test::num_bdevs; i++)
+			srvrs[i] = std::make_unique<server_spdk_ram>(spdk_test::bdev_name[i], spdk_test::srvr_listen_address[i]);
 		const uint64_t period_us = 0;				// Fastest polling frequency
 		signal(SIGINT, signal_handler);
 		signal(SIGTERM, signal_handler);			// Also handle SIGTERM for graceful shutdown
@@ -89,8 +88,6 @@ class server_spdk_app_1_gusli_server {
 	static void app_source_code_static(void *arg1) { ((server_spdk_app_1_gusli_server*)arg1)->app_source_code(); }
  public:
 	server_spdk_app_1_gusli_server(const int argc, const char *argv[]) {
-		for (int i = 0; i < spdk_test::num_bdevs; i++)
-			srvrs[i] = std::make_unique<server_spdk_ram>(spdk_test::bdev_name[i], spdk_test::srvr_listen_address[i]);
 		const int parse_rv = parse_opts(argc, argv);
 		if (parse_rv != 0) {
 			SPDK_ERRLOG("Error parsing args\n");

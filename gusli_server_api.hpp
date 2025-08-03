@@ -47,7 +47,7 @@ class srvr_backend_bdev_api : no_implicit_constructors {			// Implement (derive 
  public:
 	/* Backend API towards GUSLI, implement functions/params below  */
 	static constexpr const int BREAKING_VERSION = 1;	// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	struct init_params {							// Most params are optional, initialize params before calling the below create..() function
+	struct init_params {							// Most params are optional, initialize params in your constructor before calling the below create..() function
 		char listen_address[32];					// Mandatory, server will bind to this address, client will connect to it
 		FILE* log = stderr;							// Redirect logs of the library to this file (must be already properly opened)
 		const char* server_name = "";				// For debug, server identifier
@@ -59,13 +59,14 @@ class srvr_backend_bdev_api : no_implicit_constructors {			// Implement (derive 
 	virtual void    exec_io(server_io_req& io) = 0;	// use server_io_req methods to execute the io and set result
 
  protected:
+	SYMBOL_EXPORT srvr_backend_bdev_api() noexcept : impl(nullptr) {};
 	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;// Cleans up 'impl'
 	/* Gusli API towards your class, USE this API to initialize/User the server */
 	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Call from your derived class constructor. Initializes 'impl'. Upon error throws exception. Get the version of the library to adapt application dynamically to library features set.
 	SYMBOL_EXPORT_NO_DISCARD int run(void) noexcept; // Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
-	class global_srvr_context_imp *impl = nullptr;		// Actual implementation of the gusli engine, dont touch
+	class global_srvr_context_imp *impl;		// Actual implementation of the gusli engine, dont touch
 };
 
 } // namespace gusli
