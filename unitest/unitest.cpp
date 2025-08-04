@@ -27,7 +27,7 @@ uint64_t get_cur_timestamp_unix(void) {
 
 static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
-	my_assert(lib.bdev_get_info(bdev, &i) == gusli::connect_rv::C_OK);
+	my_assert(lib.bdev_get_info(bdev, i) == gusli::connect_rv::C_OK);
 	log_unitest("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);
 	return i.bdev_descriptor;
 }
@@ -50,7 +50,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	log_line("test wrong bdev %s", bdev.uuid);
 	gusli::bdev_info bdi;
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
-	my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_NO_DEVICE);
+	my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
@@ -203,7 +203,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
 			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already Failed, cannot cancel
 		}
-		my_assert(lib.destroy() != 0);							// failed destroy, bdev is still open
+		lib.~global_clnt_context();							// failed destroy, bdev is still open
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 	}
 	if (1) test_non_existing_bdev(lib);
@@ -212,7 +212,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		bdev.set_from(UUID.DEV_ZERO);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		gusli::bdev_info bdi;
-		my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
 		my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
@@ -398,7 +398,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 			my_assert(con_rv == gusli::connect_rv::C_OK);
 			__get_connected_bdev_descriptor(lib, bdev);
 		}
-		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 	}
 
@@ -411,7 +411,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	for (int s = 0; s < n_servers; s++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
 		gusli::bdev_info info;
-		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		const bool is_unaligned_block = ((info.block_size % UNITEST_SERVER_BLOCK_SIZE) != 0);
 		my_assert(!is_unaligned_block);	// Else: unitest io buffer is not properly alligned
 		my_assert(info.num_max_inflight_io >= MAX_SERVER_IN_FLIGHT_IO);	// Else: not enough unitest buffers for all io's
@@ -425,7 +425,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	for (int s = 0; s < n_servers; s++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
 		gusli::bdev_info info;
-		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		if (1) _remote_server_bad_path_io_unitests(info, io_bufs[0]);
 		for (int j = 0; j < 2; j++)
 			client_test_write_read_verify_1blk(info, my_io, j * 17 * info.block_size);	// Test 1 block write-read on lba's 0 and 17
@@ -459,7 +459,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		__get_connected_bdev_descriptor(lib, bdev);
-		my_assert(lib.bdev_get_info(bdev, &info) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
 		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
@@ -484,18 +484,20 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	log_line("Uninitialized library tests");
-	my_assert(&lib == &gusli::global_clnt_context::get());		// Double get returns same result
 	my_assert(lib.get_metadata_json()[0] == (char)0);			// Empty
-	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
-	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
+	lib.~global_clnt_context();									// Does nothing so succeeds
+	lib.~global_clnt_context();									// Does nothing so succeeds
 	gusli::backend_bdev_id bdev; bdev.set_from("something");
 	gusli::bdev_info bdi;
 	std::vector<gusli::io_buffer_t> mem;
 	const gusli::connect_rv rv = gusli::connect_rv::C_NO_DEVICE;
 	my_assert(rv == lib.bdev_connect(bdev));
-	my_assert(rv == lib.bdev_get_info(bdev, &bdi));
+	my_assert(rv == lib.bdev_get_info(bdev, bdi));
+	my_assert(lib.bdev_get_descriptor(bdev) < 0);
 	my_assert(rv == lib.bdev_bufs_register(bdev, mem));
 	my_assert(rv == lib.bdev_bufs_unregist(bdev, mem));
+	my_assert(rv == lib.open__bufs_register(bdev, mem));
+	my_assert(rv == lib.close_bufs_unregist(bdev, mem));
 	my_assert(rv == lib.bdev_disconnect(bdev));
 	lib.bdev_report_data_corruption(bdev, 0);
 	unitest_io my_io;	// Write 100 bytes
@@ -504,9 +506,11 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_io.exec(gusli::G_WRITE, ASYNC_CB);
 	my_io.io.params.init_1_rng(gusli::G_READ,  -1, 8, 999, NULL);
 	my_io.exec(gusli::G_READ,  SYNC_BLOCKING_1_BY_1);
+	my_io.io.params.init_1_rng(gusli::G_WRITE,  1, 0, 16, NULL);
+	my_io.exec(gusli::G_READ,  POLLABLE);
 }
 
-gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib) {
+gusli::global_clnt_context* lib_initialize_unitests(void) {
 	gusli::global_clnt_context::init_params p;
 	char clnt_name[32], conf[512];
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
@@ -524,37 +528,53 @@ gusli::global_clnt_raii* lib_initialize_unitests(gusli::global_clnt_context& lib
 		i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV[1], UUID.SERVER_PATH[1]);
 		i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV[2], UUID.SERVER_PATH[2]);
 		#if 0
-			p.config_file = "./gusli.conf";			// Can use external file
+			p.config_file = "./gusli.conf";		// Can use external file
 		#else
 			p.config_file = &conf[0];
 		#endif
 	}
-	my_assert(lib.init(p) == 0);
-	my_assert(lib.destroy() == 0);
-	{
-		gusli::global_clnt_raii ggg(p);
-		my_assert(lib.init(p) == EEXIST);
+	log_line("Init/Destroy tests");
+	using gc = gusli::global_clnt_context;
+	using ge = gusli::clnt_init_exception;
+	for (int i = 0; i < 3; i++) {				// Create Library failure (empty config file)
+		gc::init_params p0;
+		try {
+			gc lib(p0);
+		} catch (const ge& e) { my_assert(e.code() < 0); }
 	}
-	my_assert(lib.destroy() == ENOENT);							// Does nothing, destructor of ggg already destroyed lib. so succeeds
-	{
-		my_assert(lib.init(p) == 0);
-		gusli::global_clnt_raii ggg(p);							// Cosntructor of 'ggg' does nothing, lib already initialized
+	if (1) {
+		gc lib(p);
+		try {
+			gc lib2(p);							// Fail to initialize a second time
+		} catch (const ge& e) { my_assert(e.code() == EEXIST); }
+		gc *lib2 = nullptr;
+		try {
+			lib2 = new gc(p);					// Fail to initialize a second time via heap
+		} catch (const ge& e) { my_assert(e.code() == EEXIST); }
+		my_assert(lib2 == nullptr);
+		#if 0										// Copy/move/assignment is disabled
+			{ gc lib3 = lib; }						// Destroy the library via lib3
+			{ gc lib3 = lib; }						// Copy destroyed library
+			{ gc lib3(lib); }						// Copy destroyed library
+			{ gc lib3 = std::move(lib); }			// Move destroyed library
+		#else
+			lib.~global_clnt_context();
+		#endif
+		lib_uninitialized_invalid_unitests(lib);
 	}
-	my_assert(lib.destroy() == ENOENT);							// Does nothing so succeeds
-
 	log_line("Library up");
-	auto *rv = new gusli::global_clnt_raii(p);
+	gc *rv = new gc(p);
 	memset((void*)&p, 0xCC, sizeof(p));						// Trap usage by gusli library of params memory after initialization
-	my_assert(lib.init(p) == EEXIST);						// Second initialization, even with garbage params is also OK
-	log_unitest("\tmetadata= %s\n", lib.get_metadata_json());
-	my_assert(lib.BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
-	my_assert(rv->BREAKING_VERSION == 1);
+	try { rv = new gc(p);									// Second initialization, even with garbage params is also OK
+	} catch (const ge& e) { my_assert(e.code() == EEXIST); }
+	log_unitest("\tmetadata= %s\n", rv->get_metadata_json());
+	my_assert(rv->BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
 	memset(conf,      0xCC, sizeof(conf));
 	memset(clnt_name, 0xCC, sizeof(clnt_name));
 	return rv;
 }
 
-void unitest_raii_api(const gusli::global_clnt_raii* lib) {
+void unitest_auto_open_close(const gusli::global_clnt_context* lib) {
 	log_line("/dev/zero read with auto open/close");
 	unitest_io my_io[2];
 	gusli::backend_bdev_id bdev;
@@ -564,14 +584,15 @@ void unitest_raii_api(const gusli::global_clnt_raii* lib) {
 	mem0.emplace_back(my_io[0].get_map());
 	mem1.emplace_back(my_io[1].get_map());
 	my_assert(lib->open__bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
-	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was auto-opened open
+	my_assert(lib->bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was auto-opened, 1 buffer
 	my_assert(lib->open__bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);
-	my_io[0].io.params.init_1_rng(gusli::G_NOP, lib->get_bdev_descriptor(bdev), (1 << 14), 4096, my_io[0].io_buf);
+	my_assert(lib->bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was auto-opened, 2 registered buffers
+	my_io[0].io.params.init_1_rng(gusli::G_NOP, lib->bdev_get_descriptor(bdev), (1 << 14), 4096, my_io[0].io_buf);
 	my_io[0].expect_success(true).clean_buf();
 	my_io[0].exec(gusli::G_READ, SYNC_BLOCKING_1_BY_1);
 	my_assert(strcmp("", my_io[0].io_buf) == 0);
 	my_assert(lib->close_bufs_unregist(bdev, mem0) == gusli::connect_rv::C_OK);
-	my_assert(gusli::global_clnt_context::get().bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify still open
+	my_assert(lib->bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify still open
 	my_assert(lib->close_bufs_unregist(bdev, mem1) == gusli::connect_rv::C_OK);			// Auto closed here
 	my_assert(lib->close_bufs_unregist(bdev, mem1) == gusli::connect_rv::C_NO_RESPONSE);	// Verify was autoclosed
 	__verify_mapped_properly(mem0);
@@ -600,13 +621,11 @@ int main(int argc, char *argv[]) {
 		snprintf(thread_name, sizeof(thread_name), "%sunit", gusli::thread_names_prefix);
 		(void)pthread_setname_np(pthread_self(), thread_name);
 	}
-	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();
-	lib_uninitialized_invalid_unitests(lib);
-	gusli::global_clnt_raii* ggg = lib_initialize_unitests(lib);
-	unitest_raii_api(ggg);
-	base_lib_unitests(lib, n_iter_race_tests);
-	client_no_server_reply_test(lib);
-	client_server_test(lib, num_ios_preassure);
-	delete ggg;
+	gusli::global_clnt_context* lib = lib_initialize_unitests();
+	unitest_auto_open_close(lib);
+	base_lib_unitests(*lib, n_iter_race_tests);
+	client_no_server_reply_test(*lib);
+	client_server_test(*lib, num_ios_preassure);
+	delete lib;
 	log_unitest("Done!!! Success\n\n\n");
 }

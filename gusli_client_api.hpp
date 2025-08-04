@@ -33,7 +33,7 @@ struct backend_bdev_id {					// Unique ID of volume / block device / disk
 	friend bool operator==(const backend_bdev_id& a, const backend_bdev_id& b) noexcept {
 		return (memcmp(a.uuid, b.uuid, sizeof(a.uuid)) == 0);
 	}
-	struct backend_bdev_id *set_invalid(void) { memset(uuid, 0, sizeof(uuid)); return this; }
+	backend_bdev_id *set_invalid(void) { memset(uuid, 0, sizeof(uuid)); return this; }
 	void set_from(const char* str) { set_invalid(); const size_t nc = std::min(strlen(str) + 1, sizeof(uuid)); memcpy(uuid, str, nc); }
 	void set_from(const uint64_t uid) { set_invalid(); snprintf(uuid, sizeof(uuid), "%lu", uid); }
 } __attribute__((aligned(sizeof(long))));
@@ -156,7 +156,7 @@ private:
 };
 
 /******************************** Global library context ***********************/
-// API below is more advanced and suitable for more precise manipulation with library singletone
+// API for global client library context (library singleton)
 enum connect_rv { C_OK = 0, C_NO_DEVICE = -100,
 	C_NO_RESPONSE /* Device exists no response from backend*/,
 	C_REMAINS_OPEN /* Already open / Cannot close because in use*/,
@@ -172,10 +172,16 @@ struct no_implicit_constructors {	// No copy/move/assign operations to prevent a
 
 static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
 
-class global_clnt_context : no_implicit_constructors {					// Singletone: Library context
- protected: global_clnt_context() = default;
-	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
+class clnt_init_exception : public std::runtime_error {
+ public:
+	clnt_init_exception(int code, const std::string& msg) : std::runtime_error(msg), error_code_(code) {}
+	int code(void) const noexcept { return error_code_; }
+ private:
+	int error_code_;
+};
 
+class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquisition Is Initialization) to manage the singleton lifecycle
+	// Note: this is an empty class, as implementation is an obscures singleton. Pass it by reference to helper functions
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stdout;							// Redirect logs of the library to this file (must be already properly opened)
@@ -183,37 +189,30 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 		const char* client_name = NULL;				// For debug, client identifier
 		unsigned int max_num_simultaneous_requests = 256;
 	};
-	SYMBOL_EXPORT static global_clnt_context& get(void) noexcept; 		// Get library for calling functions below
-	SYMBOL_EXPORT_NO_DISCARD int init(const init_params& par) noexcept;	// Must be called first, returns negative on error, 0 or positive on success
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
+	SYMBOL_EXPORT global_clnt_context(const init_params& par);			// Throws clnt_init_exceptiont upon error. Use string and error code to find out more about failure
+	SYMBOL_EXPORT ~global_clnt_context() noexcept;
 	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically to library features set.
-	SYMBOL_EXPORT_NO_DISCARD int destroy(void) noexcept;				// Must be called last, returns negative on error, 0 or positive on success
 
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_connect(      const backend_bdev_id& id) noexcept;	// Open block device, must be done before register buffers or submitting io
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_get_info(     const backend_bdev_id& id, struct bdev_info *ret_val) noexcept;
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_disconnect(   const backend_bdev_id& id) noexcept;
-	SYMBOL_EXPORT void bdev_report_data_corruption(  const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept;
-};
+	// Open/Close block device and register memory
+	using mem_list = std::vector<io_buffer_t>;
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_connect(      const backend_bdev_id&)                  const noexcept;	// Open block device, must be done before register buffers or submitting io
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_register(const backend_bdev_id&, const mem_list&) const noexcept;	// Register shared memory buffers which will store the content of future io
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const mem_list&) const noexcept;
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_disconnect(   const backend_bdev_id&)                  const noexcept;
 
-/******************************** RAII API ***********************/
-// High level more C++ API, Construct which throws exception
-class global_clnt_raii : no_implicit_constructors {		// RAII (Resource Acquisition Is Initialization) to manage the singleton lifecycle
-public:
-	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	SYMBOL_EXPORT global_clnt_raii(const global_clnt_context::init_params& par) {
-		auto& instance = global_clnt_context::get();
-		if (instance.init(par) < 0)
-			throw std::runtime_error("Failed to initialize gusli client");
-	}
-	SYMBOL_EXPORT ~global_clnt_raii() noexcept { (void)global_clnt_context::get().destroy(); }
-	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept { return global_clnt_context::get().get_metadata_json(); }
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv open__bufs_register(const backend_bdev_id&, const std::vector<io_buffer_t>&) noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv close_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>&, bool stop_server = false) noexcept;
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv get_bdev_info(      const backend_bdev_id& id, struct bdev_info &rv) noexcept { return global_clnt_context::get().bdev_get_info(id, &rv); }
-	SYMBOL_EXPORT_NO_DISCARD static int32_t   get_bdev_descriptor(      const backend_bdev_id&) noexcept;
-	SYMBOL_EXPORT            static void   report_data_corruption(      const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept { global_clnt_context::get().bdev_report_data_corruption(id, offset_lba_bytes); }
+	// Same as above but with implicit open/close using auto refcount on bdev
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv open__bufs_register(const backend_bdev_id&, const mem_list&)                           const noexcept;	// Register shared memory buffers which will store the content of future io
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv close_bufs_unregist(const backend_bdev_id&, const mem_list&, bool stop_server = false) const noexcept;
+
+	// Get block device information (after it was oppened)
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_get_info(      const backend_bdev_id&, bdev_info &rv)  const noexcept;
+	SYMBOL_EXPORT_NO_DISCARD int32_t   bdev_get_descriptor(      const backend_bdev_id&)                 const noexcept;
+
+	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.
+	SYMBOL_EXPORT         void bdev_report_data_corruption(      const backend_bdev_id&, uint64_t lba)   const noexcept;
+ private:
+	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 };
 
 } // namespace gusli

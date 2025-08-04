@@ -22,14 +22,11 @@
 
 namespace gusli {
 
-global_clnt_context& global_clnt_context::get(void) noexcept {
+global_clnt_context_imp& global_clnt_context_imp::get(void) noexcept {
 	//static std::unique_ptr<global_clnt_context_imp> gc_ctx =  std::make_unique<global_clnt_context_imp>(); return *gc_ctx;
 	static global_clnt_context_imp gc_ctx;
 	return gc_ctx;
 }
-static inline       global_clnt_context_imp* _impl(      global_clnt_context* g) { return       (global_clnt_context_imp*)g; }
-static inline const global_clnt_context_imp* _impl(const global_clnt_context* g) { return (const global_clnt_context_imp*)g; }
-
 global_clnt_context_imp::global_clnt_context_imp() : base_library(LIB_NAME) {
 	pr_info1("clnt_ctx[%p] - construct %lu[b]\n", this, sizeof(*this));
 	shm_io_bufs = shm_io_bufs_global_t::get(LIB_NAME);
@@ -77,48 +74,45 @@ int global_clnt_context_imp::parse_conf(void) {
 	return parse_rv;
 }
 
-int global_clnt_context::init(const struct init_params& _par) noexcept {
-	global_clnt_context_imp* g = _impl(this);
-	if (g->is_initialized()) {
-		pr_err1("already initialized: %u[devices], doing nothing\n", g->bdevs.n_devices);
+int global_clnt_context_imp::init(const global_clnt_context::init_params& _par, const char* metadata_json_format) noexcept {
+	if (is_initialized()) {
+		pr_err1("already initialized: %u[devices], doing nothing\n", bdevs.n_devices);
 		return EEXIST;	// Success
 	}
-	#define abort_exe_init_on_err() { pr_err1("Error in line %d\n", __LINE__); g->shutting_down = true; return -__LINE__; }
-	g->par = _par;
-	tDbg::log_file_set(g->par.log);
-	g->par.client_name = _par.client_name ? strdup(_par.client_name) : strdup("client1");	// dup client name string
-	if (!io_csring::is_big_enough_for(g->par.max_num_simultaneous_requests))
+	#define abort_exe_init_on_err() { pr_err1("Initialization Error in line %d\n", __LINE__); shutting_down = true; free((char*)par.client_name); return -__LINE__; }
+	par = _par;
+	tDbg::log_file_set(par.log);
+	par.client_name = _par.client_name ? strdup(_par.client_name) : strdup("client1");	// dup client name string
+	if (!io_csring::is_big_enough_for(par.max_num_simultaneous_requests))
 		abort_exe_init_on_err()
-	if (g->start() != 0)
+	if (start() != 0)
 		abort_exe_init_on_err()
-	const int rv = g->parse_conf();
-	pr_note1("initialized: %u devices, log_fd=%u rv=%d\n", g->bdevs.n_devices, fileno(g->par.log), rv);
-	sprintf(g->lib_info_json, this->metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
+	const int rv = parse_conf();
+	pr_note1("initialized: %u devices, log_fd=%u rv=%d\n", bdevs.n_devices, fileno(par.log), rv);
+	if (rv != 0)
+		abort_exe_init_on_err();
+	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
 	return rv;
 }
 
-const char *global_clnt_context::get_metadata_json(void) const noexcept {
-	return _impl(this)->lib_info_json;
-}
-
-int global_clnt_context::destroy(void) noexcept {
-	global_clnt_context_imp* g = _impl(this);
-	if (!g->is_initialized()) {
+int global_clnt_context_imp::destroy(void) noexcept {
+	if (!is_initialized()) {
 		pr_err1("not initialized, nothing to destroy\n");
 		return ENOENT;
 	}
-	if (g->bdevs.has_any_bdev_open())
+	if (bdevs.has_any_bdev_open()) {
+		pr_err1("Destroy aborted, client is still used\n");
 		return -1;
-	free((char*)g->par.client_name);
-	g->bdevs.clear();
-	return g->finish(LIB_COLOR, 0);
+	}
+	free((char*)par.client_name);
+	bdevs.clear();
+	return finish(LIB_COLOR, 0);
 }
 
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& id) noexcept {
-	const global_clnt_context_imp* g = _impl(this);
-	server_bdev *bdev = g->bdevs.find_by(id);
+enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
 	if (!bdev)
 		return C_NO_DEVICE;
@@ -127,7 +121,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 	pr_info1("Open bdev uuid=%.16s, type=%c, path=%s, flag=0x%x\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path, o_flag);
 	if (bdev->is_alive())
 		return C_REMAINS_OPEN;
-	struct bdev_info *info = &bdev->b.info;
+	bdev_info *info = &bdev->b.info;
 	info->clear();
 	info->num_max_inflight_io = 256;
 	if (bdev->conf.type == DUMMY_DEV_FAIL) {
@@ -142,7 +136,7 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 			info->block_size = 1;
 			strcpy(info->name, "LocalFile");
 			info->num_total_blocks = (1 << 30);	// 1[GB] file
-			bdev->b.dp.create_client_local(_impl(&global_clnt_context::get())->shm_io_bufs);
+			bdev->b.dp.create_client_local(shm_io_bufs);
 			return C_OK;
 		} else
 			return C_WRONG_ARGUMENTS;
@@ -161,13 +155,13 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 				info->num_total_blocks = sb.st_size;
 			}
 			snprintf(info->name, sizeof(info->name), "Kernel_bdev(%u,0x%x)", (int)sb.st_dev, (int)sb.st_rdev);
-			bdev->b.dp.create_client_local(_impl(&global_clnt_context::get())->shm_io_bufs);
+			bdev->b.dp.create_client_local(shm_io_bufs);
 			return C_OK;
 		} else {
 			return C_NO_DEVICE;
 		}
 	} else if (bdev->conf.type == NVMESH_UM) {
-		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, g->par.client_name);
+		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, par.client_name);
 		if (info->is_valid())
 			return C_OK;
 		return C_NO_RESPONSE;
@@ -175,8 +169,8 @@ enum connect_rv global_clnt_context::bdev_connect(const struct backend_bdev_id& 
 	return C_NO_DEVICE;
 }
 
-enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
-	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
@@ -194,8 +188,8 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 	}
 }
 
-enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
-	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
@@ -221,7 +215,7 @@ uint32_t server_bdev::get_num_uses(void) const {
 }
 
 static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
-	const struct backend_bdev_id& id = bdev->id;
+	const backend_bdev_id& id = bdev->id;
 	enum connect_rv rv = C_OK;
 	if (!bdev->is_alive()) {
 		rv = C_NO_RESPONSE;
@@ -245,16 +239,16 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 	return rv;
 }
 
-enum connect_rv global_clnt_context::bdev_disconnect(const struct backend_bdev_id& id) noexcept {
-	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+enum connect_rv global_clnt_context_imp::bdev_disconnect(const backend_bdev_id& id) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
 	return __bdev_disconnect(bdev, false);
 }
 
-void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
-	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+void global_clnt_context_imp::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	if (bdev) {
 		t_lock_guard l(bdev->control_path_lock);
@@ -262,8 +256,8 @@ void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id,
 	}
 }
 
-enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id& id, struct bdev_info *ret_val) noexcept {
-	server_bdev *bdev = _impl(this)->bdevs.find_by(id);
+enum connect_rv global_clnt_context_imp::bdev_get_info(const backend_bdev_id& id, bdev_info *ret_val) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev) return C_NO_DEVICE;
 	if (!bdev->is_alive()) return C_NO_RESPONSE;
 	t_lock_guard l(bdev->control_path_lock);
@@ -271,10 +265,42 @@ enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id&
 	return C_OK;
 }
 
-enum connect_rv global_clnt_raii::open__bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
-	global_clnt_context &c = global_clnt_context::get();
-	global_clnt_context_imp* g = _impl(&c);
-	server_bdev *bdev = g->bdevs.find_by(id);
+/********************************* global_clnt_context ********************************************/
+global_clnt_context::global_clnt_context(const init_params& par) {
+	auto& instance = global_clnt_context_imp::get();
+	const int init_rv = instance.init(par, this->metadata_json_format);
+	if (init_rv < 0)
+		throw clnt_init_exception(init_rv, "Failed to initialize");
+	else if (init_rv > 0)
+		throw clnt_init_exception(init_rv, "Already initialized");
+}
+
+global_clnt_context::~global_clnt_context() noexcept {
+	(void)global_clnt_context_imp::get().destroy();
+}
+
+const char *global_clnt_context::get_metadata_json(void) const noexcept {
+	return global_clnt_context_imp::get().get_metadata_json();
+}
+
+enum connect_rv global_clnt_context::bdev_connect(const backend_bdev_id& id) const noexcept {
+	return global_clnt_context_imp::get().bdev_connect(id);
+}
+enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const mem_list& bufs) const noexcept {
+	return global_clnt_context_imp::get().bdev_bufs_register(id, bufs);
+
+}
+enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs) const noexcept{
+	return global_clnt_context_imp::get().bdev_bufs_unregist(id, bufs);
+}
+
+enum connect_rv global_clnt_context::bdev_disconnect(const backend_bdev_id& id) const noexcept {
+	return global_clnt_context_imp::get().bdev_disconnect(id);
+}
+
+enum connect_rv global_clnt_context::open__bufs_register(const backend_bdev_id& id, const mem_list& bufs) const noexcept {
+	global_clnt_context_imp &c = global_clnt_context_imp::get();
+	server_bdev *bdev = c.bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
@@ -283,12 +309,11 @@ enum connect_rv global_clnt_raii::open__bufs_register(const backend_bdev_id& id,
 		if (rv != C_OK)
 			return rv;
 	}
-	return global_clnt_context::get().bdev_bufs_register(id, bufs);
+	return c.bdev_bufs_register(id, bufs);
 }
-enum connect_rv global_clnt_raii::close_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server) noexcept {
-	global_clnt_context &c = global_clnt_context::get();
-	global_clnt_context_imp* g = _impl(&c);
-	server_bdev *bdev = g->bdevs.find_by(id);
+enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs, bool stop_server) const noexcept {
+	global_clnt_context_imp &c = global_clnt_context_imp::get();
+	server_bdev *bdev = c.bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
@@ -300,11 +325,19 @@ enum connect_rv global_clnt_raii::close_bufs_unregist(const backend_bdev_id& id,
 	return C_OK;
 }
 
-int32_t global_clnt_raii::get_bdev_descriptor(const backend_bdev_id& id) noexcept {
+enum connect_rv global_clnt_context::bdev_get_info(const backend_bdev_id& id, bdev_info &rv) const noexcept {
+	return global_clnt_context_imp::get().bdev_get_info(id, &rv);
+}
+
+int32_t global_clnt_context::bdev_get_descriptor(const backend_bdev_id& id) const noexcept {
 	bdev_info rv;
-	if (global_clnt_context::get().bdev_get_info(id, &rv) == connect_rv::C_OK)
+	if (global_clnt_context_imp::get().bdev_get_info(id, &rv) == connect_rv::C_OK)
 		return rv.bdev_descriptor;
 	return -1;
+}
+
+void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) const noexcept {
+	global_clnt_context_imp::get().bdev_report_data_corruption(id, offset_lba_bytes);
 }
 
 /*****************************************************************************/
@@ -313,7 +346,7 @@ void io_request::submit_io(void) noexcept {
 	out.rv = io_error_codes::E_IN_TRANSFER;
 	server_bdev *bdev = NULL;
 	if (params.get_bdev_descriptor() > 0)
-		bdev = ((global_clnt_context_imp*)&global_clnt_context::get())->bdevs.find_by(params.get_bdev_descriptor());
+		bdev = global_clnt_context_imp::get().bdevs.find_by(params.get_bdev_descriptor());
 	if (unlikely(!bdev)) {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
@@ -431,7 +464,7 @@ int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	return (ios_ok == __send_1_full_message(sock, msg, false, n_bytes, ca, LIB_NAME)) ? 0 : -1;
 }
 
-int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* addr, const char *clnt_name) {
+int bdev_backend_api::hand_shake(const backend_bdev_id& id, const char* addr, const char *clnt_name) {
 	const sock_t::type s_type = MGMT::get_com_type(addr);
 	MGMT::msg_content msg;
 	int conn_rv;
@@ -482,7 +515,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 			check_incoming();
 		} else
 			goto _out;
-		dp.create(true, _impl(&global_clnt_context::get())->shm_io_bufs);
+		dp.create(true, global_clnt_context_imp::get().shm_io_bufs);
 	}
 	if (MGMT::set_large_io_buffers)
 		sock.set_io_buffer_size(1<<19, 1<<19);
@@ -551,7 +584,7 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 	return 0;
 }
 
-int bdev_backend_api::close(const struct backend_bdev_id& id, const bool do_kill_server) {
+int bdev_backend_api::close(const backend_bdev_id& id, const bool do_kill_server) {
 	if (io_listener_tid) {
 		MGMT::msg_content msg;
 		size_t size;

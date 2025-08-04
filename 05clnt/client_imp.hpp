@@ -86,7 +86,7 @@ class bdev_backend_api {									// API to server 1 block device
 };
 
 struct server_bdev {					// Reflection of server (how to communicate with it)
-	struct backend_bdev_id id;			// Key to find server by it
+	backend_bdev_id id;					// Key to find server by it
 	struct bdev_config conf;			// Config of how to connect to this block device
 	bdev_backend_api b;					// Remote connection
 	t_lock_mutex_recursive control_path_lock;
@@ -110,7 +110,7 @@ struct bdevs_hash { 					// Hash table of connected servers
 		}
 		return NULL;
 	}
-	server_bdev *find_by(const struct backend_bdev_id& id) const {
+	server_bdev *find_by(const backend_bdev_id& id) const {
 		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
 			if (id == arr[i].id)
 				return (server_bdev *)&arr[i];
@@ -178,19 +178,28 @@ struct bdevs_hash { 					// Hash table of connected servers
 	void clear(void) { n_devices = 0; }
 };
 
-class global_clnt_context_imp : public global_clnt_context, public base_library {
- public:
-	friend class global_clnt_context;
-	struct init_params par;
-	bdevs_hash bdevs;
-	class shm_io_bufs_global_t *shm_io_bufs;
+class global_clnt_context_imp : no_implicit_constructors, public base_library { // Singletone: Library context
+	global_clnt_context::init_params par;
 	global_clnt_context_imp();
 	~global_clnt_context_imp();
-	enum connect_rv bdev_connect(void);
-	int server_disconenct(void);
 	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing nvme disk / etc.
 	void on_event_server_up(void);
 	int parse_conf(void);
+ public:
+	bdevs_hash bdevs;
+	shm_io_bufs_global_t *shm_io_bufs;
+
+	static global_clnt_context_imp& get(void) noexcept;				// Get singletone
+	int init(const global_clnt_context::init_params& _par, const char* metadata_json_format) noexcept;
+	const char *get_metadata_json(void) const noexcept { return lib_info_json; }
+	int destroy(void) noexcept;
+
+	enum connect_rv bdev_connect(      const backend_bdev_id&) noexcept;
+	enum connect_rv bdev_bufs_register(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
+	enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
+	enum connect_rv bdev_disconnect(   const backend_bdev_id&) noexcept;
+	void bdev_report_data_corruption(  const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
+	enum connect_rv bdev_get_info(     const backend_bdev_id&, bdev_info *ret_val) noexcept;
 };
 
 } // namespace gusli

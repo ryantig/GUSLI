@@ -95,7 +95,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 			i += sprintf(&conf[i], "%s N W D %s sec=0x04\n", bdev_uuid[b], srvr_addr[b]);
 		p.config_file = &conf[0];
 	}
-	gusli::global_clnt_raii gc(p);
+	gusli::global_clnt_context gc(p);
 	log_unitest("Client metadata= %s\n", gc.get_metadata_json());
 	// Create io buffers
 	unitest_io my_io;
@@ -117,7 +117,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 			return -ENODEV;
 		}
 		gusli::bdev_info info;
-		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
+		my_assert(gc.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(info.num_total_blocks > 0x100);			// We write to first few blocks
 		log_line("Remote server %s oppened and mapped bufs", info.name);
 	}
@@ -126,13 +126,13 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		log_line("%s: Write->Read test of 1[blk]", srvr_addr[b]);
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
 		gusli::bdev_info info;
-		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
+		my_assert(gc.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		client_test_write_read_verify_1blk(info, my_io, (b * info.block_size));
 	}
 	for (int b = 0; b < n_devs; b++) {
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
 		gusli::bdev_info info;
-		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
+		my_assert(gc.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		log_line("%s: IO-to-srvr-multi-range N[blks] + 1sg block", srvr_addr[b]);
 		client_test_write_read_verify_multi(info, io_bufs);
 	}
