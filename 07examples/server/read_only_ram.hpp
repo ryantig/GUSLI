@@ -84,7 +84,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		par.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
 		par.has_external_polling_loop = use_extenral_loop;
 		binfo.clear();
-		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::global_clnt_context::thread_names_prefix, _name);
+		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::thread_names_prefix, _name);
 		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
 		my_assert(rename_rv == 0);
 		dslog("metadata=|%s|\n", create_and_get_metadata_json());

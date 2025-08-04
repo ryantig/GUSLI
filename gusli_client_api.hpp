@@ -170,6 +170,8 @@ struct no_implicit_constructors {	// No copy/move/assign operations to prevent a
 	no_implicit_constructors() {}
 };
 
+static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
+
 class global_clnt_context : no_implicit_constructors {					// Singletone: Library context
  protected: global_clnt_context() = default;
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
@@ -184,7 +186,6 @@ class global_clnt_context : no_implicit_constructors {					// Singletone: Librar
 	SYMBOL_EXPORT static global_clnt_context& get(void) noexcept; 		// Get library for calling functions below
 	SYMBOL_EXPORT_NO_DISCARD int init(const init_params& par) noexcept;	// Must be called first, returns negative on error, 0 or positive on success
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
 	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically to library features set.
 	SYMBOL_EXPORT_NO_DISCARD int destroy(void) noexcept;				// Must be called last, returns negative on error, 0 or positive on success
 
@@ -208,11 +209,11 @@ public:
 	}
 	SYMBOL_EXPORT ~global_clnt_raii() noexcept { (void)global_clnt_context::get().destroy(); }
 	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept { return global_clnt_context::get().get_metadata_json(); }
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server = false) noexcept;
-	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv get_bdev_info(const backend_bdev_id& id, struct bdev_info &rv) noexcept { return global_clnt_context::get().bdev_get_info(id, &rv); }
-	SYMBOL_EXPORT_NO_DISCARD static int32_t   get_bdev_descriptor(const backend_bdev_id& id) noexcept;
-	SYMBOL_EXPORT            static void   report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept { global_clnt_context::get().bdev_report_data_corruption(id, offset_lba_bytes); }
+	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv open__bufs_register(const backend_bdev_id&, const std::vector<io_buffer_t>&) noexcept;	// Register shared memory buffers which will store the content of future io
+	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv close_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>&, bool stop_server = false) noexcept;
+	SYMBOL_EXPORT_NO_DISCARD static enum connect_rv get_bdev_info(      const backend_bdev_id& id, struct bdev_info &rv) noexcept { return global_clnt_context::get().bdev_get_info(id, &rv); }
+	SYMBOL_EXPORT_NO_DISCARD static int32_t   get_bdev_descriptor(      const backend_bdev_id&) noexcept;
+	SYMBOL_EXPORT            static void   report_data_corruption(      const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept { global_clnt_context::get().bdev_report_data_corruption(id, offset_lba_bytes); }
 };
 
 } // namespace gusli

@@ -271,7 +271,7 @@ enum connect_rv global_clnt_context::bdev_get_info(const struct backend_bdev_id&
 	return C_OK;
 }
 
-enum connect_rv global_clnt_raii::bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
+enum connect_rv global_clnt_raii::open__bufs_register(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
 	global_clnt_context &c = global_clnt_context::get();
 	global_clnt_context_imp* g = _impl(&c);
 	server_bdev *bdev = g->bdevs.find_by(id);
@@ -285,7 +285,7 @@ enum connect_rv global_clnt_raii::bufs_register(const backend_bdev_id& id, const
 	}
 	return global_clnt_context::get().bdev_bufs_register(id, bufs);
 }
-enum connect_rv global_clnt_raii::bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server) noexcept {
+enum connect_rv global_clnt_raii::close_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs, bool stop_server) noexcept {
 	global_clnt_context &c = global_clnt_context::get();
 	global_clnt_context_imp* g = _impl(&c);
 	server_bdev *bdev = g->bdevs.find_by(id);
@@ -657,7 +657,7 @@ int bdev_backend_api::dp_wakeup_server(void) {
 void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	{	// Rename thread
 		char old_name[32], new_name[32];
-		snprintf(new_name, sizeof(new_name), "%sciol", global_clnt_context::thread_names_prefix);
+		snprintf(new_name, sizeof(new_name), "%sciol", thread_names_prefix);
 		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
 		pr_info1("\t\t\tListener started, renaming %s->%s for %s\n", old_name, new_name, bdev->info.name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);

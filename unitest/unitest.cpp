@@ -563,17 +563,17 @@ void unitest_raii_api(const gusli::global_clnt_raii* lib) {
 	std::vector<gusli::io_buffer_t> mem0, mem1;
 	mem0.emplace_back(my_io[0].get_map());
 	mem1.emplace_back(my_io[1].get_map());
-	my_assert(lib->bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
+	my_assert(lib->open__bufs_register(bdev, mem0) == gusli::connect_rv::C_OK);
 	my_assert(gusli::global_clnt_context::get().bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify was auto-opened open
-	my_assert(lib->bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);
+	my_assert(lib->open__bufs_register(bdev, mem1) == gusli::connect_rv::C_OK);
 	my_io[0].io.params.init_1_rng(gusli::G_NOP, lib->get_bdev_descriptor(bdev), (1 << 14), 4096, my_io[0].io_buf);
 	my_io[0].expect_success(true).clean_buf();
 	my_io[0].exec(gusli::G_READ, SYNC_BLOCKING_1_BY_1);
 	my_assert(strcmp("", my_io[0].io_buf) == 0);
-	my_assert(lib->bufs_unregist(bdev, mem0) == gusli::connect_rv::C_OK);
+	my_assert(lib->close_bufs_unregist(bdev, mem0) == gusli::connect_rv::C_OK);
 	my_assert(gusli::global_clnt_context::get().bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN); // Verify still open
-	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_OK);			// Auto closed here
-	my_assert(lib->bufs_unregist(bdev, mem1) == gusli::connect_rv::C_NO_RESPONSE);	// Verify was autoclosed
+	my_assert(lib->close_bufs_unregist(bdev, mem1) == gusli::connect_rv::C_OK);			// Auto closed here
+	my_assert(lib->close_bufs_unregist(bdev, mem1) == gusli::connect_rv::C_NO_RESPONSE);	// Verify was autoclosed
 	__verify_mapped_properly(mem0);
 	__verify_mapped_properly(mem1);
 }
@@ -597,7 +597,7 @@ int main(int argc, char *argv[]) {
 	}
 	{
 		char thread_name[32];
-		snprintf(thread_name, sizeof(thread_name), "%sunit", gusli::global_clnt_context::thread_names_prefix);
+		snprintf(thread_name, sizeof(thread_name), "%sunit", gusli::thread_names_prefix);
 		(void)pthread_setname_np(pthread_self(), thread_name);
 	}
 	gusli::global_clnt_context& lib = gusli::global_clnt_context::get();

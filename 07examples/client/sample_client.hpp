@@ -109,7 +109,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		int n_attempts = 0;		// Try to conenct for 5 seconds
 		enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
 		for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
-			con_rv = gc.bufs_register(bdev, io_bufs);
+			con_rv = gc.open__bufs_register(bdev, io_bufs);
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for servers to be up
 		}
 		if (con_rv != gusli::connect_rv::C_OK) {
@@ -140,7 +140,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 	for (int b = 0; b < n_devs; b++) {
 		log_line("%s: Disconnect & Kill", srvr_addr[b]);
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
-		my_assert(gc.bufs_unregist(bdev, io_bufs, kill_server) == gusli::connect_rv::C_OK);
+		my_assert(gc.close_bufs_unregist(bdev, io_bufs, kill_server) == gusli::connect_rv::C_OK);
 	}
 	log_uni_success("Client: Test OK\n");
 	return 0;
