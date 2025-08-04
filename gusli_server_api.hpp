@@ -19,7 +19,6 @@
 #include "gusli_client_api.hpp"						// for struct bdev_info / io_request
 #include <atomic>
 
-
 namespace gusli {
 
 class server_io_req : public io_request {			// Data structure for processing incomming IO from gusli client
@@ -66,7 +65,7 @@ class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive f
 	SYMBOL_EXPORT_NO_DISCARD int run(void) noexcept; 			// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
-	class global_srvr_context_imp *impl;						// Actual implementation of the gusli engine, dont touch
+	class srvr_imp *impl;										// Actual implementation of the gusli engine, dont touch
 };
 
 } // namespace gusli

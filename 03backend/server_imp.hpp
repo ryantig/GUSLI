@@ -49,7 +49,7 @@ struct bdev_stats_srvr {
 	}
 };
 
-class global_srvr_context_imp : public base_library  {
+class srvr_imp : public base_library  {
 	// Per block device
 	srvr_backend_bdev_api &b;			// Underlying bdev configuration
 	bdev_info binfo;
@@ -75,13 +75,13 @@ class global_srvr_context_imp : public base_library  {
 
 	void parse_args(int argc, char* const argv[]);
  public:
-	global_srvr_context_imp(srvr_backend_bdev_api &_b) : base_library(LIB_NAME), b(_b) {
+	srvr_imp(srvr_backend_bdev_api &_b) : base_library(LIB_NAME), b(_b) {
 		binfo.clear();
-		pr_infoS(this, "srvr_ctx[%p] - construct %lu[b]\n", this, sizeof(*this));
+		pr_infoS(this, "srvr_imp[%p] - construct %lu[b]\n", this, sizeof(*this));
 		shm_io_bufs = shm_io_bufs_global_t::get(b.par.server_name);
 	}
-	~global_srvr_context_imp() {
-		pr_infoS(this, "srvr_ctx[%p] - destruct\n", this);
+	~srvr_imp() {
+		pr_infoS(this, "srvr_imp[%p] - destruct\n", this);
 		shm_io_bufs_global_t::put(b.par.server_name);
 	}
 	[[nodiscard]] int init(const char* metadata_json_format) noexcept;

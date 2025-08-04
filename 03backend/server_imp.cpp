@@ -23,7 +23,7 @@
 namespace gusli {
 
 /******************************** Communicate with client ********************/
-int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) {
+int srvr_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	const t_shared_mem *shm_ptr;
@@ -42,7 +42,7 @@ int global_srvr_context_imp::__clnt_bufs_register(const MGMT::msg_content &msg, 
 	return rv;
 }
 
-int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
+int srvr_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_unreg_buf;
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
 	t_lock_guard l(dp.shm_io_bufs->with_lock());
@@ -57,7 +57,7 @@ int global_srvr_context_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, 
 	return rv;
 }
 
-void global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) {
+void srvr_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr) {
 	ssize_t send_rv;
 	if (msg.is(MGMT::msg::dp_complete))
 		pr_verbS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
@@ -72,7 +72,7 @@ void global_srvr_context_imp::send_to(const MGMT::msg_content &msg, size_t n_byt
 	//return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
 }
 
-void global_srvr_context_imp::__clnt_close(const char* reason) {
+void srvr_imp::__clnt_close(const char* reason) {
 	b.close1(reason);
 	char str[256];
 	stats.print_stats(str, sizeof(str));
@@ -81,7 +81,7 @@ void global_srvr_context_imp::__clnt_close(const char* reason) {
 	dp.destroy();
 }
 
-void global_srvr_context_imp::client_accept(connect_addr& addr) {
+void srvr_imp::client_accept(connect_addr& addr) {
 	if (sock.uses_connection()) {
 		const int client_fd = sock.srvr_accept_clnt(addr);
 		if (client_fd < 0) {
@@ -100,7 +100,7 @@ void global_srvr_context_imp::client_accept(connect_addr& addr) {
 		io_sock.set_io_buffer_size(1<<19, 1<<19);
 }
 
-void global_srvr_context_imp::client_reject(void) {
+void srvr_imp::client_reject(void) {
 	if (sock.uses_connection() && sock.is_alive()) {
 		io_sock.nice_close();
 		ca.clean();
@@ -109,7 +109,7 @@ void global_srvr_context_imp::client_reject(void) {
 
 class backend_io_executor {
 	server_io_req io;					// IO to pass to backend
-	global_srvr_context_imp *srv = NULL;
+	srvr_imp *srv = NULL;
 	void* client_io_ctx = NULL;			// Original pointer to client io to pass back via completion entry
 	connect_addr addr;					// Address on which to wakeup client if needed
 	uint64_t thread_id; 				// Verify that callback comes on the same thread as io request
@@ -139,7 +139,7 @@ class backend_io_executor {
 	}
 	static void static_io_done_cb(backend_io_executor *me) { me->_io_done_cb();	}
  public:
-	backend_io_executor(const connect_addr& _addr, global_srvr_context_imp& _srv) {
+	backend_io_executor(const connect_addr& _addr, srvr_imp& _srv) {
 		addr = _addr;
 		srv = &_srv;
 		thread_id = (uint64_t)pthread_self();
@@ -173,7 +173,7 @@ class backend_io_executor {
 	}
 };
 
-void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr) {
+void srvr_imp::__clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr) {
 	(void)msg;
 	bool should_continue = true;
 	int n_ios = 0;
@@ -203,7 +203,7 @@ void global_srvr_context_imp::__clnt_on_io_receive(const MGMT::msg_content &msg,
 	}
 }
 
-int global_srvr_context_imp::run_once(void) noexcept {
+int srvr_imp::run_once(void) noexcept {
 	if (exit_error_code)
 		return exit_error_code;
 	if (!has_connencted_client()) {
@@ -283,7 +283,7 @@ int global_srvr_context_imp::run_once(void) noexcept {
 	return exit_error_code;
 }
 
-int global_srvr_context_imp::run(void) noexcept {
+int srvr_imp::run(void) noexcept {
 	if (!is_initialized()) {
 		pr_err1("not initialized, cannot run\n");
 		return ENOENT;
@@ -298,7 +298,7 @@ int global_srvr_context_imp::run(void) noexcept {
 	}
 }
 
-int global_srvr_context_imp::init(const char* metadata_json_format) noexcept {
+int srvr_imp::init(const char* metadata_json_format) noexcept {
 	if (is_initialized()) {
 		pr_err1("already initialized\n");
 		return EEXIST;	// Success
@@ -323,7 +323,7 @@ int global_srvr_context_imp::init(const char* metadata_json_format) noexcept {
 	return 0;
 }
 
-int global_srvr_context_imp::destroy(void) noexcept {
+int srvr_imp::destroy(void) noexcept {
 	if (!is_initialized()) {
 		pr_err1("not initialized, nothing to destroy\n");
 		return ENOENT;
@@ -339,7 +339,7 @@ int global_srvr_context_imp::destroy(void) noexcept {
 
 /******************************** srvr_backend_bdev_api ********************************/
 const char *srvr_backend_bdev_api::create_and_get_metadata_json() {
-	impl = new global_srvr_context_imp(*this);
+	impl = new srvr_imp(*this);
 	if (impl->init(metadata_json_format) < 0)
 		throw std::runtime_error("Failed to initialize gusli server");
 	return impl->lib_info_json;
