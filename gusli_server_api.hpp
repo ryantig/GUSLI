@@ -54,16 +54,16 @@ class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive f
 		bool has_external_polling_loop = false;					// If 'true' like s*pdk framework, run() will do only 1 iteration and user is responsible to call it in a loop
 		bool use_blocking_client_accept = true;					// If client is not connected, server has nothing to do so it may block. If you implement external polling loop, consider setting this to false
 	} par;
-	virtual bdev_info open1(const char* debug_reason) = 0;		// When client first connect to block device this function is called. Result will be forwarded to the client. On error make result invalid
-	virtual int      close1(const char* who) = 0;				// When client disconnects from bdev this function is called. Return value is meaningless for now
-	virtual void    exec_io(server_io_req& io) = 0;				// use io methods to execute the io and set result. Reply must be done in the same thread which called this function
+	virtual bdev_info open1(const char* reason) noexcept = 0;	// When client first connect to block device this function is called. Result will be forwarded to the client. On error make result invalid
+	virtual int      close1(const char* reason) noexcept = 0;	// When client disconnects from bdev this function is called. Return value is meaningless for now
+	virtual void    exec_io(server_io_req& io)  noexcept = 0;	// use io methods to execute the io and set result. Reply must be done in the same thread which called this function
 
  protected:
 	SYMBOL_EXPORT srvr_backend_bdev_api() noexcept : impl(nullptr) {};
 	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;// Cleans up 'impl'
 	/* Gusli API towards your class, USE this API to initialize/User the server */
-	SYMBOL_EXPORT const char *create_and_get_metadata_json();	// Call from your derived class constructor. Initializes 'impl'. Upon error throws exception. Get the version of the library to adapt application dynamically to library features set.
-	SYMBOL_EXPORT_NO_DISCARD int run(void) noexcept; 			// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
+	SYMBOL_EXPORT const char *create_and_get_metadata_json(void);// Call from your derived class constructor. Initializes 'impl'. Upon error throws exception. Get the version of the library to adapt application dynamically to library features set.
+	SYMBOL_EXPORT_NO_DISCARD int run(void) const noexcept;		// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 	class srvr_imp *impl;										// Actual implementation of the gusli engine, dont touch

@@ -31,7 +31,7 @@
 class server_ro_lba : private gusli::srvr_backend_bdev_api {
 	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
 	gusli::bdev_info binfo;
-	gusli::bdev_info open1(const char* who) override {
+	gusli::bdev_info open1(const char* who) noexcept override {
 		binfo.bdev_descriptor = open(binfo.name, O_RDWR | O_CREAT | O_LARGEFILE, (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
 		my_assert(binfo.bdev_descriptor > 0);
 		binfo.block_size = UNITEST_SERVER_BLOCK_SIZE;
@@ -41,7 +41,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		my_assert(strcmp(who, UNITEST_CLNT_NAME) == 0);
 		return binfo;
 	}
-	int close1(const char* who) override {
+	int close1(const char* who) noexcept override {
 		const int prev_fd = binfo.bdev_descriptor;
 		if (binfo.is_valid()) {
 			close(binfo.bdev_descriptor);
@@ -52,7 +52,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		dslog("close: fd=%d, rv=%d, who=%s\n", prev_fd, rv, who);
 		return 0;
 	}
-	void exec_io(class gusli::server_io_req& io) override {
+	void exec_io(class gusli::server_io_req& io) noexcept override {
 		my_assert(io.params.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		/*if (io.params.op() == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct

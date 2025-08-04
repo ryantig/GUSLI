@@ -96,7 +96,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		dslog(me, "Unsupported bdev event: type=%d, bdev=%p\n", type, bdev);
 	}
 
-	gusli::bdev_info open1(const char* who) override {
+	gusli::bdev_info open1(const char* who) noexcept override {
 		const int rv = spdk_bdev_open_ext(back.bdev_name, true /*write*/, server_spdk_ram::bdev_event_cb, this, &back.bdev_desc);
 		if (rv != 0) {
 			binfo.bdev_descriptor = -1;
@@ -124,7 +124,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		return binfo;
 	}
 
-	int close1(const char* who) override {
+	int close1(const char* who) noexcept override {
 		const int prev_fd = binfo.bdev_descriptor;
 		back.disconnect();
 		if (binfo.is_valid()) {
@@ -158,7 +158,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		if (bdev_io) spdk_bdev_free_io(bdev_io);
 	}
 
-	void exec_io(gusli::server_io_req& io) override {
+	void exec_io(gusli::server_io_req& io) noexcept override {
 		my_assert(io.params.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		*((io_ranges_counter*)io.get_private_exec_u64_addr()) = io_ranges_counter(io);	// Attach ranges execution to io

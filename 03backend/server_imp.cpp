@@ -344,7 +344,7 @@ const char *srvr_backend_bdev_api::create_and_get_metadata_json() {
 		throw std::runtime_error("Failed to initialize gusli server");
 	return impl->lib_info_json;
 }
-int srvr_backend_bdev_api::run(void) noexcept { return impl->run(); }
+int srvr_backend_bdev_api::run(void) const noexcept { return impl->run(); }
 srvr_backend_bdev_api::~srvr_backend_bdev_api() noexcept {
 	if (impl) {
 		(void)impl->destroy();  // We have nothing to do if destroy returns failure
