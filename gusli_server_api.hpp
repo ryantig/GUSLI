@@ -44,6 +44,7 @@ class server_io_req : public io_request {			// Data structure for processing inc
 };
 
 class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive from this class privetly) for backend of block device
+	// Note: Copy/Move-Cosntructor/Assignmet-op is disabled. gusli will use your derive class by pointer. Your derive class can be wrapped as unique_ptr<> but putting it into vector is deliberatly disabled
  public:
 	/* Backend API towards GUSLI: implement (in your derived class) the functions & params initialization below */
 	static constexpr const int BREAKING_VERSION = 1;			// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
