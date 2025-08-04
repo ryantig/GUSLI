@@ -151,10 +151,11 @@ class datapath_t {												// Datapath of block device
 };
 
 inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
-	if (!shm_io_bufs->remap_to_local(io.params.map.data))			// Remap the 1 range io buffer or scatter gather buffer
+	io_map_t &map = io.params.change_map();
+	if (!shm_io_bufs->remap_to_local(map.data))			// Remap the 1 range io buffer or scatter gather buffer
 		return false;
 	if (io.params.is_multi_range()) {
-		const size_t sgl_len = io.params.map.data.byte_len;
+		const size_t sgl_len = map.data.byte_len;
 		const io_multi_map_t* mm = io.get_multi_map();
 		      io_multi_map_t* nm = nullptr;
 		// Must Replace the sgl because we cant change it in shared memory. Why?
@@ -172,16 +173,16 @@ inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 				return false;
 			}
 		}
-		io.params.map.data.ptr = (void*)nm;
+		map.data.ptr = (void*)nm;
 	}
 	return true;
 }
 
 inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
-	if (unlikely(io.params._async_no_comp))				// Polling mode not supported yet
+	if (unlikely(io.is_polling_mode()))				// Polling mode not supported yet
 		return false;
 	if (!io.params.is_multi_range())
-		return verify_map_valid(io.params.map);			// 1-range mapping is valid
+		return verify_map_valid(io.params.map());			// 1-range mapping is valid
 	const io_multi_map_t* mm = io.get_multi_map();
 	if (!mm->is_valid())								// Scatter gather is valid
 		return false;
@@ -189,12 +190,12 @@ inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
 		if (!verify_map_valid(mm->entries[i]))			// Each entry is valid
 			return false;
 	}
-	return shm_io_bufs->does_include(io.params.map.data);		// Scatter-gather is accesible to server
+	return shm_io_bufs->does_include(io.params.map().data);		// Scatter-gather is accesible to server
 }
 inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) const {
 	server_io_req *sio = (server_io_req*)&io;
 	int rv = 0;
-	if (!io.params.assume_safe_io && !verify_io_param_valid(*sio)) {
+	if (!io.params.is_safe_io() && !verify_io_param_valid(*sio)) {
 		sio->set_error(io_error_codes::E_INVAL_PARAMS);
 		return -1;
 	}
@@ -229,7 +230,7 @@ inline int datapath_t::srvr_receive_io(server_io_req &io, bool *need_wakeup_clnt
 
 inline int datapath_t::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
-	io_csring_cqe::context_t comp{(server_io_req*)io.params._comp_ctx, io.get_raw_rv()};
+	io_csring_cqe::context_t comp{(server_io_req*)io.get_comp_ctx(), io.get_raw_rv()};
 	int rv = r->cq.insert(comp, need_wakeup_clnt);
 	ASSERT_IN_PRODUCTION(rv >= 0);		// Todo: Server has to block to let client process the completions
 	return rv;
@@ -441,6 +442,8 @@ inline void __compilation_verification(void) {
 	BUILD_BUG_ON(sizeof(MGMT::msg_content::t_payload::s_register_ack) != 40);
 	BUILD_BUG_ON(sizeof(MGMT::msg_content) != 64);
 	BUILD_BUG_ON(sizeof(io_request::params_t) != 48);
+	BUILD_BUG_ON(sizeof(io_request) != 64);
+	BUILD_BUG_ON(offset_of(io_request, params) != 0);
 	BUILD_BUG_ON(sizeof(server_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 	BUILD_BUG_ON(sizeof(io_multi_map_t) != 8);
 }

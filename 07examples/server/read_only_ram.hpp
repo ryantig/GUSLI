@@ -55,21 +55,21 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 	void exec_io(class gusli::server_io_req& io) override {
 		my_assert(io.has_callback());			// Do not support io without callback for now
 		io.start_execution();
-		/*if (io.params.op == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct
+		/*if (io.params.op() == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct
 			io.set_error(gusli::E_BACKEND_FAULT);
 		} else */ if (io.params.num_ranges() == 1) {
-			const gusli::io_map_t &map = io.params.map;
-			// dslog("Serving IO[%c]: 1rng ", io.params.op);
+			const gusli::io_map_t &map = io.params.map();
+			// dslog("Serving IO[%c]: 1rng ", io.params.op());
 			// test_lba::map1_print(map, par.server_name);
-			if (io.params.op == gusli::io_type::G_WRITE)
+			if (io.params.op() == gusli::io_type::G_WRITE)
 				test_lba::map1_verify(map, binfo.block_size);
 			else
 				test_lba::map1_fill(  map, binfo.block_size);
 		} else {
 			const gusli::io_multi_map_t* mio = io.get_multi_map();
-			dslog("Serving IO[%c]: #rng=%u, buf_size=%lu[b]\n", io.params.op, io.params.num_ranges(), io.params.buf_size());
+			dslog("Serving IO[%c]: #rng=%u, buf_size=%lu[b]\n", io.params.op(), io.params.num_ranges(), io.params.buf_size());
 			test_lba::mmio_print(mio, par.server_name);
-			if (io.params.op == gusli::io_type::G_WRITE)
+			if (io.params.op() == gusli::io_type::G_WRITE)
 				test_lba::mmio_verify(mio, binfo.block_size);
 			else
 				test_lba::mmio_fill(  mio, binfo.block_size);

@@ -38,7 +38,7 @@ class io_request_executor_base : no_implicit_constructors {
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
 	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes'
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
-	enum io_type op(void) const { return io->params.op; }
+	enum io_type op(void) const { return io->params.op(); }
  private:
 	bool is_async_executor = false;					// Can async_work_done() be called Asynchronously by executor
 	struct cancelation_atomic_t {					// Synchronization between cancel() and asyncronous completion of io. Relevant only for async callback io/executors
@@ -62,7 +62,7 @@ class io_request_executor_base : no_implicit_constructors {
 			delete this;
 	}
 
-	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start   cmp_ctx=%p"           "\n", this, io, op(), num_ranges, io->params.buf_size(), io->params._comp_ctx); }
+	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start   cmp_ctx=%p"           "\n", this, io, op(), num_ranges, io->params.buf_size(), io->get_comp_ctx()); }
 	void log_free(                                                 ) const { pr_verb1("exec[%p].o[%p].free"                                                          "\n", this, io                  ); }
 	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]] "                            PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes,     PRINT_EXTERN_ERR_ARGS); }
 	void log_cancel(                                               ) const { pr_verb1("exec[%p].o[%p].was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
@@ -135,7 +135,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		struct aiocb* reqs;					// Multi request, additional array
 	} u;
 	void prep_aio(struct aiocb *r, const io_map_t& map) {
-		r->aio_fildes = io->params.bdev_descriptor;
+		r->aio_fildes = io->params.get_bdev_descriptor();
 		r->aio_buf =    map.data.ptr;
 		r->aio_nbytes = map.data.byte_len;
 		r->aio_offset = map.offset_lba_bytes;
@@ -204,7 +204,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 			}
 		} else {
 			memset(&u.req1, 0, sizeof(u.req1));
-			prep_aio(&u.req1, io->params.map);
+			prep_aio(&u.req1, io->params.map());
 		}
 	}
 	~aio_request_executor() {
@@ -232,9 +232,9 @@ class sync_request_executor : public blocking_request_executor {
 	}
  public:
 	void run(void) override {
-		const int fd = io->params.bdev_descriptor;
+		const int fd = io->params.get_bdev_descriptor();
 		if (io->params.num_ranges() == 1) {
-			_do_1_map(fd, op(), io->params.map);
+			_do_1_map(fd, op(), io->params.map());
 		} else {
 			const io_multi_map_t *mm = get_mm();
 			for (uint32_t i = 0; i < mm->n_entries; i++) {
@@ -338,7 +338,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			pr_err1("exec[%p].o[%p] Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
 			had_failure = true;
 		} else {
-			prep_fn(sqe, io->params.bdev_descriptor, map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
+			prep_fn(sqe, io->params.get_bdev_descriptor(), map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
 			sqe->user_data = (__u64)this;
 		}
 		return !had_failure;
@@ -359,7 +359,7 @@ public:
 			for (uint32_t i = 0; i < mm->n_entries; i++)
 				if (!prep_uringio(mm->entries[i])) return;
 		} else {
-			if (!prep_uringio(io->params.map)) return;
+			if (!prep_uringio(io->params.map())) return;
 		}
 	}
 	~uring_request_executor() { io_uring_queue_exit(&uring); }
@@ -371,7 +371,7 @@ public:
 			BUG_ON(n_submit > 0, "partial io_uring submission not supported yet: %d/%d", n_submit, num_ranges);
 			had_failure = true; return send_async_work_failed();
 		}
-		if (io->params._async_no_comp)
+		if (io->is_polling_mode())
 			return;									// Nothing to do, user will poll for completion
 		while (num_completed != num_ranges) {		// Blocking mode, poll uring ourselves
 			struct io_uring_cqe *cqe;

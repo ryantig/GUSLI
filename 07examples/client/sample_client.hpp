@@ -23,7 +23,7 @@
 int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io &my_io, const uint64_t lba) {
 	char *user_buf = my_io.io_buf + n_block(3);		// We use a short io, so take offset in io buffer, to test address translation
 	my_io.io.params.init_1_rng(gusli::G_NOP, info.bdev_descriptor, lba, n_block(2), user_buf);
-	gusli::io_map_t& map = my_io.io.params.map;
+	const gusli::io_map_t& map = my_io.io.params.map();
 	test_lba::map1_print(map, "clnt");
 	test_lba::map1_fill( map, info.block_size);
 	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);

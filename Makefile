@@ -191,6 +191,7 @@ LFLAGS_EXE = -no-pie $(LFLAGS_ALL)
 LFLAGS_EXE__STATIC = $(LFLAGS_EXT) # -static   Add this for container compilation to include libc++ and such in the exe
 LFLAGS_EXE_DYNAMIC = -L$(INSTALL_DIR)/lib -l$(LIB_CLNT_NAME) -l$(LIB_SRVR_NAME)
 ifeq ($(USE_CLANG)_$(shell clang -v 2>&1 | grep -c "clang version"), 1_1)
+    CFLAGS += -Wno-vla-extension -Wno-null-pointer-subtraction
     #CFLAGS += -MJ $*.o.json
     CC=clang++
 else

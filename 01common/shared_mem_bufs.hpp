@@ -26,7 +26,7 @@ namespace gusli {
 #define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
 #define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
 #define PRINT_IO_REQ_FMT   "IO{%c:ofs=0x%lx, " PRINT_IO_BUF_FMT ", #rng=%d}"
-#define PRINT_IO_REQ_ARGS(c) (c).op, (c).map.offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map.data), (c).num_ranges()
+#define PRINT_IO_REQ_ARGS(c) (c).op(), (c).map().offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map().data), (c).num_ranges()
 #define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
 #define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
 #define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"

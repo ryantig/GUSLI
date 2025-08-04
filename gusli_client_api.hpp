@@ -28,7 +28,7 @@ namespace gusli {
 
 /******************************** block device reflection ***********************/
 // Note: Library does not manage local block devices, it assumes they exist and library can connect to them. Like local disks
-struct backend_bdev_id {					// Unique ID of volume
+struct backend_bdev_id {					// Unique ID of volume / block device / disk
 	char uuid[16];							// Deliberatly no dependency on uuid.lib
 	friend bool operator==(const backend_bdev_id& a, const backend_bdev_id& b) noexcept {
 		return (memcmp(a.uuid, b.uuid, sizeof(a.uuid)) == 0);
@@ -67,7 +67,7 @@ enum io_error_codes {							// Exhaustive list of error codes
 	E_INVAL_PARAMS = 			-14,			// Invalid parameters/op/block-device for execution
 };
 
-struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, same as 'struct iovec'
+struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, Resembles 'struct iovec'
 	/*volatile*/ void *ptr;						// Pointer to memory accessible by application and backend bdev, Source buffer for write, destination for read.
 	uint64_t byte_len;							// Length of the buffer
 	bool is_valid_for(uint64_t block_size) const {
@@ -92,40 +92,58 @@ struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] hea
 	io_map_t entries[0];
 	uint64_t  my_size(void) const { return sizeof(*this) + n_entries*sizeof(entries[0]); }
 	uint64_t buf_size(void) const { uint64_t rv = 0; for (uint32_t i = 0; i < n_entries; i++) rv += entries[i].data.byte_len; return rv; }
-	bool is_valid(void) const { return (n_entries > 1)&&(_reserved == 0x6f696d6d); } // For 0,1 range, multi map is not needed
+	bool is_valid(void) const { return (n_entries > 1) && (_reserved == 0x6f696d6d); } // For 0,1 range, multi map is not needed
 	bool init_num_entries(uint32_t n) { n_entries = n; _reserved = 0x6f696d6d; return is_valid(); }
 } __attribute__((aligned(sizeof(long))));
 
 class io_request {								// Data structure for issuing IO
  public:
-	struct params_t {							// Parameters for IO, treated as const by the library
-		io_map_t map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
-		int32_t bdev_descriptor;				// Take from bdev_info::bdev_descriptor
+	class params_t {							// Parameters for IO, treated as const by the library. Dont access them directly, use setter functions
+		io_map_t _map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
+		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the oppened block device to which the io is sent
 		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
-		enum io_type op : 8;					// Operation to be performed
-		uint8_t priority: 8;					// [0..100] priority. 100 is highest, 0 lowest
-		uint8_t is_mutable_data : 1;			// Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
-		uint8_t assume_safe_io : 1;				// Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
-		uint8_t try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges
-	 // private:								// Fields below are set implicitly, dont touch them directly
+		enum io_type _op : 8;					// Operation to be performed
+		uint8_t _priority: 8;					// [0..100] priority. 100 is highest, 0 lowest. Deafult = 0
+		uint8_t _is_mutable_data : 1;			// Default false, Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
+		uint8_t _assume_safe_io : 1;			// Default false, Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
+		uint8_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kuburnetes due to security issues of liburing
 		uint8_t _has_mm : 1;					// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
 		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
-		void (*_comp_cb)(void* ctx);		// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
-		void *_comp_ctx;				// Callers Completion context passed to the function above
+		void (*_comp_cb)(void* ctx);			// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
+		void *_comp_ctx;						// Callers Completion context passed to the function above
+		friend class io_request;
+		friend class server_io_req;
 	 public:
+		// API to initialize io params
 		template<class C, typename F> void set_completion(C ctx, F cb) { _comp_ctx = (void*)ctx, _comp_cb = (void (*)(void*))cb; _async_no_comp = false; }
 									  void set_blocking(void) {          _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = false; }
 									  void set_async_pollable(void) {    _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = true; }
-		void init_1_rng(enum io_type _op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; op = _op; bdev_descriptor = id; map.init(buf,        len,          lba); }
-		void init_multi(enum io_type _op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; op = _op; bdev_descriptor = id; map.init((void*)&mm, mm.my_size(), 0  ); }
-		bool is_multi_range(void) const { return _has_mm; }
-		uint64_t buf_size(void) const {   return (is_multi_range() ? ((const io_multi_map_t*)map.data.ptr)->buf_size() : map.data.byte_len); }
-		uint32_t num_ranges(void) const { return (is_multi_range() ? ((const io_multi_map_t*)map.data.ptr)->n_entries  : 1); }
-		const class io_request *my_io_req(void) const { return (io_request*)this; }
-		bool is_valid(void) const { return true; }						// Boiler-plate for future usage
+		void init_1_rng(enum io_type op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; _op = op; _bd_id = id; _map.init(buf,        len,          lba); }
+		void init_multi(enum io_type op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; _op = op; _bd_id = id; _map.init((void*)&mm, mm.my_size(), 0  ); }
+		params_t &set_mutalbe_data(      bool v) { _is_mutable_data = v;     return *this; }	// Set, when content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
+		params_t &set_try_use_uring(     bool v) { _try_using_uring_api = v; return *this; }
+		params_t &set_safe_io(           bool v) { _assume_safe_io = v;      return *this; }
+		params_t &set_priority(uint8_t percents) { _priority = percents; if (_priority > 100) _priority = 100;  return *this; }
+
+		// API to change initialized io params, for resubmittion
+		params_t &set(enum io_type op) { _op = op;   return *this; }	// Example: You issued write and immediately want to issue read with the same params
+		params_t &set_dev(int32_t bd) { _bd_id = bd; return *this; }	// Example: Issue write to disk0 and afterwards to disk1 for backup
+		io_map_t &change_map(void)    { return _map; }					// Example: Wrote io to offset 0x40 and for backup want to write the same io to offset 0x140 as well.change_map().offset_lba_bytes += 0x100;
+
+		// API to get io params that you already set
+		enum io_type op(void)             const { return _op; }
+		bool is_multi_range(void)         const { return _has_mm; }
+		uint64_t buf_size(void)           const { return (is_multi_range() ? ((const io_multi_map_t*)_map.data.ptr)->buf_size() : _map.data.byte_len); }
+		uint32_t num_ranges(void)         const { return (is_multi_range() ? ((const io_multi_map_t*)_map.data.ptr)->n_entries  : 1); }
+		const io_request *my_io_req(void) const { return (io_request*)this; }
+		const io_map_t &map(void)         const { return _map; }
+		int32_t get_bdev_descriptor(void) const { return _bd_id; }
+		bool is_safe_io(void)             const { return _assume_safe_io; }
+		bool is_valid(void)               const { return true; }				// Boiler-plate for future usage
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
-	bool has_callback(void) const { return (params._comp_cb != NULL); }
+	bool has_callback(void)    const { return (params._comp_cb != NULL); }
+	bool is_polling_mode(void) const { return params._async_no_comp; }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)

@@ -312,15 +312,15 @@ void io_request::submit_io(void) noexcept {
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
 	server_bdev *bdev = NULL;
-	if (params.bdev_descriptor > 0)
-		bdev = ((global_clnt_context_imp*)&global_clnt_context::get())->bdevs.find_by(params.bdev_descriptor);
+	if (params.get_bdev_descriptor() > 0)
+		bdev = ((global_clnt_context_imp*)&global_clnt_context::get())->bdevs.find_by(params.get_bdev_descriptor());
 	if (unlikely(!bdev)) {
-		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.bdev_descriptor);
+		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 		#if defined(HAS_URING_LIB)
-			if (!has_callback() && params.try_using_uring_api)	// Uring does not support async callback mode
+			if (!has_callback() && params._try_using_uring_api)	// Uring does not support async callback mode
 				_exec = new uring_request_executor(*this);
 		#endif
 		if (!_exec) {

@@ -87,7 +87,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	#define dslog(s, fmt, ...) ({ SPDK_NOTICELOG("%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
 	#define dserr(s, fmt, ...) ({ SPDK_ERRLOG(   "%s: " fmt, (s)->binfo.name, ##__VA_ARGS__); })
 	#define PRINT_IO_REQ_FMT   "IO[%c|%p].#rng[%u].size[%lu[b]]"
-	#define PRINT_IO_REQ_ARGS(io)  (io).params.op, (&io), io.params.num_ranges(), io.params.buf_size()
+	#define PRINT_IO_REQ_ARGS(io)  (io).params.op(), (&io), io.params.num_ranges(), io.params.buf_size()
 
 	gusli::bdev_info binfo;
 	backend_dev_t back;
@@ -166,9 +166,9 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		auto *chan = back.bdev_io_channel;
 		dslog(this, PRINT_IO_REQ_FMT " Serving\n", PRINT_IO_REQ_ARGS(io));
 		int (*const exec_fn)(spdk_bdev_desc *, spdk_io_channel *, void *, uint64_t, uint64_t, spdk_bdev_io_completion_cb, void *) =
-					(io.params.op == gusli::G_READ) ? spdk_bdev_read : spdk_bdev_write;
+					(io.params.op() == gusli::G_READ) ? spdk_bdev_read : spdk_bdev_write;
 		if (io.params.num_ranges() <= 1) {
-				const gusli::io_map_t &map = io.params.map;
+				const gusli::io_map_t &map = io.params.map();
 				const int rv = exec_fn(desc, chan, map.data.ptr, map.offset_lba_bytes, map.data.byte_len, cmp_io_cb, &io);
 				if (rv != 0) {
 					dserr(this, PRINT_IO_REQ_FMT " io exec range[%u] error=%d (%s)\n", PRINT_IO_REQ_ARGS(io), 0, rv, spdk_strerror(-rv));

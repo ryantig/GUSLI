@@ -56,7 +56,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
 	lib.bdev_report_data_corruption(bdev, (1UL << 13));
 	unitest_io my_io;
-	my_io.io.params.bdev_descriptor = 345;					// Failed IO with invalid descriptor
+	my_io.io.params.set_dev(345);					// Failed IO with invalid descriptor
 	my_io.expect_success(false);
 	for_each_exec_mode(i) {
 		my_io.exec(gusli::G_READ, (io_exec_mode)i);
@@ -100,8 +100,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
-
-	my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, data_len, my_io.io_buf);
+	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
+	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
 	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	if (1) {
 		log_line("Submit async/sync/pollable write");
@@ -176,9 +176,9 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		mio->entries[1].init(&p[2], 4, 1);	// "Hello world" -> "ello"
 		mio->entries[2].init(&p[6], 2, 0);	// "Hello world" -> "He"
 		mio->entries[3].init(&p[8], 1, 6);	// "Hello world" -> "w"
-		my_io.io.params.init_multi(gusli::G_READ, my_io.io.params.bdev_descriptor, *mio);
+		my_io.io.params.init_multi(gusli::G_READ, fd, *mio);
 		my_assert(multi_io_size        == mio->my_size());
-		my_assert(multi_io_size        == my_io.io.params.map.data.byte_len);
+		my_assert(multi_io_size        == my_io.io.params.map().data.byte_len);
 		my_assert(multi_io_read_length == mio->buf_size());
 		my_assert(multi_io_read_length == my_io.io.params.buf_size());
 		for_each_exec_mode(i) {
@@ -213,8 +213,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		gusli::bdev_info bdi;
 		my_assert(lib.bdev_get_info(bdev, &bdi) == gusli::connect_rv::C_OK);
-		my_io.io.params.bdev_descriptor = __get_connected_bdev_descriptor(lib, bdev);
-		my_io.io.params.map.data.byte_len = 1 * bdi.block_size;
+		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
 		my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
 		for_each_exec_mode(i) {
@@ -258,7 +257,7 @@ class all_ios_t {
 		const uint64_t n_completed_ios = glbal_all_ios->n_completed_ios.inc();
 		// log_unitest("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
 		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
-			c->params.map.offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
+			c->params.change_map().offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
 			c->submit_io();
 			return;
 		}
@@ -273,15 +272,8 @@ class all_ios_t {
 		my_assert((int)(sizeof(ios)/sizeof(ios[0])) >= n_max_ios_in_air);		// Arrays is large enough
 		for (int i=0; i < n_max_ios_in_air; i++) {
 			auto *p = &ios[i].params;
-			p->bdev_descriptor = info.bdev_descriptor;
-			p->op = gusli::G_READ;
-			p->priority = 100;
-			p->is_mutable_data = true;
-			p->assume_safe_io = true;
-			p->map.offset_lba_bytes = (i * block_size) + 0x100000;
-			p->map.data.byte_len = 1 * block_size;
-			p->map.data.ptr = (char*)io_buf.ptr + (i * block_size);	// Destination buffer for read
-			p->set_completion(&ios[i], __comp_cb);
+			p->init_1_rng(gusli::G_READ, info.bdev_descriptor, (i * block_size) + 0x100000, 1 * block_size, (char*)io_buf.ptr + (i * block_size)); // Destination buffer for read
+			p->set_priority(100).set_safe_io(true).set_mutalbe_data(false).set_completion(&ios[i], __comp_cb);
 		}
 		glbal_all_ios = this;
 		n_completed_ios.set(0);
@@ -293,7 +285,7 @@ class all_ios_t {
 		n_in_air_ios.set(io_depth);
 		my_assert(sem_init(&wait, 0, 0) == 0);
 		if (n_completed_ios.read() == 0)
-			log_unitest("\tperfTest %lu[op=%c], io_size=%lu[b], io_depth=%u\n", _n_ios_todo, ios[0].params.op, ios[0].params.buf_size(), io_depth);
+			log_unitest("\tperfTest %lu[op=%c], io_size=%lu[b], io_depth=%u\n", _n_ios_todo, ios[0].params.op(), ios[0].params.buf_size(), io_depth);
 		n_completed_ios.set(0);
 		const uint64_t time_start = get_cur_timestamp_unix();
 		for (int i = 0; i < io_depth; i++) {
@@ -317,7 +309,7 @@ static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
 static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
 	#define dst_block(i) mappend_block(map.ptr, i)
 	gusli::io_request io;
-	io.params.bdev_descriptor = info.bdev_descriptor;
+	io.params.set_dev(info.bdev_descriptor);
 	io.submit_io(); my_assert(io.get_error() != 0);			// No completion function
 	io.params.set_completion(&io, __io_invalid_arg_comp_cb);
 	io.submit_io(); 										// No mapped buffers

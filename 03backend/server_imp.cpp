@@ -110,7 +110,7 @@ void srvr_imp::client_reject(void) {
 class backend_io_executor {
 	server_io_req io;					// IO to pass to backend
 	srvr_imp *srv = NULL;
-	void* client_io_ctx = NULL;			// Original pointer to client io to pass back via completion entry
+	const void* client_io_ctx = NULL;	// Original pointer to client io to pass back via completion entry
 	connect_addr addr;					// Address on which to wakeup client if needed
 	uint64_t thread_id; 				// Verify that callback comes on the same thread as io request
 	int sqe_indx;
@@ -121,7 +121,7 @@ class backend_io_executor {
 		pr_verbS(srv, "exec[%p].Server io__cb_: rv=%ld\n", this, io.get_raw_rv());
 		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
 		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io lanuched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
-		io.params._comp_ctx = client_io_ctx;			// Restore client context
+		io.params.set_completion(client_io_ctx, NULL);			// Restore client context
 		const int cmp_idx = srv->dp.srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
 		pr_verbS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell={s=%u,c=%u}\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, cmp_idx, client_io_ctx, need_wakeup_clnt_io_submitter, need_wakeup_clnt_comp_reader);
 		if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
@@ -134,7 +134,7 @@ class backend_io_executor {
 			srv->send_to(msg, n_send_bytes, addr);
 		}
 		if (io.params.is_multi_range())
-			free(io.params.map.data.ptr);	// Copied scatter gather list
+			free(io.params.map().data.ptr);	// Copy of scatter gather list
 		delete this;
 	}
 	static void static_io_done_cb(backend_io_executor *me) { me->_io_done_cb();	}
@@ -151,7 +151,7 @@ class backend_io_executor {
 	bool run(void) {
 		if (has_io_to_do()) {
 			srv->stats.inc(io);			// Dont access io maps as they are not remapped yet
-			client_io_ctx = io.params._comp_ctx;
+			client_io_ctx = io.get_comp_ctx();
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
 			if (io.is_valid()) {

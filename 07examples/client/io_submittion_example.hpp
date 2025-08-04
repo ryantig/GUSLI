@@ -67,7 +67,7 @@ class unitest_io {
 		}
 		_should_try_cancel = 0;
 	}
-	void print_io_comp(void) { n_ios++; if (_verbose) log_unitest("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op, io.get_error()); }
+	void print_io_comp(void) { n_ios++; if (_verbose) log_unitest("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op(), io.get_error()); }
  public:
 	gusli::io_request io;
 	char* io_buf = NULL;		// Source for write, destination buffer for read.
@@ -79,7 +79,7 @@ class unitest_io {
 		const int n_bytes = (int)io.params.buf_size();
 		my_assert(n_bytes < buf_len);
 		if (_verbose) log_unitest("\tSubmit[%u] %s-%c %u[b], n_ranges=%u\n", n_ios, io_exec_mode_str(mode), _op, n_bytes, io.params.num_ranges());
-		io.params.op = _op;
+		io.params.set(_op);
 		if (mode == io_exec_mode::ASYNC_CB) {
 			io.params.set_completion(this, __comp_cb);
 			my_assert(sem_init(&wait, 0, 0) == 0);
@@ -88,7 +88,7 @@ class unitest_io {
 		} else if ((mode == SYNC_BLOCKING_1_BY_1) || (mode == URING_BLOCKING)) {
 			io.params.set_blocking();
 		} else {my_assert(false); }
-		io.params.try_using_uring_api = ((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
+		io.params.set_try_use_uring((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
 		is_waiting_for_callback = io.has_callback();
 		io.submit_io();
 		if (_should_try_cancel) {
