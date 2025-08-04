@@ -288,9 +288,9 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 			struct t_hello {
 				char security_cookie[8];
 				char client_id[8];
-				struct backend_bdev_id volume;			// Requested volume to connect to
+				backend_bdev_id volume;			// Requested volume to connect to
 				int64_t reserved;
-				void fill(struct backend_bdev_id _v, const char* _clnt, const char* sec) {
+				void fill(backend_bdev_id _v, const char* _clnt, const char* sec) {
 					memcpy(security_cookie, sec, sizeof(security_cookie));
 					const size_t nc = min(strlen(_clnt) + 1, sizeof(client_id));
 					memcpy(client_id, _clnt, nc);
@@ -299,7 +299,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				}
 			} c_hello;
 			struct t_hello_ack {
-				struct bdev_info info;					// .bdev_descriptor < 0 means error
+				bdev_info info;					// .bdev_descriptor < 0 means error
 			} s_hello_ack;
 			struct t_register_buf {
 				char name[8 + sizeof(backend_bdev_id)];			// +8 Because Starting with '/gs' + 4ybtes suffix + \0
@@ -307,7 +307,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				uint32_t num_blocks;							// Blocks as defined by the server
 				uint32_t buf_idx   : 16;
 				uint32_t is_io_buf : 16;
-				void build_scheduler(struct backend_bdev_id volume, uint32_t _num_blocks) {
+				void build_scheduler(backend_bdev_id volume, uint32_t _num_blocks) {
 					snprintf(name, sizeof(name), "/gs%.16sring", volume.uuid);
 					client_pointer = 0xdeadbeef99UL;			// Irrelevant
 					num_blocks = _num_blocks;
@@ -335,11 +335,11 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				char get_buf_type(void) const { return is_io_buf ? 'i' : 'r'; }
 			} s_register_ack, s_unreg_ack;
 			struct t_close_nice {
-				struct backend_bdev_id volume;
+				backend_bdev_id volume;
 				int64_t reserved;
 			} c_close;
 			struct t_close_ack  {
-				struct backend_bdev_id volume;
+				backend_bdev_id volume;
 				int32_t rv;
 				int32_t reserved;
 			} s_close;
