@@ -179,7 +179,7 @@ inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 }
 
 inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
-	if (unlikely(io.is_polling_mode()))				// Polling mode not supported yet
+	if (unlikely(io.params.is_polling_mode()))				// Polling mode not supported yet
 		return false;
 	if (!io.params.is_multi_range())
 		return verify_map_valid(io.params.map());			// 1-range mapping is valid
@@ -215,7 +215,7 @@ inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
 	if (cqe >= 0) {
 		server_io_req* io = comp.io_ptr;
 		BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
-		BUG_ON(!io->has_callback(), "How else would we notify the sender that IO finished?");
+		BUG_ON(!io->params.has_callback(), "How else would we notify the sender that IO finished?");
 		pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_CQE_ELEM_FMT ".rv[%ld]\n", PRINT_IO_REQ_ARGS(io->params), cqe, comp.rv);
 		io->set_success(comp.rv);
 		return cqe;

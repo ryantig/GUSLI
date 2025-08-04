@@ -53,7 +53,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		return 0;
 	}
 	void exec_io(class gusli::server_io_req& io) override {
-		my_assert(io.has_callback());			// Do not support io without callback for now
+		my_assert(io.params.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		/*if (io.params.op() == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct
 			io.set_error(gusli::E_BACKEND_FAULT);

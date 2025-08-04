@@ -81,7 +81,7 @@ class io_request_executor_base : no_implicit_constructors {
 				io->set_success((uint64_t)total_bytes);									// User callback may not call cancel() so no dead lock
 			} else {
 				BUG_ON(cur_rv == (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
-				BUG_ON(io->has_callback(), "wrong implementation, io already got its cb and filled the rv");
+				BUG_ON(io->params.has_callback(), "wrong implementation, io already got its cb and filled the rv");
 				total_bytes = (uint64_t)cur_rv;
 				log_set_rv();
 			}
@@ -365,13 +365,13 @@ public:
 	~uring_request_executor() { io_uring_queue_exit(&uring); }
 	void run(void) override {
 		if (unlikely(had_failure)) { return send_async_work_failed(); }
-		BUG_ON(io->has_callback(), "Wrong executor usage, async mode unsupported yet");
+		BUG_ON(io->params.has_callback(), "Wrong executor usage, async mode unsupported yet");
 		const int n_submit = io_uring_submit(&uring);
 		if (n_submit != num_ranges) {
 			BUG_ON(n_submit > 0, "partial io_uring submission not supported yet: %d/%d", n_submit, num_ranges);
 			had_failure = true; return send_async_work_failed();
 		}
-		if (io->is_polling_mode())
+		if (io->params.is_polling_mode())
 			return;									// Nothing to do, user will poll for completion
 		while (num_completed != num_ranges) {		// Blocking mode, poll uring ourselves
 			struct io_uring_cqe *cqe;

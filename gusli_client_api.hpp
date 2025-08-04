@@ -98,7 +98,7 @@ struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] hea
 
 class io_request {								// Data structure for issuing IO
  public:
-	class params_t {							// Parameters for IO, treated as const by the library. Dont access them directly, use setter functions
+	class params_t {							// Parameters for IO, Use setter/getter functions to intialize them
 		io_map_t _map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
 		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the oppened block device to which the io is sent
 		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
@@ -111,8 +111,7 @@ class io_request {								// Data structure for issuing IO
 		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
 		void (*_comp_cb)(void* ctx);			// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *_comp_ctx;						// Callers Completion context passed to the function above
-		friend class io_request;
-		friend class server_io_req;
+		friend class server_io_req;				// Access to _comp fields
 	 public:
 		// API to initialize io params
 		template<class C, typename F> void set_completion(C ctx, F cb) { _comp_ctx = (void*)ctx, _comp_cb = (void (*)(void*))cb; _async_no_comp = false; }
@@ -139,11 +138,12 @@ class io_request {								// Data structure for issuing IO
 		const io_map_t &map(void)         const { return _map; }
 		int32_t get_bdev_descriptor(void) const { return _bd_id; }
 		bool is_safe_io(void)             const { return _assume_safe_io; }
-		bool is_valid(void)               const { return true; }				// Boiler-plate for future usage
+		bool may_use_uring(void)          const { return _try_using_uring_api; }
+		bool has_callback(void)           const { return _comp_cb != NULL; }
+		bool is_polling_mode(void)        const { return _async_no_comp; }
+		bool is_blocking_io(void)         const { return !has_callback() && !is_polling_mode(); }
 	} params;
 	io_request() { memset(this, 0, sizeof(*this)); }
-	bool has_callback(void)    const { return (params._comp_cb != NULL); }
-	bool is_polling_mode(void) const { return params._async_no_comp; }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
@@ -151,7 +151,6 @@ class io_request {								// Data structure for issuing IO
  protected:																// Below extra 16[b] for execution state
 	class io_request_executor_base* _exec;								// During execution executor attaches to IO, Server side uses it to execute io
 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
-	bool is_blocking_io(void) const { return !has_callback() && !params._async_no_comp; }
 private:
 	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;	// Internal function, dont touch
 };

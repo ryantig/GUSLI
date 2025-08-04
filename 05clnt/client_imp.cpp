@@ -320,11 +320,11 @@ void io_request::submit_io(void) noexcept {
 	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
 		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 		#if defined(HAS_URING_LIB)
-			if (!has_callback() && params._try_using_uring_api)	// Uring does not support async callback mode
+			if (!params.has_callback() && params.may_use_uring())	// Uring does not support async callback mode
 				_exec = new uring_request_executor(*this);
 		#endif
 		if (!_exec) {
-			if (!this->is_blocking_io()) {					// Async IO, with / without completion
+			if (!params.is_blocking_io()) {					// Async IO, with / without completion
 				_exec = new aio_request_executor(*this);
 			} else {										// Blocking IO
 				_exec = new sync_request_executor(*this);
@@ -338,7 +338,7 @@ void io_request::submit_io(void) noexcept {
 	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
 		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
 	} else if (bdev->conf.type == NVMESH_UM) {
-		const bool should_block = this->is_blocking_io();
+		const bool should_block = params.is_blocking_io();
 		if (unlikely(should_block)) {
 			_exec = new remote_aio_blocker(*this);
 			if (_exec)
@@ -373,8 +373,8 @@ io_request_executor_base* io_request::__disconnect_executor_atomic(void) noexcep
 
 enum io_error_codes io_request::get_error(void) noexcept {
 	if (out.rv == io_error_codes::E_IN_TRANSFER) {
-		DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
-		if (params._async_no_comp) {
+		DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
+		if (params.is_polling_mode()) {
 			BUG_ON(!_exec, "IO has not finished yet, It must have a valid executor, rv=%ld", out.rv);
 			if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER)
 				return io_error_codes::E_IN_TRANSFER;
@@ -400,8 +400,8 @@ enum io_error_codes io_request::get_error(void) noexcept {
 enum io_request::cancel_rv io_request::try_cancel(bool blocking_wait) noexcept {
 	if (out.rv != io_error_codes::E_IN_TRANSFER)
 		return io_request::cancel_rv::G_ALLREADY_DONE;
-	DEBUG_ASSERT(!is_blocking_io());			// Impossible for blocking io as out.rv would be already set
-	if (unlikely((blocking_wait))) {			// Wait for IO to finish, may stuck for a long time in this loop
+	DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
+	if (unlikely(blocking_wait)) {				// Wait for IO to finish, may stuck for a long time in this loop
 		while (get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
 			std::this_thread::sleep_for(std::chrono::microseconds(10));
 		}
@@ -438,7 +438,7 @@ int bdev_backend_api::hand_shake(const struct backend_bdev_id& id, const char* a
 	srv_addr = addr;
 	(void)id;
 	const bool blocking_connect = true; // (s_type != sock_t::type::S_UDP);
-	pr_info1("Conencting to |%s|, blocking=%u\n", addr, blocking_connect);
+	pr_info1("Connecting to |%s|, blocking=%u\n", addr, blocking_connect);
 	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca, blocking_connect);

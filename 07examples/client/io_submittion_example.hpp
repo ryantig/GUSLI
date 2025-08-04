@@ -89,7 +89,7 @@ class unitest_io {
 			io.params.set_blocking();
 		} else {my_assert(false); }
 		io.params.set_try_use_uring((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
-		is_waiting_for_callback = io.has_callback();
+		is_waiting_for_callback = io.params.has_callback();
 		io.submit_io();
 		if (_should_try_cancel) {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));

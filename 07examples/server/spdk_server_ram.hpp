@@ -159,7 +159,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	}
 
 	void exec_io(gusli::server_io_req& io) override {
-		my_assert(io.has_callback());			// Do not support io without callback for now
+		my_assert(io.params.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		*((io_ranges_counter*)io.get_private_exec_u64_addr()) = io_ranges_counter(io);	// Attach ranges execution to io
 		auto *desc = back.bdev_desc;
