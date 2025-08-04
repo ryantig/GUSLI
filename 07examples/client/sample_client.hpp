@@ -106,7 +106,16 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 	for (int b = 0; b < n_devs; b++) {
 		log_line("Remote server %s, connecting...", srvr_addr[b]);
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
-		my_assert(gc.bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
+		int n_attempts = 0;		// Try to conenct for 5 seconds
+		enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
+		for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
+			con_rv = gc.bufs_register(bdev, io_bufs);
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));	// Wait for servers to be up
+		}
+		if (con_rv != gusli::connect_rv::C_OK) {
+			log_uni_failure("Unable to connect to server %s(%s) after %d attempts. rv=%d. Aborting test\n", bdev_uuid[b], srvr_addr[b], n_attempts, con_rv);
+			return -ENODEV;
+		}
 		gusli::bdev_info info;
 		my_assert(gc.get_bdev_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(info.num_total_blocks > 0x100);			// We write to first few blocks
