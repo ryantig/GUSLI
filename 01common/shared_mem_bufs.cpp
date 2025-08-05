@@ -40,12 +40,13 @@ void shm_io_bufs_global_t::put(const char* debug_who) {
 	if (!shm_io_bufs_singleton) {
 		pr_err1(PRINT_GLOBAL_BUF_FMT ".put_be4_get\n", PRINT_GLOBAL_BUF_ARGS());
 		return;
-	}
-	t_lock_guard l(shm_io_bufs_singleton->lock_);
-	shm_io_bufs_singleton->n_refs--;
-	pr_info1(PRINT_GLOBAL_BUF_FMT ".did_dec\n", PRINT_GLOBAL_BUF_ARGS());
-	if (shm_io_bufs_singleton->n_refs > 0)
-		return;
+	} else {
+		t_lock_guard l(shm_io_bufs_singleton->lock_);
+		shm_io_bufs_singleton->n_refs--;
+		pr_info1(PRINT_GLOBAL_BUF_FMT ".did_dec\n", PRINT_GLOBAL_BUF_ARGS());
+		if (shm_io_bufs_singleton->n_refs > 0)
+			return;
+	}	// Here release the lock to be able to delete
 	pr_info1(PRINT_GLOBAL_BUF_FMT ".destruct\n", PRINT_GLOBAL_BUF_ARGS());
 	if (shm_io_bufs_singleton->n_refs == 0)
 		delete shm_io_bufs_singleton;
