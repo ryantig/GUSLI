@@ -162,22 +162,22 @@ enum connect_rv { C_OK = 0, C_NO_DEVICE = -100,
 	C_REMAINS_OPEN /* Already open / Cannot close because in use*/,
 	C_WRONG_ARGUMENTS};
 
+static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
+
+class clnt_init_exception : public std::runtime_error {				// Initialization exception thrown during construction error
+ public:
+	clnt_init_exception(int code, const std::string& msg) : std::runtime_error(msg), error_code_(code) {}
+	int code(void) const noexcept { return error_code_; }
+ private:
+	int error_code_;
+};
+
 struct no_implicit_constructors {	// No copy/move/assign operations to prevent accidental copying of resources, leaks, double free and performance degradation
 	no_implicit_constructors(           const no_implicit_constructors& ) = delete;
 	no_implicit_constructors(                 no_implicit_constructors&&) = delete;
 	no_implicit_constructors& operator=(const no_implicit_constructors& ) = delete;
 	no_implicit_constructors& operator=(      no_implicit_constructors&&) = delete;
 	no_implicit_constructors() {}
-};
-
-static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
-
-class clnt_init_exception : public std::runtime_error {
- public:
-	clnt_init_exception(int code, const std::string& msg) : std::runtime_error(msg), error_code_(code) {}
-	int code(void) const noexcept { return error_code_; }
- private:
-	int error_code_;
 };
 
 class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquisition Is Initialization) to manage the singleton lifecycle
@@ -209,8 +209,10 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_get_info(      const backend_bdev_id&, bdev_info &rv)  const noexcept;
 	SYMBOL_EXPORT_NO_DISCARD int32_t   bdev_get_descriptor(      const backend_bdev_id&)                 const noexcept;
 
-	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.
-	SYMBOL_EXPORT         void bdev_report_data_corruption(      const backend_bdev_id&, uint64_t lba)   const noexcept;
+	// Advanced Control API towards server, for debugging / testing / crisis management
+	SYMBOL_EXPORT         void bdev_ctl_report_data_corruption(  const backend_bdev_id&, uint64_t lba)   const noexcept;	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.
+	SYMBOL_EXPORT         void bdev_ctl_log_msg(                 const backend_bdev_id&, std::string &s) const noexcept;	// Send a short message to write to server logs. Max 56 bytes/ascii-characters
+	SYMBOL_EXPORT         void bdev_ctl_reboot(                  const backend_bdev_id&                ) const noexcept;	// Will force a server to disconnect and reconnect a client
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 };

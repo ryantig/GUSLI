@@ -198,8 +198,8 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 	enum connect_rv bdev_bufs_register(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
 	enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
 	enum connect_rv bdev_disconnect(   const backend_bdev_id&) noexcept;
-	void bdev_report_data_corruption(  const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
 	enum connect_rv bdev_get_info(     const backend_bdev_id&, bdev_info *ret_val) noexcept;
+	void bdev_ctl_report_di(           const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
 };
 
 } // namespace gusli

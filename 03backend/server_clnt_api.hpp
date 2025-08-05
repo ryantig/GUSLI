@@ -344,10 +344,10 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				int32_t reserved;
 			} s_close;
 			struct t_keep_alive  {
-				char extra_info[32];					// Debug info
+				char extra_info[56];					// Debug info
 			} c_log, s_kal, s_kick, c_die, s_die;
 			struct t_wrong_cmd  {
-				char extra_info[32];					// Information about wrong command
+				char extra_info[56];					// Information about wrong command
 			} wrong_cmd;
 			struct t_dp_cmd  {							// Client is producer of submitions, Server is producer of completions
 				uint64_t reserved;

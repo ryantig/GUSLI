@@ -247,7 +247,7 @@ enum connect_rv global_clnt_context_imp::bdev_disconnect(const backend_bdev_id& 
 	return __bdev_disconnect(bdev, false);
 }
 
-void global_clnt_context_imp::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
+void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	if (bdev) {
@@ -336,8 +336,8 @@ int32_t global_clnt_context::bdev_get_descriptor(const backend_bdev_id& id) cons
 	return -1;
 }
 
-void global_clnt_context::bdev_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) const noexcept {
-	global_clnt_context_imp::get().bdev_report_data_corruption(id, offset_lba_bytes);
+void global_clnt_context::bdev_ctl_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) const noexcept {
+	global_clnt_context_imp::get().bdev_ctl_report_di(id, offset_lba_bytes);
 }
 
 /*****************************************************************************/

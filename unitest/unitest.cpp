@@ -54,7 +54,7 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
-	lib.bdev_report_data_corruption(bdev, (1UL << 13));
+	lib.bdev_ctl_report_data_corruption(bdev, (1UL << 13));
 	unitest_io my_io;
 	my_io.io.params.set_dev(345);					// Failed IO with invalid descriptor
 	my_io.expect_success(false);
@@ -462,7 +462,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
-		lib.bdev_report_data_corruption(bdev, 0);			// Kill the server
+		lib.bdev_ctl_report_data_corruption(bdev, 0);			// Kill the server
 	}
 	for (gusli::io_buffer_t& buf : io_bufs)
 		free(buf.ptr);
@@ -499,7 +499,7 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_assert(rv == lib.open__bufs_register(bdev, mem));
 	my_assert(rv == lib.close_bufs_unregist(bdev, mem));
 	my_assert(rv == lib.bdev_disconnect(bdev));
-	lib.bdev_report_data_corruption(bdev, 0);
+	lib.bdev_ctl_report_data_corruption(bdev, 0);
 	unitest_io my_io;	// Write 100 bytes
 	my_io.expect_success(false).enable_prints(false);
 	my_io.io.params.init_1_rng(gusli::G_WRITE,  0, 5, 100, NULL);
