@@ -16,6 +16,7 @@
 BUILD_RELEASE?=1
 USE_CLANG?=0
 BUILD_FOR_UNITEST?=1
+ALLOW_USE_URING?=1
 BUILD_ALSO_INSTALLS_DYN_LIBS?=1
 UNAME := $(shell uname)# Which operating system we use?
 HT = $(shell uname -m)
@@ -132,10 +133,12 @@ endif
 LFLAGS_ALL = -lpthread -rdynamic
 LFLAGS_EXT =
 # ********** External libraries ********* check for lib using pkg-config and update flags appropriately
-EXTLIB=liburing
-ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
-    CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
-    LFLAGS_EXT = $(shell pkg-config --libs $(EXTLIB))
+ifeq ($(ALLOW_USE_URING),1)
+    EXTLIB=liburing
+    ifneq ($(shell pkg-config --exists $(EXTLIB) && echo yes),)
+        CFLAGS += -DHAS_URING_LIB $(shell pkg-config --cflags $(EXTLIB))
+        LFLAGS_EXT = $(shell pkg-config --libs $(EXTLIB))
+    endif
 endif
 
 SPDK_DIR = $(ROOT_DIR_RLTV)/../spdk
@@ -215,7 +218,7 @@ define print_compilation_info
     @printf "\t* LStaExe | $(LFLAGS_EXE__STATIC)\n"
     @printf "\t* LS_SPDK | $(LFLAGS_SPDK_SRVR)\n"
     @printf "===========================================\n"
-    @printf "\t* INSTALL | Enabled=$(BUILD_ALSO_INSTALLS_DYN_LIBS), dir=$(INSTALL_DIR)\n"
+    @printf "\t* INSTALL | Enabled=$(BUILD_ALSO_INSTALLS_DYN_LIBS), dir=$(INSTALL_DIR), AllowUring=$(ALLOW_USE_URING)\n"
     @printf "\t* ExeList | $(EXE_LIST_ALL)\n"
     @printf "===========================================\n"
 endef
@@ -223,7 +226,7 @@ endef
 define print_synamic_dependencies
     @printf "Dynamic dependencies analysis:\n"
     @if [ "$(BUILD_ALSO_INSTALLS_DYN_LIBS)" = "1" ]; then \
-        @ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so; \
+        ldd $(OBJ_DIR)/$(LIB_CLNT_NAME).so $(OBJ_DIR)/$(LIB_SRVR_NAME).so; \
     else printf "\t*\e[1;33m.so libs not generated\e[0;0m\n"; \
     fi
     @ldd $(EXE_LIST_ALL)

@@ -21,11 +21,12 @@ function echo_title() {  echo -e "~~~~~~~~~~~~~ \e[16;34m$*\e[0;39m:"; }
 
 function GUSLI() {
 	if [ $# -eq 0 ]; then
-		echo "params: show / clean / huge_pages_setup"
+		echo "params: show / clean / huge_pages_setup";
 	elif [[ $1 == sh* ]]; then
 		cmd="ps -eLo pid,ppid,comm,user | grep gusli"; echo_title "Processes"; eval $cmd;
 		#cmd="ps -ef | grep gusli"; echo_green $cmd; eval $cmd;
 		cmd="pgrep -fl gusli"; echo_green $cmd; eval $cmd;
+		df -h /dev/shm;
 		cmd='ll /dev/shm/gs* 2>/dev/null'; #echo_green $cmd;
 		eval $cmd;
 		ps_prg=$(pgrep -f gusli);

@@ -37,30 +37,31 @@ if false; then
 	# Unsecure docker, supports lib-iouring io
 	sudo docker run --security-opt seccomp=unconfined -v /home/danielhe/projects/nixl:/home/danielhe/projects/nixl:Z -it b8a0841505f3 /bin/bash
 else
-	sudo docker run -v /home/danielhe/projects/nixl:/home/danielhe/projects/nixl:Z -it b8a0841505f3 /bin/bash
+	sudo docker run --shm-size=5g -v /home/danielhe/projects/nixl:/home/danielhe/projects/nixl:Z -it b8a0841505f3 /bin/bash
 fi;
 
 ################################ Do inside container
 # Step 3.0: Install generic stuff
-apt-get install -y libgflags-dev meson autoconf libtool gdb htop libgtest-dev liburing-dev libaio-dev clangd tree xxd;
+apt-get update; apt-get install -y libgflags-dev meson autoconf libtool gdb htop libgtest-dev liburing-dev libaio-dev clangd tree xxd sudo;
 
 # Step 3.1: Install latests gusli lib
 cd /home/danielhe/projects/nixl;
 if false; then								# Debuuging / Developing GUSLI-NIXL integration
 	rm -rf ./gusli/; cp -r ../gusli .;		# Copy local dev version
-	cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 TRACE_LEVEL=7 && cd ..;
+	cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0 TRACE_LEVEL=7 && cd ..;
 else
 	rm -rf ./gusli;
 	git clone ssh://git@gitlab-master.nvidia.com:12051/excelero/gusli.git && cd gusli && make all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 && cd .. && ll /usr/lib/libg* && ll /usr/include/gus*;
 
 fi;
+source gusli/80scripts/service.sh;
 
 # Step 3.2: Build NIXL unitests
 mkdir -p /root/NNN; mkdir -p /root/NNP; meson setup --reconfigure -Dbuildtype=debug -Dprefix=/root/NNP /root/NNN; cd /home/danielhe/projects/nixl;
-clear; ninja -C /root/NNN install
+clear; ninja -C /root/NNN install;
 
 # Step 3.3: Run Gusli Plugin within NIXL unitest
-clear; /root/NNN/test/unit/plugins/gusli/nixl_gusli_test;
+clear; /root/NNN/test/unit/plugins/gusli/nixl_gusli_test; GUSLI show;
 rm /root/NNN/meson-logs/testlog.txt; meson test gusli_plugin_test -C /root/NNN; cat /root/NNN/meson-logs/testlog.txt
 for i in {1..50}; do  /root/NNN/test/unit/plugins/gusli/nixl_gusli_test 2>&1 | tee -a z_out.txt; done;
 

@@ -29,7 +29,7 @@ static int run_client(__pid_t pid) {
 			wait_for_process(pid, "client_wait_for_server_done");
 		return rv;
 	#else
-		log_uni_failure("Client: Could not find spdk framework, spdk client unitest abort, rv=%d\n", -ENOEXEC);
+		log_uni_failure("Client: Could not find spdk framework (srvr_pid=%u), spdk client unitest abort, rv=%d\n", pid, -ENOEXEC);
 		return ENOEXEC;
 	#endif
 }
