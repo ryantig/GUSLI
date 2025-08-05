@@ -56,8 +56,9 @@ function full_ci() {
 	cmd="ulimit -c";
 	echo_green "************************ Starting CI";
 	UNITEST_compile_success;
-	for i in {1..5}; do ./z_gusli_clnt_unitest -n 8 -c 64; done;
-	for i in {1..2}; do ./z_gusli_clnt_unitest; done;
+	./z_gusli_clnt_unitest -n 8 -c 64 -l 1;
+	for i in {1..5}; do ./z_gusli_clnt_unitest -n 8 -c 64 -l 0; done;
+	for i in {1..2}; do ./z_gusli_clnt_unitest -l 0; done;
 	for i in {1..5}; do UNITEST_SPDK_both; done;
 	if ls core* 1> /dev/null 2>&1; then
 		echo_red "Core files found, Test failed!!";

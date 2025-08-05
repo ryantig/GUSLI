@@ -335,15 +335,22 @@ static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, co
 
 static gusli::io_buffer_t __alloc_io_buffer(const uint32_t block_size, uint32_t n_blocks) {
 	gusli::io_buffer_t map;
-	map.byte_len = block_size * n_blocks;
+	map.byte_len = (uint64_t)block_size * (uint64_t)n_blocks;
 	my_assert(posix_memalign(&map.ptr, block_size, map.byte_len) == 0);
+	my_assert(map.is_valid_for(block_size));
 	return map;
 }
 static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_bufs) {
+	static constexpr const size_t test_phrase_len = 32;
+	char test_phrase[test_phrase_len + 1] __attribute__((aligned(sizeof(long))));
+	strcpy(test_phrase, "|Unit-test 32[b] dummy pattern |");
 	for (const gusli::io_buffer_t& b : io_bufs) {
 		char* p = (char*)b.ptr;
 		p[b.byte_len/2] = p[b.byte_len-1] = p[0] = 'a';						// Write to  start/middle/end of buffer
 		my_assert('a' == (p[b.byte_len/2] ^ p[b.byte_len-1] ^ p[0]));		// Read from start/middle/end of buffer
+		// Time consuming for large buffers, write to each and every page to verify it is properly mapped
+		for (size_t i = 0; i < b.byte_len; i += 4096) // += test_phrase_len to write to each and every byte
+			memcpy(&p[i], test_phrase, test_phrase_len);
 	}
 }
 
@@ -599,19 +606,47 @@ void unitest_auto_open_close(const gusli::global_clnt_context* lib) {
 	__verify_mapped_properly(mem1);
 }
 
+void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
+	const size_t n_bytes = 0x100000000UL, block_size = 4096;	// 4[GB]
+	log_line("/dev/zero mmap %lu[GB]", (n_bytes >> 30));
+	gusli::backend_bdev_id bdev;
+	bdev.set_from(UUID.DEV_ZERO);
+	std::vector<gusli::io_buffer_t> io_bufs;
+	uint64_t time_start = get_cur_timestamp_unix(), time_end, n_micro_sec;
+	io_bufs.emplace_back(__alloc_io_buffer(block_size, n_bytes / block_size));
+	const gusli::io_buffer_t &map = io_bufs[0];
+	//__verify_mapped_properly(io_bufs); time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); log_unitest("Verify write: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	my_assert(lib->open__bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
+	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); time_start = time_end;
+	log_unitest("register-mem took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	gusli::io_request io;
+	io.params.init_1_rng(gusli::G_READ, lib->bdev_get_descriptor(bdev), 0, n_bytes, map.ptr);
+	io.params.set_blocking();
+	io.submit_io();
+	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); time_start = time_end;
+	log_unitest("Read    - op took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	my_assert(lib->close_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
+	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start);
+	log_unitest("UnRegist-mem took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	//__verify_mapped_properly(io_bufs);
+}
+
 /*****************************************************************************/
 #include <getopt.h>
 int main(int argc, char *argv[]) {
 	int opt, num_ios_preassure = (1 << 23), n_iter_race_tests = 10000;
-	while ((opt = getopt(argc, argv, "n:c:h")) != -1) {
+	int do_large_io_test = true;
+	while ((opt = getopt(argc, argv, "n:c:l:h")) != -1) {
 		switch (opt) {
 			case 'n': num_ios_preassure = std::stoi(  optarg); break;
 			case 'c': n_iter_race_tests = std::stoi(  optarg); break;
+			case 'l': do_large_io_test =  std::stoi(  optarg); break;
 			case 'h':
 			default:
-				log_unitest("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-h]\n", argv[0]);
+				log_unitest("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-l do_large_io_test] [-h]\n", argv[0]);
 				log_unitest("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
 				log_unitest("  -c n_iter_race_tests, (default: %d)\n", n_iter_race_tests);
+				log_unitest("  -l 1/0, (default: %d)\n", do_large_io_test);
 				log_unitest("  -h                    Show this help message\n");
 				return (opt == 'h') ? 0 : 1;
 		}
@@ -623,6 +658,7 @@ int main(int argc, char *argv[]) {
 	}
 	gusli::global_clnt_context* lib = lib_initialize_unitests();
 	unitest_auto_open_close(lib);
+	if (do_large_io_test) unitest_huge_mem_map_and_io(lib);
 	base_lib_unitests(*lib, n_iter_race_tests);
 	client_no_server_reply_test(*lib);
 	client_server_test(*lib, num_ios_preassure);

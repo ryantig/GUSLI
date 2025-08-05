@@ -172,6 +172,11 @@ class t_shared_mem {
 				pr_err("Error allocating mmap len=0x%lx, " PRINT_EXTERN_ERR_FMT "\n", n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 			}
 		}
+		// Here mmaped memory still does not have kernel pages. So if /dev/shm was too small SIGBUS signal will be rised when writing to the buffer.
+		if (is_producer) {							// Time consuming for large buffers, enable only for debugging
+			for (size_t i = 0; i <n_bytes; i += 4096)		// Write to each and every page to force kernel mapping and find out about SIGBUS now and not upon first usage
+				*((uint64_t*)((size_t)buf + i)) = ~0x0UL;
+		}
 	__out:
 		if (fd > 0)
 			close(fd);

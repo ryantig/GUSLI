@@ -33,7 +33,7 @@ function GUSLI() {
 		echo_title "Shared mem bufs";
 		for process in $ps_prg; do
 			echo "Process $(cat /proc/$process/comm)[ $process ]:";
-			sudo grep -e /dev/shm/gs -e heap /proc/$process/maps;
+			sudo grep -e /dev/shm/gs -e heap -e 'rw-p 00000000 00:00' /proc/$process/maps;
 		done
 		for process in $ps_prg; do
 			echo_title "Process $(cat /proc/$process/comm)[ $process ]: stack";
