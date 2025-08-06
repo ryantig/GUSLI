@@ -86,14 +86,12 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 	gusli::global_clnt_context::init_params p;
 	p.client_name = clnt_name;
 	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;
-	char conf[512];
+	gusli::client_config_file conf(1 /*Version*/);
 	{	// Generate config
-		int i = sprintf(conf,
-			"# version=1, Config file for gusli client lib\n"
-			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
+		using gsc = gusli::bdev_config_params;
 		for (int b = 0; b < n_devs; b++)
-			i += sprintf(&conf[i], "%s N W D %s sec=0x04\n", bdev_uuid[b], srvr_addr[b]);
-		p.config_file = &conf[0];
+			conf.bdev_add(gsc(bdev_uuid[b], gsc::bdev_type::REMOTE_SRVR, srvr_addr[b],  "sec=0x04", true, gsc::connect_how::SHARED_RW));
+		p.config_file = conf.get();
 	}
 	gusli::global_clnt_context gc(p);
 	log_unitest("Client metadata= %s\n", gc.get_metadata_json());

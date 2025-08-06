@@ -26,7 +26,7 @@
 #define SYMBOL_EXPORT_NO_DISCARD	[[nodiscard]] SYMBOL_EXPORT
 namespace gusli {
 
-/******************************** block device reflection ***********************/
+/***************************** block device configuration ********************/
 // Note: Library does not manage local block devices, it assumes they exist and library can connect to them. Like local disks
 struct backend_bdev_id {					// Unique ID of volume / block device / disk
 	char uuid[16];							// Deliberatly no dependency on uuid.lib
@@ -36,6 +36,7 @@ struct backend_bdev_id {					// Unique ID of volume / block device / disk
 	backend_bdev_id *set_invalid(void) { memset(uuid, 0, sizeof(uuid)); return this; }
 	void set_from(const char* str) { set_invalid(); const size_t nc = std::min(strlen(str) + 1, sizeof(uuid)); memcpy(uuid, str, nc); }
 	void set_from(const uint64_t uid) { set_invalid(); snprintf(uuid, sizeof(uuid), "%lu", uid); }
+	bool is_valid(void) const { return (uuid[0] != 0); }
 } __attribute__((aligned(sizeof(long))));
 
 struct bdev_info {							// After connection to bdev established, this info can be retrieved
@@ -48,6 +49,60 @@ struct bdev_info {							// After connection to bdev established, this info can 
 	void clear(void) { memset(this, 0, sizeof(*this)); bdev_descriptor = -1; }
 	bool is_valid(void) const { return (block_size > 0) && (bdev_descriptor > 0); }
 } __attribute__((aligned(sizeof(long))));
+
+struct bdev_config_params {
+	backend_bdev_id id;								// UUID of block device
+	enum bdev_type {
+		DUMMY_DEV_INVAL = 0x0,						// Invalid type, trap zero initialization
+		DUMMY_DEV_FAIL =  'x',						// Dummy device which always fails io.    For integration testing of error/failure corner cases
+		DUMMY_DEV_STUCK = 's',						// Dummy device which never completes io. For integration testing of error/failure corner cases
+		DEV_FS_FILE =     'F',						// A file representing the block device.  For working with file systems and testing
+		DEV_BLK_KERNEL =  'K',						// Backwards compatibility to /dev/... kernel implemented block devices including NVMe drives, /dev/zero, etc
+		REMOTE_SRVR =     'N',						// Remote block device (client communicates wih bdev via server)
+	} type;
+	enum connect_how { SHARED_RW = 'W', READ_ONLY = 'R', EXCLUSIVE_RW = 'X'} how;	// Access permissions for block device
+	bool is_direct_io;								// Attempt for direct io if possible (avoid page cache)
+	union connection_addr_t {						// Union for future options of path/address of server/block-device
+		char local_bdev_path[64];					// Kernel block device, like: /dev/nvme0n2
+		char local_file_path[64];					// Local file path,     like: /tmp/my_file.txt
+		char remot_sock_addr[64];					// Remote server addres: uds/udp/tcp socket. like: /tmp/gs_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/
+		char any[64];
+	} conn;
+	char security_cookie[16];						// 16[bytes] Utf-8 string, Used for handshake with server, to verify library is authorized to access this bdev
+	bdev_config_params() { memset(this, 0, sizeof(*this)); }
+	bdev_config_params(const char *_id, bdev_type t, const char* addr, const char cookie[16], bool direct, connect_how h = SHARED_RW) : type(t), how(h), is_direct_io(direct) {
+		id.set_from(_id);
+		strncpy(conn.any, addr, sizeof(conn) - 1);
+		memcpy(security_cookie, cookie, sizeof(security_cookie));
+	}
+	int init_parse(int version, const char* const argv[], int argc) noexcept;	// Parse from config file
+	bool is_bdev_local(void)  const { return (type == DEV_FS_FILE) || (type == DEV_BLK_KERNEL); }
+	bool is_bdev_remote(void) const { return (type == REMOTE_SRVR); }
+	bool has_storage(void)    const { return is_bdev_remote() || is_bdev_local(); }
+	bool is_dummy(void)       const { return (type == DUMMY_DEV_FAIL) || (type == DUMMY_DEV_STUCK); }
+	bool is_valid_acl(void)   const { return (how == SHARED_RW || how == READ_ONLY || how == EXCLUSIVE_RW); }
+	bool is_valid(void)       const { return id.is_valid() && (has_storage() || is_dummy()) && is_valid_acl() && (conn.any[0] != 0) && (security_cookie[0] != 0); }
+} __attribute__((aligned(sizeof(long))));
+
+class client_config_file {							// You can write config file manualy or auto generated using this class
+	std::string c;
+ public:
+	SYMBOL_EXPORT client_config_file(int version = 1) noexcept  {
+		c.reserve(512);								// # is remark.
+		char buf[128];
+		snprintf(buf, 128, "# version=%d, Config file for gusli client lib\n"			// First line must start with version
+				"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n",	// Remark for names of fields
+				version);
+		c += buf;
+	}
+	SYMBOL_EXPORT void bdev_add(const bdev_config_params &bdev) noexcept {
+		char buf[128];
+		snprintf(buf, 128, "%s %c %c %c %s %s\n",		// Space separated format
+			bdev.id.uuid, bdev.type, bdev.how, (bdev.is_direct_io ? 'D' : 'N'), bdev.conn.any, bdev.security_cookie);
+		c += buf;
+	}
+	SYMBOL_EXPORT const char* get(void) const { return c.c_str(); }
+};
 
 /******************************** io request context ***********************/
 enum io_type {									// Request type
@@ -185,7 +240,7 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
  public:
 	struct init_params {							// All params are optional
 		FILE* log = stdout;							// Redirect logs of the library to this file (must be already properly opened)
-		const char* config_file = NULL;				// Path to config file or content of config file starting with "# version=".
+		const char* config_file = NULL;				// Path to config file (like "./cfg.txt") or content of config file generated with client_config_file::get()
 		const char* client_name = NULL;				// For debug, client identifier
 		unsigned int max_num_simultaneous_requests = 256;
 	};

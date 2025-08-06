@@ -33,13 +33,14 @@ static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, 
 }
 
 struct bdev_uuid_cache {
-	static constexpr const char* LOCAL_FILE =   "050e8400050e8407";
-	static constexpr const char* AUTO_FAIL =    "168867d168867d7";	// Check last byte is 0
+	static constexpr const char* LOCAL_FILE =   "150e8400050e8407";
+	static constexpr const char* AUTO_FAIL =    "018867d168867d7";
+	static constexpr const char* AUTO_STUCK =   "02_stuck_67d7556";
 	static constexpr const char* DEV_ZERO =     "2b3f28dc2b3f28d7";
 	static constexpr const char* DEV_NVME =     "3a1e92b3a1e92b7";
-	static constexpr const char* REMOTE_BDEV[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
+	static constexpr const char* REMOTE[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
 	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2"};
-	static constexpr const char* SERVER_PATH[] = { "/dev/shm/gs472f4b04_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/ };
+	static constexpr const char* SRVR_ADDR[] = { "/dev/shm/gs472f4b04_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/ };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -222,7 +223,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
 		}
 
-		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+		my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_OK);
 		base_lib_mem_registration_bad_path(lib, bdev);
 	}
 	return 0;
@@ -356,9 +357,9 @@ static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_b
 
 void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	static constexpr const int si = 0;		// Server index
-	log_line("Remote server %s(%s): no reply test", UUID.SRVR_NAME[si], UUID.SERVER_PATH[si]);
-	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[si]);
-	my_assert(UUID.SERVER_PATH[si][0] != 'u');			// udp will just get stuck waiting for server, this test should run on uds or tcp
+	log_line("Remote server %s(%s): no reply test", UUID.SRVR_NAME[si], UUID.SRVR_ADDR[si]);
+	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[si]);
+	my_assert(UUID.SRVR_ADDR[si][0] != 'u');			// udp will just get stuck waiting for server, this test should run on uds or tcp
 	const auto con_rv = lib.bdev_connect(bdev);
 	if (con_rv == gusli::connect_rv::C_OK)
 		log_uni_failure("There is another server process running in parallel to unitest. Kill it and rerun!\n\n");
@@ -382,9 +383,9 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 		child[i].pid = fork();
 		my_assert(child[i].pid >= 0);
 		if (child[i].pid == 0) {	// Child process
-			const bool use_extenral_loop = (UUID.SERVER_PATH[i][0] == 't');
+			const bool use_extenral_loop = (UUID.SRVR_ADDR[i][0] == 't');
 			{
-				server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SERVER_PATH[i], use_extenral_loop);
+				server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], use_extenral_loop);
 				ds.run();
 			}
 			exit(0);
@@ -393,7 +394,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 	// Connect to all servers, important not to do this 1 by 1, to test multiple bdevs
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		{
 			int n_attempts = 0;
@@ -416,7 +417,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
 
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		const bool is_unaligned_block = ((info.block_size % UNITEST_SERVER_BLOCK_SIZE) != 0);
@@ -430,7 +431,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 	// Simple io test vs each server
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE_BDEV[s]);
+		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		if (1) _remote_server_bad_path_io_unitests(info, io_bufs[0]);
@@ -519,25 +520,24 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 
 gusli::global_clnt_context* lib_initialize_unitests(void) {
 	gusli::global_clnt_context::init_params p;
-	char clnt_name[32], conf[512];
+	char clnt_name[32];
+	gusli::client_config_file conf(1 /*Version*/);
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
 	p.client_name = clnt_name;
 	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;
 	{	// Generate config
-		int i = sprintf(conf,
-			"# version=1, Config file for gusli client lib\n"
-			"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n");
-		i += sprintf(&conf[i], "%s f X N ./store.bin sec=0x31\n", UUID.LOCAL_FILE);
-		i += sprintf(&conf[i], "%s X X N __NONE__    sec=0x51\n", UUID.AUTO_FAIL);
-		i += sprintf(&conf[i], "%s K X N /dev/zero   sec=0x71\n", UUID.DEV_ZERO);
-		i += sprintf(&conf[i], "%s S W D nvme0n1     sec=0x81\n", UUID.DEV_NVME);
-		i += sprintf(&conf[i], "%s N X D %s sec=0x91\n", UUID.REMOTE_BDEV[0], UUID.SERVER_PATH[0]);
-		i += sprintf(&conf[i], "%s N X D %s sec=0x92\n", UUID.REMOTE_BDEV[1], UUID.SERVER_PATH[1]);
-		i += sprintf(&conf[i], "%s N X D %s sec=0x93\n", UUID.REMOTE_BDEV[2], UUID.SERVER_PATH[2]);
+		using gsc = gusli::bdev_config_params;
+		conf.bdev_add(gsc(UUID.LOCAL_FILE,    gsc::bdev_type::DEV_FS_FILE,     "./store.bin",  "sec=0x11", 0, gsc::connect_how::EXCLUSIVE_RW));
+		conf.bdev_add(gsc(UUID.AUTO_STUCK,    gsc::bdev_type::DUMMY_DEV_STUCK, "__STUCK__",    "sec=0x12", 0, gsc::connect_how::READ_ONLY));
+		conf.bdev_add(gsc(UUID.AUTO_FAIL,     gsc::bdev_type::DUMMY_DEV_FAIL,  "___FAIL__",    "sec=0x21", 0, gsc::connect_how::EXCLUSIVE_RW));
+		conf.bdev_add(gsc(UUID.DEV_ZERO,      gsc::bdev_type::DEV_BLK_KERNEL,  "/dev/zero",    "sec=0x22", 0, gsc::connect_how::EXCLUSIVE_RW));
+		conf.bdev_add(gsc(UUID.DEV_NVME,      gsc::bdev_type::DEV_BLK_KERNEL,  "/dev/nvme0n1", "sec=0x23", 1, gsc::connect_how::SHARED_RW));
+		for (int i=0; i < 3; i++)
+			conf.bdev_add(gsc(UUID.REMOTE[i], gsc::bdev_type::REMOTE_SRVR,  UUID.SRVR_ADDR[i], "sec=0x35", 1, gsc::connect_how::EXCLUSIVE_RW));
 		#if 0
 			p.config_file = "./gusli.conf";		// Can use external file
 		#else
-			p.config_file = &conf[0];
+			p.config_file = conf.get();
 		#endif
 	}
 	log_line("Init/Destroy tests");
@@ -576,7 +576,6 @@ gusli::global_clnt_context* lib_initialize_unitests(void) {
 	} catch (const ge& e) { my_assert(e.code() == EEXIST); }
 	log_unitest("\tmetadata= %s\n", rv->get_metadata_json());
 	my_assert(rv->BREAKING_VERSION == 1);					// Much like in a real app. Unitests built for specific library version
-	memset(conf,      0xCC, sizeof(conf));
 	memset(clnt_name, 0xCC, sizeof(clnt_name));
 	return rv;
 }

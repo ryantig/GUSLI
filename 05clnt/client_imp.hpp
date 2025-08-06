@@ -25,31 +25,6 @@
 namespace gusli {
 
 /*****************************************************************************/
-enum bdev_type {							// Fast path to supported bdevs
-	DUMMY_DEV_INVAL = 0x0,					// Invalid type
-	DUMMY_DEV_FAIL =  'X',					// Dummy device which always fails io. For integration testing of bad-path
-	FS_FILE =	      'f',					// 1 File or a directory of files storing the data
-	KERNEL_BDEV =     'K',					// Backwards compatibility to /dev/... kernel implemented block devices including NVMe drives, /dev/zero, etc
-	LINUX_UBLK =      'U',					// Backwards compatibility to Linux user space block device
-	NVMESH_UM =       'N',					// Network block device (gusli client communicates wih bdev via server)
-	//OTHER =           '?',
-};
-
-struct bdev_config {
-	enum bdev_type type;
-	enum connect_how { SHARED_RW = 'W', READ_ONLY = 'R', EXCLUSIVE_RW = 'X'} how;
-	bool is_direct_io;
-	union connection_type {
-		char local_bdev_path[32];					//	Kernel block device /dev/....
-		char local_file_path[32];					//	Local file path like /tmp/my_file.txt
-		char remot_sock_addr[32];					//	Remote (server) uds/udp/tcp socket
-	} conn;
-	bdev_config() { memset(this, 0, sizeof(*this)); }
-	void init_dev_fail(void) { type = DUMMY_DEV_FAIL; how = EXCLUSIVE_RW; strcpy(conn.local_file_path, ""); }
-	void init_fs_file (const char *file_name) { type = FS_FILE; how = EXCLUSIVE_RW; strncpy(conn.local_file_path, file_name, sizeof(conn.local_file_path)-1); }
-	void init_kernel_bdev(const char *path  ) { type = KERNEL_BDEV; how = EXCLUSIVE_RW; strncpy(conn.local_bdev_path, path, sizeof(conn.local_bdev_path)-1); }
-};
-
 struct bdev_stats_clnt {
 	uint64_t n_doorbels_wakeup_srvr;
 	void clear(void) { memset(this, 0, sizeof(*this)); }
@@ -73,11 +48,10 @@ class bdev_backend_api {									// API to server 1 block device
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
 	void on_keep_alive_received(void) { time(&last_keepalive); }
  public:
-	char security_cookie[16];								// Used for handshake with server, to verify library is authorized to access this bdev
 	class datapath_t dp;
 	bdev_info info;											// block device information visible for user
-	bdev_backend_api() { io_listener_tid = 0; info.clear(); memset(security_cookie, 0, 16); }
-	int hand_shake(const backend_bdev_id& id, const char* _ip, const char *clnt_name);
+	bdev_backend_api() { io_listener_tid = 0; info.clear(); }
+	int hand_shake(const bdev_config_params &conf, const char *clnt_name);
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
 	int close(     const backend_bdev_id& id, const bool do_kill_server = false);
@@ -86,14 +60,13 @@ class bdev_backend_api {									// API to server 1 block device
 };
 
 struct server_bdev {					// Reflection of server (how to communicate with it)
-	backend_bdev_id id;					// Key to find server by it
-	struct bdev_config conf;			// Config of how to connect to this block device
+	bdev_config_params conf;			// Config of how to connect to this block device
 	bdev_backend_api b;					// Remote connection
 	t_lock_mutex_recursive control_path_lock;
 	server_bdev() { control_path_lock.init(); }
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }
-	bool is_alive(void) const { return ((conf.type != DUMMY_DEV_INVAL) && (get_fd() > 0)); }
+	bool is_alive(void) const { return ((conf.type != conf.DUMMY_DEV_INVAL) && (get_fd() > 0)); }
 	uint32_t get_num_uses(void) const;
 	bool is_still_used(void) const { return get_num_uses() != 0; }
 };
@@ -112,7 +85,7 @@ struct bdevs_hash { 					// Hash table of connected servers
 	}
 	server_bdev *find_by(const backend_bdev_id& id) const {
 		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
-			if (id == arr[i].id)
+			if (id == arr[i].conf.id)
 				return (server_bdev *)&arr[i];
 		}
 		return NULL;
@@ -121,7 +94,7 @@ struct bdevs_hash { 					// Hash table of connected servers
 		for (int i = 0; i < N_MAX_BDEVS; i++ )
 			if (arr[i].is_alive()) {
 				const auto* bdev = &arr[i];
-				pr_info1("Still open: bdev uuid=%.16s, type=%c, path=%s\n", bdev->id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
+				pr_info1("Still open: bdev uuid=%.16s, type=%c, path=%s\n", bdev->conf.id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
 				return true;
 			}
 		return false;
@@ -150,8 +123,8 @@ struct bdevs_hash { 					// Hash table of connected servers
 			}
 			if (should_skip_comment(p))
 				continue;
-			int argc = 0, n_args_read = 0;
-			char *argv[8], c;						// Split line into arguments, separated by invisible characters (' ', '\t', ...)
+			int argc = 0;
+			char *argv[8];							// Split line into arguments, separated by invisible characters (' ', '\t', ...)
 			for (; argc < 8; *p++ = 0) {
 				while (char_is_space(*p)) p++;		// Skip empty characters between arguments
 				if (*p == 0) break;
@@ -159,18 +132,9 @@ struct bdevs_hash { 					// Hash table of connected servers
 				while (char_is_visible(*p)) p++;	// Skip the argument itself
 				if (*p == 0) break;
 			}
-			server_bdev *b = &arr[n_devices];
-			if (version == 1) {
-				n_args_read += sscanf(argv[0], "%s", b->id.set_invalid()->uuid);
-				n_args_read += sscanf(argv[1], "%c", &c); b->conf.type = (enum bdev_type)c;
-				n_args_read += sscanf(argv[2], "%c", &c); b->conf.how = (bdev_config::connect_how)c;
-				n_args_read += sscanf(argv[3], "%c", &c); b->conf.is_direct_io = (bool)((c == 'D')||(c == 'd'));
-				n_args_read += sscanf(argv[4], "%s", (char*)&b->conf.conn);
-				n_args_read += sscanf(argv[5], "%s", (char*)&b->b.security_cookie);
-				// pr_verb1("+Dev: uuid=%s|%c|%c|%u|con=%s\n", b->id.uuid, b->conf.type,  b->conf.how,  b->conf.is_direct_io,  (char*)&b->conf.conn);
-				if (n_args_read != argc)
-					return -3;
-			}
+			const int bdev_parse_rv = arr[n_devices].conf.init_parse(version, argv, argc);
+			if (bdev_parse_rv != 0)
+				return bdev_parse_rv;
 			n_devices++;
 		}
 		return 0;

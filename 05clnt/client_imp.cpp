@@ -74,6 +74,23 @@ int global_clnt_context_imp::parse_conf(void) {
 	return parse_rv;
 }
 
+int bdev_config_params::init_parse(int version, const char* const argv[], int argc) noexcept {
+	BUG_ON(version != 1, "Unsupported version type. Corrupted config?");
+	int n_args_read = 0;
+	char c;
+	if (argc < 6) return -__LINE__;
+	n_args_read += sscanf(argv[0], "%16s", id.set_invalid()->uuid);
+	n_args_read += sscanf(argv[1], "%c", &c); type = (bdev_config_params::bdev_type)c;
+	n_args_read += sscanf(argv[2], "%c", &c); how = (bdev_config_params::connect_how)c;
+	n_args_read += sscanf(argv[3], "%c", &c); is_direct_io = (bool)((c == 'D')||(c == 'd'));
+	n_args_read += sscanf(argv[4], "%64s", conn.any);
+	n_args_read += sscanf(argv[5], "%15s", security_cookie);
+	// pr_verb1("+Dev: uuid=%s|%c|%c|%u|con=%s\n", id.uuid, type, how, is_direct_io, conn.any);
+	if (n_args_read != argc) return -__LINE__;
+	return (is_valid()) ? 0 : -__LINE__;
+}
+
+/************************************ API ********************************/
 int global_clnt_context_imp::init(const global_clnt_context::init_params& _par, const char* metadata_json_format) noexcept {
 	if (is_initialized()) {
 		pr_err1("already initialized: %u[devices], doing nothing\n", bdevs.n_devices);
@@ -124,13 +141,13 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 	bdev_info *info = &bdev->b.info;
 	info->clear();
 	info->num_max_inflight_io = 256;
-	if (bdev->conf.type == DUMMY_DEV_FAIL) {
+	if (bdev->conf.is_dummy()) {
 		info->bdev_descriptor = 2;
 		info->block_size = 4096;
-		strcpy(info->name, "FAIL_DEV");
+		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
 		return C_OK;
-	} else if (bdev->conf.type == FS_FILE) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_file_path, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			info->block_size = 1;
@@ -140,7 +157,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 			return C_OK;
 		} else
 			return C_WRONG_ARGUMENTS;
-	} else if (bdev->conf.type == KERNEL_BDEV) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_bdev_path, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			struct stat sb;
@@ -160,8 +177,8 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 		} else {
 			return C_NO_DEVICE;
 		}
-	} else if (bdev->conf.type == NVMESH_UM) {
-		bdev->b.hand_shake(id, bdev->conf.conn.remot_sock_addr, par.client_name);
+	} else if (bdev->conf.is_bdev_remote()) {
+		bdev->b.hand_shake(bdev->conf, par.client_name);
 		if (info->is_valid())
 			return C_OK;
 		return C_NO_RESPONSE;
@@ -176,7 +193,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
-	} else if ((bdev->conf.type == NVMESH_UM) || (bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
+	} else if (bdev->conf.has_storage()) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (size_t i = 0; i < bufs.size(); i++) {
 			const int map_rv = bdev->b.map_buf(id, bufs[i]);
@@ -195,7 +212,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
-	} else if ((bdev->conf.type == NVMESH_UM) || (bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
+	} else if (bdev->conf.has_storage()) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
 			const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
@@ -209,27 +226,27 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 
 uint32_t server_bdev::get_num_uses(void) const {
 	nvTODO("Count in air io's, not only registered mem bufs");
-	if ((conf.type == FS_FILE) || (conf.type == KERNEL_BDEV) || (conf.type == NVMESH_UM))
+	if (conf.has_storage())
 		return (uint32_t)b.dp.reg_bufs_set.size();
 	return 0;
 }
 
 static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
-	const backend_bdev_id& id = bdev->id;
+	const backend_bdev_id& id = bdev->conf.id;
 	enum connect_rv rv = C_OK;
 	if (!bdev->is_alive()) {
 		rv = C_NO_RESPONSE;
 	} else if (bdev->is_still_used()) {
 		pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->get_num_uses());
 		return C_REMAINS_OPEN;
-	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
-	} else if (bdev->conf.type == FS_FILE) {
+	} else if (bdev->conf.is_dummy()) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		close(bdev->get_fd());
 		const int remove_rv = remove(bdev->conf.conn.local_file_path);
 		rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
-	} else if (bdev->conf.type == KERNEL_BDEV) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
 		close(bdev->get_fd());
-	} else if (bdev->conf.type == NVMESH_UM) {
+	} else if (bdev->conf.is_bdev_remote()) {
 		bdev->b.close(id, do_suicide);
 	} else {
 		rv = C_NO_DEVICE;
@@ -345,13 +362,13 @@ void io_request::submit_io(void) noexcept {
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
 	server_bdev *bdev = NULL;
+	BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 	if (params.get_bdev_descriptor() > 0)
 		bdev = global_clnt_context_imp::get().bdevs.find_by(params.get_bdev_descriptor());
 	if (unlikely(!bdev)) {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
-	} else if ((bdev->conf.type == FS_FILE) || (bdev->conf.type == KERNEL_BDEV)) {
-		BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
+	} else if (bdev->conf.is_bdev_local()) {
 		#if defined(HAS_URING_LIB)
 			if (!params.has_callback() && params.may_use_uring())	// Uring does not support async callback mode
 				_exec = new uring_request_executor(*this);
@@ -368,9 +385,11 @@ void io_request::submit_io(void) noexcept {
 		else {
 			io_autofail_executor(*this, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
 		}
-	} else if (bdev->conf.type == DUMMY_DEV_FAIL) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) {
 		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
-	} else if (bdev->conf.type == NVMESH_UM) {
+	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_STUCK) {
+		// No executor, io is stuck
+	} else if (bdev->conf.is_bdev_remote()) {
 		const bool should_block = params.is_blocking_io();
 		if (unlikely(should_block)) {
 			_exec = new remote_aio_blocker(*this);
@@ -464,24 +483,23 @@ int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	return (ios_ok == __send_1_full_message(sock, msg, false, n_bytes, ca, LIB_NAME)) ? 0 : -1;
 }
 
-int bdev_backend_api::hand_shake(const backend_bdev_id& id, const char* addr, const char *clnt_name) {
-	const sock_t::type s_type = MGMT::get_com_type(addr);
+int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *clnt_name) {
+	srv_addr = conf.conn.remot_sock_addr;
+	const sock_t::type s_type = MGMT::get_com_type(srv_addr);
 	MGMT::msg_content msg;
 	int conn_rv;
-	srv_addr = addr;
-	(void)id;
 	const bool blocking_connect = true; // (s_type != sock_t::type::S_UDP);
-	pr_info1("Connecting to |%s|, blocking=%u\n", addr, blocking_connect);
+	pr_info1("Connecting to |%s|, blocking=%u\n", srv_addr, blocking_connect);
 	if (     s_type == sock_t::type::S_UDP) conn_rv = sock.clnt_connect_to_srvr_udp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_TCP) conn_rv = sock.clnt_connect_to_srvr_tcp(MGMT::COMM_PORT, &srv_addr[1], ca, blocking_connect);
 	else if (s_type == sock_t::type::S_UDS) conn_rv = sock.clnt_connect_to_srvr_uds(                  srv_addr   , ca, blocking_connect);
 	else {
-		pr_err1("unsupported server address |%s|\n", addr);
+		pr_err1("unsupported server address |%s|\n", srv_addr);
 		info.bdev_descriptor = -__LINE__;
 		return info.bdev_descriptor;
 	}
 	if (conn_rv < 0) {
-		pr_err1("Cannot connenct to |%s|, rv=%d. is server up?\n", addr, conn_rv);
+		pr_err1("Cannot connenct to |%s|, rv=%d. is server up?\n", srv_addr, conn_rv);
 		info.bdev_descriptor = -1;
 		goto _out;
 	}
@@ -491,7 +509,7 @@ int bdev_backend_api::hand_shake(const backend_bdev_id& id, const char* addr, co
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;
-		p->fill(id, clnt_name, security_cookie);
+		p->fill(conf.id, clnt_name, conf.security_cookie);
 		if (send_to(msg, size) >= 0)
 			check_incoming();
 		else
@@ -505,11 +523,11 @@ int bdev_backend_api::hand_shake(const backend_bdev_id& id, const char* addr, co
 		dp.block_size = info.block_size;
 		dp.num_total_bytes = info.num_total_blocks * info.block_size;
 		const uint64_t n_bytes = align_up(sizeof(io_csring), (uint64_t)dp.block_size);
-		pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
+		pr->build_scheduler(conf.id, n_bytes / (uint64_t)info.block_size);
 		ASSERT_IN_PRODUCTION(dp.shm_ring.init_producer(pr->name, n_bytes) == 0);
 		*(uint64_t*)dp.shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
 		const io_buffer_t buf = io_buffer_t::construct(dp.shm_ring.get_buf(), n_bytes);
-		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), addr);
+		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), srv_addr);
 		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) >= 0) {
 			check_incoming();
@@ -526,7 +544,7 @@ int bdev_backend_api::hand_shake(const backend_bdev_id& id, const char* addr, co
 	}
 _out:
 	if (info.bdev_descriptor <= 0)
-		this->close(id);				// Cleanup open with close
+		this->close(conf.id);				// Cleanup open with close
 	return info.bdev_descriptor;
 }
 
