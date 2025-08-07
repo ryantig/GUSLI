@@ -73,7 +73,7 @@ struct bdev_config_params {
 	bdev_config_params(const char *_id, bdev_type t, const char* addr, const char cookie[16], bool direct, connect_how h = SHARED_RW) : type(t), how(h), is_direct_io(direct) {
 		id.set_from(_id);
 		strncpy(conn.any, addr, sizeof(conn) - 1);
-		memcpy(security_cookie, cookie, sizeof(security_cookie));
+		strncpy(security_cookie, cookie, sizeof(security_cookie) - 1);
 	}
 	int init_parse(int version, const char* const argv[], int argc) noexcept;	// Parse from config file
 	bool is_bdev_local(void)  const { return (type == DEV_FS_FILE) || (type == DEV_BLK_KERNEL); }
