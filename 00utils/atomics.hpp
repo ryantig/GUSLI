@@ -119,10 +119,17 @@ class t_shared_mem {
 	void *buf;				// Shared memory itself
 	size_t n_bytes;			// Length of the buffer
 	bool is_external_buf;	// Was buffer given externally or internally mapped
+	void force_populate_all_pages(void) {					// Time consuming for large buffers
+		// If mmaped memory still does not have kernel pages and /dev/shm was too small SIGBUS signal will be rised when writing to the buffer. This is due to optimizitc linux allocator
+		for (size_t i = 0; i < n_bytes; i += 4096)		// Write to each and every page to force kernel mapping (page faults) and find out about SIGBUS now and not upon first usage
+			*((uint64_t*)((size_t)buf + i)) = ~0x0UL;
+	}
 	void debug_print(const char* ref) const {
 		static constexpr const bool verbose = false;	// Use for debugging
 		if (verbose && buf) printf("%p, %s%s, who=%s\n", buf, name, ref, (name != NULL ? "producer" : "consumer"));
 	}
+	static constexpr const int f_prot = PROT_READ | PROT_WRITE;
+	static constexpr const int f_flag = /*MAP_HUGETLB |*/ MAP_SHARED | MAP_POPULATE;	// Avoid page faults in future, populate the entire range now
 	void _destroy(void) {
 		debug_print("--");
 		if (buf)  {
@@ -132,7 +139,7 @@ class t_shared_mem {
 				// To avoid segmentation fault when user continues to use this pointer, leave it as mapped to deleted shm file
 			} else if (is_external_buf) {	// Was in the heap before we remapped it to shared memory, return back to the heap
 				// Note!!! This operation fragments the heap because kernel will assign different physical pages. So dont do that alot
-				void* map_rv = mmap(buf, n_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+				void* map_rv = mmap(buf, n_bytes, f_prot, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
 				if (map_rv == MAP_FAILED) {
 					pr_err("Error returning len=0x%lx, buf=%p to heam from shm. User app may seg fault " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
 				}
@@ -160,23 +167,20 @@ class t_shared_mem {
 			pr_err("ftruncate %lu[b] " PRINT_EXTERN_ERR_FMT "\n", n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 		}
 		if (external_buf) {
-			void* _map = mmap(external_buf, n_bytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
+			void* _map = mmap(external_buf, n_bytes, f_prot, f_flag | MAP_FIXED, fd, 0);
 			if (_map == MAP_FAILED) {
 				pr_err("Error allocating mmap fixed %p, len=0x%lx, " PRINT_EXTERN_ERR_FMT "\n", external_buf, n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 			}
 			is_external_buf = true;
 			buf = external_buf;
 		} else {
-			buf = mmap(0, n_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			buf = mmap(0, n_bytes, f_prot, f_flag, fd, 0);
 			if (buf == MAP_FAILED) {
 				pr_err("Error allocating mmap len=0x%lx, " PRINT_EXTERN_ERR_FMT "\n", n_bytes, PRINT_EXTERN_ERR_ARGS); rv = -__LINE__; goto __out;
 			}
 		}
-		// Here mmaped memory still does not have kernel pages. So if /dev/shm was too small SIGBUS signal will be rised when writing to the buffer.
-		if (is_producer) {							// Time consuming for large buffers, enable only for debugging
-			for (size_t i = 0; i <n_bytes; i += 4096)		// Write to each and every page to force kernel mapping and find out about SIGBUS now and not upon first usage
-				*((uint64_t*)((size_t)buf + i)) = ~0x0UL;
-		}
+		if ((f_flag & MAP_POPULATE) == 0)
+			force_populate_all_pages();
 	__out:
 		if (fd > 0)
 			close(fd);
