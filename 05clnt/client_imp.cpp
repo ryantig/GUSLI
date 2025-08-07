@@ -707,8 +707,9 @@ int bdev_backend_api::dp_wakeup_server(void) {
 
 void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	{	// Rename thread
-		char old_name[32], new_name[32];
-		snprintf(new_name, sizeof(new_name), "%sciol", thread_names_prefix);
+		char old_name[32], new_name[32];	// Linux allows thread names of at most 16[b]
+		const int srvr_prefix_len = (int)strncpy_no_trunc_warning(new_name, bdev->info.name, 12);
+		strncpy_no_trunc_warning(&new_name[srvr_prefix_len], "cIOl", 5);
 		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
 		pr_info1("\t\t\tListener started, renaming %s->%s for %s\n", old_name, new_name, bdev->info.name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
