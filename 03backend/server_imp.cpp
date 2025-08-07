@@ -353,4 +353,10 @@ srvr_backend_bdev_api::~srvr_backend_bdev_api() noexcept {
 	}
 }
 
+int srvr_backend_bdev_api::set_thread_name(char (&out_name)[32], const char *_name) const noexcept {
+	snprintf(out_name, 32, "%.7s%.9s", gusli::thread_names_prefix, _name);
+	const int rename_rv = pthread_setname_np(pthread_self(), out_name);
+	return rename_rv;
+}
+
 } // namespace gusli

@@ -41,7 +41,7 @@ struct backend_bdev_id {					// Unique ID of volume / block device / disk
 
 struct bdev_info {							// After connection to bdev established, this info can be retrieved
 	char name[32];							// Server self reported name, used for logging
-	int32_t  bdev_descriptor;				// Much like file descriptor, Used to access this bdev in datapath
+	int32_t  bdev_descriptor;				// Much like file descriptor, Used to access this bdev in datapath. 0 and negative are invalid
 	uint32_t block_size;					// bytes units. Minimal unit for IO (size and alignment). Typically 4[KB]..16[MB]
 	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrinked.
 	uint32_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side

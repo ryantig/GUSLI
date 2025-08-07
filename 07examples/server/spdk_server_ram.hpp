@@ -196,11 +196,9 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		par.has_external_polling_loop = true;
 		par.use_blocking_client_accept = false;	// Must do this if you want to run > 1 server on the same cpu core (spdk thread)
 		binfo.clear();
-		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::thread_names_prefix, _name);
 		back.bdev_name = _name;
 		back.my_srvr = this;
-		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
-		my_assert(rename_rv == 0);
+		my_assert(set_thread_name(binfo.name, _name) == 0); // For debug, set its thread to block device name
 		dslog(this, "construced, metadata=|%s|\n", create_and_get_metadata_json());
 	}
 	int run_once(void) { return last_run_once_rv = gusli::srvr_backend_bdev_api::run(); }

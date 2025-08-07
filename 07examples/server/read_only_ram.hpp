@@ -17,7 +17,6 @@
 #pragma once
 #include <unistd.h>		// close()
 #include <fcntl.h>		// open()
-#include <pthread.h>	// pthread_self()
 #include "gusli_server_api.hpp"
 #include "../common.hpp"
 
@@ -52,7 +51,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		dslog("close: fd=%d, rv=%d, who=%s\n", prev_fd, rv, who);
 		return 0;
 	}
-	void exec_io(class gusli::server_io_req& io) noexcept override {
+	void exec_io(gusli::server_io_req& io) noexcept override {
 		my_assert(io.params.has_callback());			// Do not support io without callback for now
 		io.start_execution();
 		/*if (io.params.op() == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct
@@ -84,9 +83,7 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		par.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
 		par.has_external_polling_loop = use_extenral_loop;
 		binfo.clear();
-		snprintf(binfo.name, sizeof(binfo.name), "%s%s", gusli::thread_names_prefix, _name);
-		const int rename_rv = pthread_setname_np(pthread_self(), binfo.name);	// For debug, set its thread to block device name
-		my_assert(rename_rv == 0);
+		my_assert(set_thread_name(binfo.name, _name) == 0); // For debug, set its thread to block device name
 		dslog("metadata=|%s|\n", create_and_get_metadata_json());
 	}
 	void run(void) {
