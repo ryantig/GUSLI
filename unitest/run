@@ -28,6 +28,7 @@ function UNITEST_compile_success() {
 EXP_DIR=./unitest/expected_results
 
 function UNITEST_SPDK_both() {
+	GUSLI huge_pages;
 	echo_green ".....Test ctrl+c";
 	mkdir -p ${EXP_DIR};
 	rm ${EXP_DIR}/out_*;
