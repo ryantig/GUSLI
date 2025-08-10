@@ -111,18 +111,21 @@ struct bdevs_hash { 					// Hash table of connected servers
 
 	int parse_conf(char *buf, char* buf_end) {
 		int line_no = 0;
-		int version = 0;
+		int version = 0;							// Uninitialized
 		for (char *p = buf, *line_end; (p < buf_end); p = line_end + 1, line_no++ ) {
 			line_end = strchr(p, '\n');
 			if (line_end)
 				*line_end = 0;						// Split lines
 			else
 				line_end = buf_end;					// Last line in a file
-			if (line_no == 0) {						// Parse the config version
-				sscanf(p, "# version=%d", &version);
-			}
 			if (should_skip_comment(p))
 				continue;
+			if (version == 0) {						// Parse the config version
+				while (char_is_space(*p)) p++;		// Skip empty prefix
+				const int n_args_read = sscanf(p, "version=%d", &version);
+				if (n_args_read != 1) return -__LINE__;	// Missing version
+				continue;
+			}
 			int argc = 0;
 			char *argv[8];							// Split line into arguments, separated by invisible characters (' ', '\t', ...)
 			for (; argc < 8; *p++ = 0) {

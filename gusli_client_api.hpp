@@ -90,7 +90,7 @@ class client_config_file {							// You can write config file manualy or auto ge
 	SYMBOL_EXPORT client_config_file(int version = 1) noexcept  {
 		c.reserve(512);								// # is remark.
 		char buf[128];
-		snprintf(buf, 128, "# version=%d, Config file for gusli client lib\n"			// First line must start with version
+		snprintf(buf, 128, "# Config file for gusli client lib\nversion=%d\n"			// First line must start with a remark, then a version
 				"# bdevs: UUID-16b, type, attach_op, direct, path, security_cookie\n",	// Remark for names of fields
 				version);
 		c += buf;
