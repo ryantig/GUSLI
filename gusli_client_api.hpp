@@ -40,14 +40,16 @@ struct backend_bdev_id {					// Unique ID of volume / block device / disk
 } __attribute__((aligned(sizeof(long))));
 
 struct bdev_info {							// After connection to bdev established, this info can be retrieved
-	char name[32];							// Server self reported name, used for logging
+	char name[32];							// Server self reported name, used for logging / debug only.
 	int32_t  bdev_descriptor;				// Much like file descriptor, Used to access this bdev in datapath. 0 and negative are invalid
-	uint32_t block_size;					// bytes units. Minimal unit for IO (size and alignment). Typically 4[KB]..16[MB]
+	uint32_t block_size;					// In [bytes]. Minimal unit for IO (size and alignment). Typically 4[KB]..16[MB], 1[B] for files
 	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrinked.
-	uint32_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side
-	uint32_t reserved;
+	uint16_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side. Values: [1..500]
+	uint16_t flags_is_auto_extendable : 1;	// Reads beyond max lba (num_total_blocks) return 0, not error. Writes block until bdev is extended and then succeed
+	uint16_t flags_reserved           : 15;
 	void clear(void) { memset(this, 0, sizeof(*this)); bdev_descriptor = -1; }
 	bool is_valid(void) const { return (block_size > 0) && (bdev_descriptor > 0); }
+	uint64_t get_bdev_size(void) const { return num_total_blocks * block_size; }
 } __attribute__((aligned(sizeof(long))));
 
 struct bdev_config_params {
