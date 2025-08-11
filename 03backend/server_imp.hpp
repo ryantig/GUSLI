@@ -28,10 +28,14 @@ namespace gusli {
 #define pr_noteS(srvr, fmt, ...) pr_note1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
 #define pr_verbS(srvr, fmt, ...) pr_verb1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
 
-struct bdev_stats_srvr {
+class bdev_stats_srvr {
 	uint64_t n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp;
 	uint64_t n_io_range_single, n_io_range_multi;
 	void clear(void) { memset(this, 0, sizeof(*this)); }
+	int print_stats(char* buf, int buf_len) {
+		return scnprintf(buf, buf_len, "d={%lu/sub=%lu/cmp=%lu}, io={r1=%lu,rm=%lu}", n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp, n_io_range_single, n_io_range_multi);
+	}
+ public:
 	bdev_stats_srvr() { clear(); }
 	void inc(const MGMT::msg_content::t_payload::t_dp_cmd& p) {
 		n_doorbels_wakeup_clnt++;
@@ -44,8 +48,10 @@ struct bdev_stats_srvr {
 		else
 			n_io_range_single++;
 	}
-	int print_stats(char* buf, int buf_len) {
-		return scnprintf(buf, buf_len, "d={%lu/sub=%lu/cmp=%lu}, io={r1=%lu,rm=%lu}", n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp, n_io_range_single, n_io_range_multi);
+	~bdev_stats_srvr() {
+		char str[256];
+		print_stats(str, sizeof(str));
+		pr_info1("stats{%s}\n", str);
 	}
 };
 

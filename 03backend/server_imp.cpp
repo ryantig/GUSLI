@@ -74,10 +74,7 @@ void srvr_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struc
 
 void srvr_imp::__clnt_close(const char* reason) {
 	b.close1(reason);
-	char str[256];
-	stats.print_stats(str, sizeof(str));
-	pr_infoS(this, "stats{%s}\n", str);
-	stats.clear();
+	stats = bdev_stats_srvr();
 	dp.destroy();
 }
 

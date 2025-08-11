@@ -25,12 +25,18 @@
 namespace gusli {
 
 /*****************************************************************************/
-struct bdev_stats_clnt {
-	uint64_t n_doorbels_wakeup_srvr;
+class bdev_stats_clnt {
 	void clear(void) { memset(this, 0, sizeof(*this)); }
-	bdev_stats_clnt() { clear(); }
 	int print_stats(char* buf, int buf_len) {
 		return scnprintf(buf, buf_len, "d={%lu}", n_doorbels_wakeup_srvr);
+	}
+ public:
+	uint64_t n_doorbels_wakeup_srvr;
+	bdev_stats_clnt() { clear(); }
+	~bdev_stats_clnt() {
+		char str[256];
+		print_stats(str, sizeof(str));
+		pr_info1("stats{%s}\n", str);
 	}
 };
 

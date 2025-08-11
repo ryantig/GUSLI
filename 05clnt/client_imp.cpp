@@ -157,8 +157,10 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 			info->num_total_blocks = (1 << 30);	// 1[GB] file
 			bdev->b.dp.create_client_local(shm_io_bufs);
 			return C_OK;
-		} else
-			return C_WRONG_ARGUMENTS;
+		} else {
+			pr_err1(PRINT_BDEV_ID_FMT " Cannot open! " PRINT_EXTERN_ERR_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev), PRINT_EXTERN_ERR_ARGS);
+			return C_NO_RESPONSE;
+		}
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_bdev_path, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
@@ -180,6 +182,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 			bdev->b.dp.create_client_local(shm_io_bufs);
 			return C_OK;
 		} else {
+			pr_err1(PRINT_BDEV_ID_FMT " Cannot open! " PRINT_EXTERN_ERR_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev), PRINT_EXTERN_ERR_ARGS);
 			return C_NO_DEVICE;
 		}
 	} else if (bdev->conf.is_bdev_remote()) {
@@ -523,7 +526,7 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 	}
 	is_control_path_ok = false;
 	io_listener_tid = 0;
-	stats.clear();
+	stats = bdev_stats_clnt();
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;
@@ -636,9 +639,7 @@ int bdev_backend_api::close(const backend_bdev_id& id, const bool do_kill_server
 		ASSERT_IN_PRODUCTION(err == 0);
 		io_listener_tid = 0;
 	}
-	char str[256];
-	stats.print_stats(str, sizeof(str));
-	pr_info1("stats{%s}\n", str);
+	stats.~bdev_stats_clnt();
 	dp.destroy();
 	sock.nice_close();
 	info.clear();

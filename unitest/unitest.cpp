@@ -99,7 +99,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	unitest_io my_io;
 	static constexpr const char *data = "Hello world";
 	static constexpr const uint64_t data_len = __builtin_strlen(data);
-	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
+	gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
 	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
@@ -369,7 +369,7 @@ static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_b
 void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	static constexpr const int si = 0;		// Server index
 	log_line("Remote server %s(%s): no reply test", UUID.SRVR_NAME[si], UUID.SRVR_ADDR[si]);
-	struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[si]);
+	gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[si]);
 	my_assert(UUID.SRVR_ADDR[si][0] != 'u');			// udp will just get stuck waiting for server, this test should run on uds or tcp
 	const auto con_rv = lib.bdev_connect(bdev);
 	if (con_rv == gusli::connect_rv::C_OK)
@@ -405,7 +405,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 	// Connect to all servers, important not to do this 1 by 1, to test multiple bdevs
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		{
 			int n_attempts = 0;
@@ -428,7 +428,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 	io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
 
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		const bool is_unaligned_block = ((info.block_size % UNITEST_SERVER_BLOCK_SIZE) != 0);
@@ -442,7 +442,7 @@ void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) 
 
 	// Simple io test vs each server
 	for (int s = 0; s < n_servers; s++) {
-		struct gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
 		gusli::bdev_info info;
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		if (1) _remote_server_bad_path_io_unitests(info, io_bufs[0]);
