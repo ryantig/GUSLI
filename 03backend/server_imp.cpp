@@ -156,6 +156,7 @@ class backend_io_executor {
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
 			if (io.is_valid()) {
 				if (srv->dp.srvr_remap_io_bufs_to_my(io)) {
+					io.start_execution();
 					srv->b.exec_io(io);		// Launch io execution
 				} else {
 					pr_errS(srv, "exec[%p].IO buffers cannot be remapped. autofail io\n", this);
