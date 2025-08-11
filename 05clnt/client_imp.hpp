@@ -94,7 +94,7 @@ struct bdevs_hash { 					// Hash table of connected servers
 		for (int i = 0; i < N_MAX_BDEVS; i++ )
 			if (arr[i].is_alive()) {
 				const auto* bdev = &arr[i];
-				pr_info1("Still open: bdev uuid=%.16s, type=%c, path=%s\n", bdev->conf.id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
+				pr_info1("Still open: bdev " PRINT_BDEV_ID_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev));
 				return true;
 			}
 		return false;

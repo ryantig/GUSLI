@@ -135,15 +135,16 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
-	pr_info1("Open bdev uuid=%.16s, type=%c, path=%s, flag=0x%x\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path, o_flag);
+	pr_info1("Open " PRINT_BDEV_ID_FMT ", flag=0x%x\n", PRINT_BDEV_ID_ARGS(*bdev), o_flag);
 	if (bdev->is_alive())
 		return C_REMAINS_OPEN;
 	bdev_info *info = &bdev->b.info;
 	info->clear();
 	info->num_max_inflight_io = 256;
 	if (bdev->conf.is_dummy()) {
-		info->bdev_descriptor = 2;
+		info->bdev_descriptor = 100000001;
 		info->block_size = 4096;
+		info->num_max_inflight_io = 4;
 		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
 		ASSERT_IN_PRODUCTION(info->is_valid());
@@ -173,7 +174,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 			if (sb.st_size) {
 				info->num_total_blocks = sb.st_size;
 			} else {
-				pr_err1("bdev uuid=%.16s, type=%c, path=%s, Cannot determine size. Setting default!\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
+				pr_err1(PRINT_BDEV_ID_FMT " Cannot determine size. Setting default!\n", PRINT_BDEV_ID_ARGS(*bdev));
 				info->num_total_blocks = (1 << 30); // Default[GB]
 			}
 			bdev->b.dp.create_client_local(shm_io_bufs);
@@ -194,6 +195,8 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
+	if (bufs.empty())
+		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
@@ -201,7 +204,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (size_t i = 0; i < bufs.size(); i++) {
 			const int map_rv = bdev->b.map_buf(id, bufs[i]);
-			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
+				rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
 	} else {
@@ -213,14 +216,16 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
+	if (bufs.empty())
+		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive()) {
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.has_storage()) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
 		for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
-			const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
-			rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
+				const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
+				rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
 		}
 		return rv;
 	} else {
@@ -255,7 +260,7 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 	} else {
 		rv = C_NO_DEVICE;
 	}
-	pr_info1("Close bdev uuid=%.16s name=%s, type=%c, rv=%d\n", id.uuid, bdev->b.info.name, bdev->conf.type, rv);
+	pr_info1("Close " PRINT_BDEV_ID_FMT ", rv=%d\n", PRINT_BDEV_ID_ARGS(*bdev), rv);
 	bdev->get_fd() = -1;
 	return rv;
 }
@@ -270,10 +275,12 @@ enum connect_rv global_clnt_context_imp::bdev_disconnect(const backend_bdev_id& 
 
 void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
-	pr_err1("Error: User reported data corruption on uuid=%.16s, lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	if (bdev) {
+		pr_err1("Error: User reported data corruption on " PRINT_BDEV_ID_FMT ", lba=0x%lx[B]\n", PRINT_BDEV_ID_ARGS(*bdev), offset_lba_bytes);
 		t_lock_guard l(bdev->control_path_lock);
 		__bdev_disconnect(bdev, true);
+	} else {
+		pr_err1("Error: User reported data corruption on unknown " PRINT_BDEV_UUID_FMT ", lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	}
 }
 

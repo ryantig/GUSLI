@@ -81,6 +81,7 @@ int base_lib_mem_registration_bad_path(gusli::global_clnt_context& lib, const gu
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// zero length buffer
 	mem.clear();
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Empty vector of ranges
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Empty vector of ranges
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);				// Cannot disconnect with mapped buffers
 	mem.emplace_back(my_io[1].get_map());
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);				// 2 ranges io[0] and io[1]

@@ -19,11 +19,16 @@
 #include "shared_mem_bufs.hpp"
 #include "dp_io_air_io.hpp"
 #include "gusli_server_api.hpp"
-
 namespace gusli {
 
-/******************************** Datapath ***********************/
-// Ideas from https://github.com/deepseek-ai/3FS/blob/main/src/fuse/IoRing.h, https://elixir.bootlin.com/linux/v6.14.5/source/tools/include/io_uring/mini_liburing.h, https://github.com/anlongfei/libaio/blob/master/src/libaio.h, #include <aio.h>
+/*********************** Client Server Ring ***********************/
+/* Based on ideas from (no code stealing)
+	https://github.com/deepseek-ai/3FS/blob/main/src/fuse/IoRing.h
+	https://elixir.bootlin.com/linux/v6.14.5/source/tools/include/io_uring/mini_liburing.h
+	https://github.com/anlongfei/libaio/blob/master/src/libaio.h
+	https://github.com/Mulling/io-uring-ipc
+	#include <aio.h>
+*/
 struct io_csring_sqe {					// IO submition queue entry
 	using context_t = io_request::params_t;
 	context_t user_data;
@@ -55,9 +60,9 @@ struct io_csring_cqe {
 template <class T, unsigned int CAPACITY, const char dbg_name>
 class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up to CAPACITY-1 elements
 	T arr[CAPACITY];
-	t_lock_spinlock lock_;
-	uint32_t head;						// Next free entry to use
-	uint32_t tail;						// Last handled entry
+	t_lock_spinlock lock_;				// Producer/Consumer mutual exclusion
+	uint32_t head;						// Next free entry to use. Increased by producer when inserting new   element
+	uint32_t tail;						// Last handled entry.     Increased by consumer when removing oldest element
 	uint32_t n_elem_in_queue;			// == (head - tail - 1) + ((head > tail) ? 0 : CAPACITY)		// [0..CAPACITY-1]
 	uint32_t head_inc(void) { n_elem_in_queue++; return head = (head+1) % CAPACITY; }
 	uint32_t tail_inc(void) { n_elem_in_queue--; return tail = (tail+1) % CAPACITY; }
@@ -116,6 +121,7 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 	}
 	// datapath
 	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= (num_max_inflight_io+1); }	// +1 for debug, so according to max io's ring will never be full so producer will never have to block
+	static size_t n_needed_bytes(size_t block_size) { return align_up(sizeof(io_csring), block_size); }
 };
 
 /***************************** Generic datapath ******************************/
@@ -308,7 +314,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				uint32_t num_blocks;							// Blocks as defined by the server
 				uint32_t buf_idx   : 16;
 				uint32_t is_io_buf : 16;
-				void build_scheduler(backend_bdev_id volume, uint32_t _num_blocks) {
+				void build_scheduler(const backend_bdev_id &volume, uint32_t _num_blocks) {
 					snprintf(name, sizeof(name), "/gs%.16sring", volume.uuid);
 					client_pointer = 0xdeadbeef99UL;			// Irrelevant
 					num_blocks = _num_blocks;
@@ -415,7 +421,7 @@ inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content
 	while (true) {
 		n_bytes = sock.send_msg(msg.raw(), n_todo_bytes, addr);
 		if (n_bytes == 0) {	// Socket closed
-			pr_emerg("%s: Send Error %d, " PRINT_EXTERN_ERR_FMT "\n", who, n_bytes, PRINT_EXTERN_ERR_ARGS);
+			pr_err1("%s: Send Error %d, " PRINT_EXTERN_ERR_FMT "\n", who, n_bytes, PRINT_EXTERN_ERR_ARGS);
 			return ios_close;
 		} else if (n_bytes < 0) {
 			if (errno == EINTR) {
@@ -425,7 +431,7 @@ inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content
 				if (with_epoll) sock.epoll_reply_wait("\t->clnt:zzzz_send");
 				continue;	// Retry //return ios_block;
 			} else {
-				pr_emerg("%s: Send Error %d, " PRINT_EXTERN_ERR_FMT "\n", who, n_bytes, PRINT_EXTERN_ERR_ARGS);
+				pr_err1("%s: Send Error %d, " PRINT_EXTERN_ERR_FMT "\n", who, n_bytes, PRINT_EXTERN_ERR_ARGS);
 				return ios_error;
 			}
 		} else {
@@ -445,8 +451,10 @@ inline void __compilation_verification(void) {
 	BUILD_BUG_ON(sizeof(io_request::params_t) != 48);
 	BUILD_BUG_ON(sizeof(io_request) != 64);
 	BUILD_BUG_ON(offset_of(io_request, params) != 0);
+	BUILD_BUG_ON(sizeof(backend_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 	BUILD_BUG_ON(sizeof(server_io_req) != sizeof(io_request));		// Same class, just add functions for the executor of the io
 	BUILD_BUG_ON(sizeof(io_multi_map_t) != 8);
+	BUILD_BUG_ON(sizeof(bdev_info) != 56);
 }
 
 } // namespace gusli
