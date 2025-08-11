@@ -223,6 +223,13 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
 		}
 
+		if (0) {// Test LBA beyond max
+			my_io.io.params.change_map().offset_lba_bytes += (1UL << 62);
+			for_each_exec_mode(i) {
+				my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
+			}
+		}
+
 		my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_OK);
 		base_lib_mem_registration_bad_path(lib, bdev);
 	}

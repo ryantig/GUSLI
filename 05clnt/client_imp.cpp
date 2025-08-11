@@ -146,6 +146,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 		info->block_size = 4096;
 		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
+		ASSERT_IN_PRODUCTION(info->is_valid());
 		return C_OK;
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_file_path, o_flag, blk_mode);
@@ -168,10 +169,13 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 				return C_NO_DEVICE;
 			}
 			info->block_size = sb.st_blksize;
+			snprintf(info->name, sizeof(info->name), "Kernel_bdev(%u,0x%x)", (int)sb.st_dev, (int)sb.st_rdev);
 			if (sb.st_size) {
 				info->num_total_blocks = sb.st_size;
+			} else {
+				pr_err1("bdev uuid=%.16s, type=%c, path=%s, Cannot determine size. Setting default!\n", id.uuid, bdev->conf.type, bdev->conf.conn.local_bdev_path);
+				info->num_total_blocks = (1 << 30); // Default[GB]
 			}
-			snprintf(info->name, sizeof(info->name), "Kernel_bdev(%u,0x%x)", (int)sb.st_dev, (int)sb.st_rdev);
 			bdev->b.dp.create_client_local(shm_io_bufs);
 			return C_OK;
 		} else {
@@ -369,6 +373,13 @@ void io_request::submit_io(void) noexcept {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	} else if (bdev->conf.is_bdev_local()) {
+		/*if (!params.is_safe_io()) {
+			server_io_req *sio = (server_io_req*)this;
+			if (!bdev->b.dp.verify_io_param_valid(*sio)) {
+				io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
+				return;
+			}
+		}*/
 		#if defined(HAS_URING_LIB)
 			if (!params.has_callback() && params.may_use_uring())	// Uring does not support async callback mode
 				_exec = new uring_request_executor(*this);
@@ -652,7 +663,7 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::hello_ack)) {
 			this->info = msg.pay.s_hello_ack.info;
 			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(info.num_max_inflight_io));
-			ASSERT_IN_PRODUCTION(info.block_size >= 1);
+			ASSERT_IN_PRODUCTION(info.is_valid());
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
