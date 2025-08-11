@@ -303,22 +303,22 @@ class all_ios_t {
 	~all_ios_t() { }
 };
 
-static void __io_invalid_arg_comp_cb(gusli::io_request *io) {
-	my_assert(io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
-}
-
 static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, const gusli::io_buffer_t& map) {
 	#define dst_block(i) mappend_block(map.ptr, i)
 	gusli::io_request io;
 	io.params.set_dev(info.bdev_descriptor);
 	io.submit_io(); my_assert(io.get_error() != 0);			// No completion function
+	const auto __io_invalid_arg_comp_cb = [] (void* ctx) -> void {
+		gusli::io_request *_io = (gusli::io_request *)ctx;
+		my_assert(_io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
+	};
 	io.params.set_completion(&io, __io_invalid_arg_comp_cb);
 	io.submit_io(); 										// No mapped buffers
 	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)calloc(1, 4096);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-	mio->n_entries = 1;
+	mio->init_num_entries(1);
 	io.submit_io(); 										// < 2 ranges are not allowed
-	mio->n_entries = 2;
+	mio->init_num_entries(2);
 	io.submit_io(); 										// Wrong mapping of first range, it is zeroed
 	mio->entries[1] = mio->entries[0].init((void*)(1 << 20), (1 << 20), (1 << 20));
 	io.submit_io(); 										// Wrong mapping of first range, it is not inside shared memory area
@@ -326,11 +326,14 @@ static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, co
 	io.submit_io(); 										// Correct mapping, but scatter gather itself is not inside shared memory area
 	free(mio);
 	mio = (gusli::io_multi_map_t*)dst_block(0);
-	mio->n_entries = 2;
-	mio->entries[1] = mio->entries[0].init(dst_block(3), n_block(2), 1);
+	mio->init_num_entries(2);
+	mio->entries[1] = mio->entries[0].init(dst_block(3), n_block(2), n_block(1) / 3);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-	io.submit_io(); 										// Partial block offset
+	io.submit_io(); 										// Fractional block offset
 	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = (1UL << 62);
+	io.submit_io(); 										// LBA outside of block device range
+	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = 0;
+	io.params.init_1_rng(gusli::G_READ, info.bdev_descriptor, (1UL << 62), n_block(2), dst_block(0));
 	io.submit_io(); 										// LBA outside of block device range
 }
 
