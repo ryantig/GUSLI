@@ -19,32 +19,9 @@
 #include "gusli_client_api.hpp"
 #include "00utils/atomics.hpp"
 #include <unordered_set>
+#include "dp_logging.hpp"
 
 namespace gusli {
-/************************* Generic datapath logging **************************/
-// IO logging
-#define PRINT_IO_BUF_FMT   "BUF{0x%lx[b]=%p}"
-#define PRINT_IO_BUF_ARGS(c) (c).byte_len, (c).ptr
-#define PRINT_IO_REQ_FMT   "IO{%c:ofs=0x%lx, " PRINT_IO_BUF_FMT ", #rng=%d}"
-#define PRINT_IO_REQ_ARGS(c) (c).op(), (c).map().offset_lba_bytes, PRINT_IO_BUF_ARGS(c.map().data), (c).num_ranges()
-#define PRINT_IO_SQE_ELEM_FMT   "sqe[%03u]"
-#define PRINT_IO_CQE_ELEM_FMT   "cqe[%03u]"
-#define PRINT_CLNT_IO_PTR_FMT   ".clnt_io_ptr[%p]"
-
-// Memory registration logging
-#define PRINT_MMAP_PREFIX     "MMAP: "
-#define PRINT_REG_BUF_FMT    PRINT_MMAP_PREFIX "Register[%d%c] " PRINT_IO_BUF_FMT ", n_blocks=0x%x"
-#define PRINT_UNR_BUF_FMT    PRINT_MMAP_PREFIX "UnRegist[%d%c] " PRINT_IO_BUF_FMT ", n_blocks=0x%x"
-#define PRINT_REG_IDX_FMT    "[%di]"
-#define PRINT_REG_BUF_ARGS(pr, buf) pr->get_buf_idx(), pr->get_buf_type(), PRINT_IO_BUF_ARGS(buf), pr->num_blocks
-
-#if !defined(LIB_NAME) || !defined(LIB_COLOR)
-	#error: Including file must define the above to use generic client/server logging system
-#endif
-#define pr_info1(fmt, ...) ({ pr_info( LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
-#define pr_err1( fmt, ...) ({ pr_err(            LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_note1(fmt, ...) ({ pr_note(           LIB_NAME ": " fmt         ,    ##__VA_ARGS__); })
-#define pr_verb1(fmt, ...) ({ pr_verbs(LIB_COLOR LIB_NAME ": " fmt NV_COL_R,    ##__VA_ARGS__); pr_flush(); })
 
 /************************* Clnt-Srvr Global memBuf **************************/
 class base_shm_element {			// Represents a unique shared mem region (with appropriate file under /dev/shm). 1 per process, shared with all block devices
