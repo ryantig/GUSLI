@@ -157,15 +157,16 @@ class io_request {								// Data structure for issuing IO
  public:
 	class params_t {							// Parameters for IO, Use setter/getter functions to intialize them
 		io_map_t _map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
-		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the oppened block device to which the io is sent
+		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the openned block device to which the io is sent
 		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
-		enum io_type _op : 8;					// Operation to be performed
-		uint8_t _priority: 8;					// [0..100] priority. 100 is highest, 0 lowest. Deafult = 0
+		enum io_type _op         : 8;			// Operation to be performed
+		uint8_t _priority        : 7;			// [0..100] priority. 100 is highest, 0 lowest. Deafult = 0
 		uint8_t _is_mutable_data : 1;			// Default false, Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
-		uint8_t _assume_safe_io : 1;			// Default false, Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
-		uint8_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kuburnetes due to security issues of liburing
-		uint8_t _has_mm : 1;					// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
-		uint8_t _async_no_comp : 1;				// Internal flag, IO is async but caller will poll it instead of completion
+		uint16_t _assume_safe_io : 1;			// Default false, Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
+		uint16_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kuburnetes due to security issues of liburing
+		uint16_t _has_mm              : 1;		// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
+		uint16_t _async_no_comp       : 1;		// Internal flag, IO is async but caller will poll it instead of completion
+		uint16_t _unique_id           : 12;		// Internal use, During execution each IO gets a unique id (unique for in air io's) so it can be easily tracked and retrieved if stuck
 		void (*_comp_cb)(void* ctx);			// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *_comp_ctx;						// Callers Completion context passed to the function above
 		friend class server_io_req;				// Access to _comp fields
