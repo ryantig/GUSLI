@@ -137,10 +137,10 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 	struct io_ranges_counter {							// Class is 64[bits] so use in in place of the pointer, instead of allocate/deallocate
 		uint32_t n_remaining;
 		uint32_t n_failed;
-		io_ranges_counter(gusli::server_io_req& io) : n_remaining(io.params.num_ranges()), n_failed(0) {}
+		io_ranges_counter(gusli::backend_io_req& io) : n_remaining(io.params.num_ranges()), n_failed(0) {}
 	};
 	static void cmp_io_cb(struct spdk_bdev_io *bdev_io, bool success, void *io_ptr) {
-		gusli::server_io_req& io = *(gusli::server_io_req*)io_ptr;
+		gusli::backend_io_req& io = *(gusli::backend_io_req*)io_ptr;
 		io_ranges_counter* exec = (io_ranges_counter*)io.get_private_exec_u64_addr();
 		SPDK_NOTICELOG(PRINT_IO_REQ_FMT " Callback range ok=%u, remaining=%u\n", PRINT_IO_REQ_ARGS(io), success, exec->n_remaining);
 		if (!success)
@@ -158,9 +158,8 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		if (bdev_io) spdk_bdev_free_io(bdev_io);
 	}
 
-	void exec_io(gusli::server_io_req& io) noexcept override {
+	void exec_io(gusli::backend_io_req& io) noexcept override {
 		my_assert(io.params.has_callback());			// Do not support io without callback for now
-		io.start_execution();
 		*((io_ranges_counter*)io.get_private_exec_u64_addr()) = io_ranges_counter(io);	// Attach ranges execution to io
 		auto *desc = back.bdev_desc;
 		auto *chan = back.bdev_io_channel;

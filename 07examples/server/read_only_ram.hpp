@@ -51,9 +51,8 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		dslog("close: fd=%d, rv=%d, who=%s\n", prev_fd, rv, who);
 		return 0;
 	}
-	void exec_io(gusli::server_io_req& io) noexcept override {
+	void exec_io(gusli::backend_io_req& io) noexcept override {
 		my_assert(io.params.has_callback());			// Do not support io without callback for now
-		io.start_execution();
 		/*if (io.params.op() == gusli::io_type::G_WRITE) {	// Do not fail writes, just verify their content is correct
 			io.set_error(gusli::E_BACKEND_FAULT);
 		} else */ if (io.params.num_ranges() == 1) {

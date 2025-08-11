@@ -17,6 +17,7 @@
 #pragma once
 #include <time.h>
 #include "shared_mem_bufs.hpp"
+#include "dp_io_air_io.hpp"
 #include "gusli_server_api.hpp"
 
 namespace gusli {
@@ -32,7 +33,7 @@ struct io_csring_sqe {					// IO submition queue entry
 	void destroy(void) {}
 	void init_from(const context_t& p) {
 		user_data = p;
-		user_data.set_completion((void*)p.my_io_req(), NULL);	// Connect submission entry to clients IO pointer, callback function irrelevant
+		user_data.set_completion((void*)&p, NULL);	// Connect submission entry to clients IO pointer, callback function irrelevant
 	}
 	void extract_to(context_t* p) { *p = user_data; }
 } __attribute__((aligned(sizeof(long))));

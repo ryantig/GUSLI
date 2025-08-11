@@ -17,6 +17,7 @@
 #pragma once
 #include "gusli_server_api.hpp"
 #include "00utils/atomics.hpp"
+#include "dp_io_air_io.hpp"
 #include <aio.h>
 #include <signal.h>
 #include <semaphore.h>		// Waiting for async io completion

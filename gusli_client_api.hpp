@@ -169,7 +169,8 @@ class io_request {								// Data structure for issuing IO
 		uint16_t _unique_id           : 12;		// Internal use, During execution each IO gets a unique id (unique for in air io's) so it can be easily tracked and retrieved if stuck
 		void (*_comp_cb)(void* ctx);			// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *_comp_ctx;						// Callers Completion context passed to the function above
-		friend class server_io_req;				// Access to _comp fields
+		friend class backend_io_req;			// Access to _comp fields
+		friend class server_io_req;
 	 public:
 		// API to initialize io params
 		template<class C, typename F> void set_completion(C ctx, F cb) { _comp_ctx = (void*)ctx, _comp_cb = (void (*)(void*))cb; _async_no_comp = false; }
@@ -192,7 +193,6 @@ class io_request {								// Data structure for issuing IO
 		bool is_multi_range(void)         const { return _has_mm; }
 		uint64_t buf_size(void)           const { return (is_multi_range() ? ((const io_multi_map_t*)_map.data.ptr)->buf_size() : _map.data.byte_len); }
 		uint32_t num_ranges(void)         const { return (is_multi_range() ? ((const io_multi_map_t*)_map.data.ptr)->n_entries  : 1); }
-		const io_request *my_io_req(void) const { return (io_request*)this; }
 		const io_map_t &map(void)         const { return _map; }
 		int32_t get_bdev_descriptor(void) const { return _bd_id; }
 		bool is_safe_io(void)             const { return _assume_safe_io; }

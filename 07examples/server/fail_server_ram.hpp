@@ -25,8 +25,7 @@ class fail_server_ram : private gusli::srvr_backend_bdev_api {
 	bool should_stuck;						// Never return completion on io?
 	gusli::bdev_info open1(const char* who) noexcept override { return binfo; }
 	int             close1(const char* who) noexcept override { return 0; }
-	void exec_io(gusli::server_io_req& io ) noexcept override {
-		io.start_execution();
+	void exec_io(gusli::backend_io_req& io) noexcept override {
 		if (should_stuck) {
 			dslog("Stuck IO[%c].ptr=%p\n", io.params.op(), &io);
 		} else {
