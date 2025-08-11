@@ -91,7 +91,6 @@ class bitmap {
 		bmp[last_u64] = BITMAP_LAST_WORD_MASK(n_bits);
 	}
 	void clear_all(void) { memset(bmp, 0x0, ((n_bits + BITS_PER_LONG - 1) / BITS_PER_LONG) * sizeof(uint64_t)); 	}
-	int  get_bmp_length(void) const { return n_bits; }
 };
 #define for_each_set_bit(     b, bmp) for ((b) = bmp.find_first_bit(); (b) < bmp.size(); (b) =  bmp.find_next_bit((b) + 1))
 #define for_each_set_bit_from(b, bmp) for ((b) = bmp.find_next_bit(b); (b) < bmp.size(); (b) =  bmp.find_next_bit((b) + 1))
@@ -100,37 +99,11 @@ template <int N_bits>
 class small_ints_set : public bitmap {		// Stores a bit field, turned on bit for element in a set
 	uint64_t arr[(N_bits + bitmap::BITS_PER_LONG - 1) / bitmap::BITS_PER_LONG] = {0};
  public:
-	small_ints_set(void) : bitmap(arr[0], N_bits) {}
-	small_ints_set(int _n_bits) : bitmap(arr[0], _n_bits) { DEBUG_ASSERT(_n_bits <= N_bits); }
+	//small_ints_set(void) : bitmap(arr[0], N_bits) { clear_all(); }
+	small_ints_set(int _n_bits) : bitmap(arr[0], _n_bits) { ASSERT_IN_PRODUCTION(_n_bits <= N_bits); clear_all(); }
 	void insert(uint32_t x) { ASSERT_IN_PRODUCTION(x < size()); set_bit(x); }
 	void remove(uint32_t x) { clear_bit(x); }
 };
-class cpu_mask_set : public bitmap {
-	uint64_t arr[4] = {0, 0, 0, 0};		// Support up to 256 cpus
- public:
-	cpu_mask_set(int _n_bits = 0) : bitmap(arr[0], _n_bits) { BUG_ON(_n_bits > (int)(sizeof(arr) * 8), "CPU mask object is too small");}
-	const cpu_mask_set &operator=(const cpu_mask_set& n) noexcept {
-		nvTODO("Support working with more than 64 cores!\n");
-		memcpy(arr, n.arr, sizeof(arr));
-		this->n_bits = n.n_bits;
-		this->bmp = this->arr;
-		return *this;
-	}
-	uint16_t get_n_total_cores(void) const { return get_bmp_length(); } // Use this if you want to alloc for each core.
-	bool is_empty(void) const { return (arr[0]|arr[1]|arr[2]|arr[3]) == 0UL; }
-	static constexpr const unsigned TO_STRING_BUF_LEN = sizeof(arr)*2 + 32;		// Print nibbles in hex with prefix
-	int to_string(char buf[TO_STRING_BUF_LEN]) const {
-		int n = 0;
-		n += snprintf(&buf[n], TO_STRING_BUF_LEN - n, "CPUM=%u:0x", n_bits);
-		for (int i = ARRAY_SIZE(arr) - 1; i > 0; --i )
-			if (arr[i])
-				n += snprintf(&buf[n], TO_STRING_BUF_LEN - n, "%lx,", arr[i]);
-		n += snprintf(&buf[n], TO_STRING_BUF_LEN - n, "%lx", arr[0]);
-		return n;
-	}
-	static int get_max_supported_cores(void) { return sizeof(cpu_mask_set::arr) * 8; }
-};
-
 namespace pow2 {
 	static inline int is_power_of_2(uint32_t x) { return (x != 0) && ((x & (x - 1)) == 0); }
 	static inline uint32_t smallest_pow2_no_less_then(uint32_t x) {
