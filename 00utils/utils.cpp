@@ -195,7 +195,7 @@ int sock_t::srvr_accept_clnt(struct connect_addr& ca) const {
 
 void sock_t::nice_close(bool force) {
 	epoll_reply_stop();
-	if (_fd >= 0) {
+	if (is_alive()) {
 		if (force) shutdown(_fd, SHUT_RDWR);	// Stop all read/write on socket, existing data remains in the socket
 		close(_fd); _fd = -1;
 	}
