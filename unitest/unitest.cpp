@@ -103,6 +103,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
 	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
+	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
 	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	if (1) {
@@ -171,7 +173,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		static constexpr const int multi_io_read_length = __builtin_strlen(multi_io_read_result);
 		static constexpr const int n_ranges = 4;
 		static constexpr const size_t multi_io_size = sizeof(gusli::io_multi_map_t) + n_ranges * sizeof(gusli::io_map_t);
-		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)malloc(multi_io_size);	// multi-io
+		gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)&my_io.io_buf[1<<14];	// multi-io, sg at offset of 8K
 		char *p = my_io.io_buf;
 		mio->init_num_entries(n_ranges);
 		mio->entries[0].init(&p[0], 2, 7);	// "Hello world" -> "or"
@@ -189,8 +191,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_assert(strcmp(multi_io_read_result, p) == 0);
 		}
 		my_io.clean_buf();
-		free(mio);
 	}
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 
 	if (1) {
@@ -215,6 +217,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		gusli::bdev_info bdi;
 		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
 		my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
@@ -224,13 +227,15 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
 		}
 
-		if (0) {// Test LBA beyond max
+		if (1) {// Test IO beyond max LBA, should fail
 			my_io.io.params.change_map().offset_lba_bytes += (1UL << 62);
+			my_io.expect_success(false);
 			for_each_exec_mode(i) {
 				my_io.exec(gusli::G_WRITE,(io_exec_mode)i);
 			}
 		}
 
+		my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_OK);
 		base_lib_mem_registration_bad_path(lib, bdev);
 	}

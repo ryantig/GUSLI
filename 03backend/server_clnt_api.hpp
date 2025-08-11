@@ -130,7 +130,6 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 		return (map.is_valid_for(binfo.block_size) &&
 				(map.get_offset_end_lba() < binfo.get_bdev_size()) &&
 				shm_io_bufs->does_include(map.data)); }
-	bool verify_io_param_valid(const server_io_req &io) const;
 	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
  public:
 	t_shared_mem shm_ring;							// Mapped Submition/completion queues.
@@ -147,6 +146,7 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 			get()->init();
 		}
 	}
+	bool verify_io_param_valid(const server_io_req &io) const;
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer);
 	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer);
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
@@ -185,24 +185,26 @@ inline bool datapath_t<T>::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 
 template <class T>
 inline bool datapath_t<T>::verify_io_param_valid(const server_io_req &io) const {
-	if (unlikely(io.params.is_polling_mode()))				// Polling mode not supported yet
-		return false;
 	if (!io.params.is_multi_range())
 		return verify_map_valid(io.params.map());			// 1-range mapping is valid
 	const io_multi_map_t* mm = io.get_multi_map();
-	if (!mm->is_valid())								// Scatter gather is valid
+	if (!mm->is_valid())									// Scatter gather is valid
 		return false;
 	for (uint32_t i = 0; i < mm->n_entries; i++) {
-		if (!verify_map_valid(mm->entries[i]))			// Each entry is valid
+		if (!verify_map_valid(mm->entries[i]))				// Each entry is valid
 			return false;
 	}
-	return shm_io_bufs->does_include(io.params.map().data);		// Scatter-gather is accesible to server
+	return shm_io_bufs->does_include(io.params.map().data);	// Scatter-gather is accesible to server
 }
 
 template <class T>
 inline int datapath_t<T>::clnt_send_io(io_request &io, bool *need_wakeup_srvr) {
 	server_io_req *sio = (server_io_req*)&io;
 	int rv = 0;
+	if (unlikely(io.params.is_polling_mode())) {				// Polling mode not supported yet, todo, add support
+		sio->set_error(io_error_codes::E_INVAL_PARAMS);
+		return -1;
+	}
 	if (!io.params.is_safe_io() && !verify_io_param_valid(*sio)) {
 		sio->set_error(io_error_codes::E_INVAL_PARAMS);
 		return -1;

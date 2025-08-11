@@ -389,13 +389,13 @@ void io_request::submit_io(void) noexcept {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 	} else if (bdev->conf.is_bdev_local()) {
-		/*if (!params.is_safe_io()) {
+		if (!params.is_safe_io()) {
 			server_io_req *sio = (server_io_req*)this;
-			if (!bdev->b.dp.verify_io_param_valid(*sio)) {
+			if (!bdev->b.dp->verify_io_param_valid(*sio)) {
 				io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 				return;
 			}
-		}*/
+		}
 		#if defined(HAS_URING_LIB)
 			if (!params.has_callback() && params.may_use_uring())	// Uring does not support async callback mode
 				_exec = new uring_request_executor(*this);

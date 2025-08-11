@@ -129,7 +129,7 @@ struct io_buffer_t {							// For fast datapath, pre-registered io_buffers, Rese
 	uint64_t byte_len;							// Length of the buffer
 	bool is_valid_for(uint64_t block_size) const {
 		const uint64_t align = (byte_len | (uint64_t)ptr);
-		return !((align % block_size) || (align % 4096) || (ptr == nullptr) || (byte_len == 0));	// Kernel pages/bdev-blocks can be larger. 512[B] not supported
+		return !((align % block_size) || (ptr == nullptr) || (byte_len == 0));
 	}
 	const  io_buffer_t&     init(void* p, uint64_t len) { ptr = p; byte_len = len; return *this; }
 	static io_buffer_t construct(void* p, uint64_t len) { io_buffer_t rv; return rv.init(p, len); }
