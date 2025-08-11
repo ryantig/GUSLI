@@ -41,14 +41,15 @@ class bdev_stats_clnt {
 };
 
 class bdev_backend_api {									// API to server 1 block device
+	// Communication with server
 	sock_t sock;											// Socket through which clnt talks to server
 	connect_addr ca;										// Connected server address
 	time_t last_keepalive;
 	const char* srv_addr;
-
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
 	sem_t wait_control_path;
+	void clean_srvr(void) { sock.nice_close(); srv_addr = nullptr; is_control_path_ok = false; io_listener_tid = 0; info.clear(); }
 	bool has_remote(void) const { return srv_addr != NULL; }
 	bool check_incoming();
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
@@ -56,12 +57,12 @@ class bdev_backend_api {									// API to server 1 block device
  public:
 	datapath_t<bdev_stats_clnt> *dp = nullptr;
 	bdev_info info;											// block device information visible for user
-	bdev_backend_api() { io_listener_tid = 0; info.clear(); }
-	int hand_shake(const bdev_config_params &conf, const char *clnt_name);
-	int create_dp( const backend_bdev_id &id, MGMT::msg_content &msg);
+	bdev_backend_api() { clean_srvr(); }
+	int hand_shake(const bdev_config_params &conf, const char *clnt_name);	// Constructor: Connect to remote server
+	int create_dp( const backend_bdev_id &id, MGMT::msg_content &msg);		// Constructor: Connect to local bdev (serverless)
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
-	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);
+	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
 	int dp_wakeup_server(void);
 	static void* io_completions_listener(bdev_backend_api *_self);
 };

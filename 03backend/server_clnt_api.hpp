@@ -147,7 +147,6 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 			get()->init();
 		}
 	}
-	~datapath_t() {}
 	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer);
 	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer);
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;

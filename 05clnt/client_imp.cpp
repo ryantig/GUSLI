@@ -147,7 +147,6 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 		info->num_max_inflight_io = 4;
 		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
-		ASSERT_IN_PRODUCTION(info->is_valid());
 		MGMT::msg_content msg;
 		const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
 		return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
@@ -556,8 +555,6 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 		info.bdev_descriptor = -1;
 		goto _out;
 	}
-	is_control_path_ok = false;
-	io_listener_tid = 0;
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;
@@ -650,11 +647,9 @@ int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_s
 		pr_info1("going to join listener_thread tid=0x%lx\n", (long)io_listener_tid);
 		const int err = pthread_join(io_listener_tid, NULL);
 		ASSERT_IN_PRODUCTION(err == 0);
-		io_listener_tid = 0;
 	}
 	delete dp;
-	sock.nice_close();
-	info.clear();
+	clean_srvr();
 	return 0;
 }
 
