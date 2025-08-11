@@ -108,6 +108,7 @@ class shm_io_bufs_unuque_set_for_bdev {		// Each block device cannot allow multi
 	bool has(uint32_t buf_idx) const { return u.find(  buf_idx) != u.end(); }
 	bool add(uint32_t buf_idx)       { return u.insert(buf_idx).second; }
 	bool del(uint32_t buf_idx)       { return u.erase( buf_idx) > 0; }
+	~shm_io_bufs_unuque_set_for_bdev() { ASSERT_IN_PRODUCTION(size() == 0); }
 };
 
 } // namespace gusli
