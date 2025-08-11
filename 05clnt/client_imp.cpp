@@ -148,15 +148,18 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
 		ASSERT_IN_PRODUCTION(info->is_valid());
-		return C_OK;
+		MGMT::msg_content msg;
+		const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
+		return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		info->bdev_descriptor = open(bdev->conf.conn.local_file_path, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			info->block_size = 1;
 			strcpy(info->name, "LocalFile");
 			info->num_total_blocks = (1 << 30);	// 1[GB] file
-			bdev->b.dp.create_client_local(shm_io_bufs);
-			return C_OK;
+			MGMT::msg_content msg;
+			const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
+			return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
 		} else {
 			pr_err1(PRINT_BDEV_ID_FMT " Cannot open! " PRINT_EXTERN_ERR_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev), PRINT_EXTERN_ERR_ARGS);
 			return C_NO_RESPONSE;
@@ -179,8 +182,9 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 				pr_err1(PRINT_BDEV_ID_FMT " Cannot determine size. Setting default!\n", PRINT_BDEV_ID_ARGS(*bdev));
 				info->num_total_blocks = (1 << 30); // Default[GB]
 			}
-			bdev->b.dp.create_client_local(shm_io_bufs);
-			return C_OK;
+			MGMT::msg_content msg;
+			const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
+			return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
 		} else {
 			pr_err1(PRINT_BDEV_ID_FMT " Cannot open! " PRINT_EXTERN_ERR_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev), PRINT_EXTERN_ERR_ARGS);
 			return C_NO_DEVICE;
@@ -205,10 +209,10 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 		return C_NO_RESPONSE;
 	} else if (bdev->conf.has_storage()) {
 		enum connect_rv rv = C_WRONG_ARGUMENTS;
-		for (size_t i = 0; i < bufs.size(); i++) {
-			const int map_rv = bdev->b.map_buf(id, bufs[i]);
+	for (size_t i = 0; i < bufs.size(); i++) {
+		const int map_rv = bdev->b.map_buf(id, bufs[i]);
 				rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
-		}
+	}
 		return rv;
 	} else {
 		return C_NO_DEVICE;
@@ -239,7 +243,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 uint32_t server_bdev::get_num_uses(void) const {
 	nvTODO("Count in air io's, not only registered mem bufs");
 	if (conf.has_storage())
-		return (uint32_t)b.dp.reg_bufs_set.size();
+		return (uint32_t)b.dp->reg_bufs_set.size();
 	return 0;
 }
 
@@ -252,14 +256,17 @@ static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicid
 		pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->get_num_uses());
 		return C_REMAINS_OPEN;
 	} else if (bdev->conf.is_dummy()) {
+		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		close(bdev->get_fd());
 		const int remove_rv = remove(bdev->conf.conn.local_file_path);
 		rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
+		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
 		close(bdev->get_fd());
+		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.is_bdev_remote()) {
-		bdev->b.close(id, do_suicide);
+		bdev->b.disconnect(id, do_suicide);
 	} else {
 		rv = C_NO_DEVICE;
 	}
@@ -418,7 +425,7 @@ void io_request::submit_io(void) noexcept {
 				_exec->run();
 		}
 		bool need_wakeup_srvr;
-		const int rv = bdev->b.dp.clnt_send_io(*this, &need_wakeup_srvr);
+		const int rv = bdev->b.dp->clnt_send_io(*this, &need_wakeup_srvr);
 		if (rv >= 0) {
 			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), rv, this, need_wakeup_srvr);
 			if (need_wakeup_srvr) {
@@ -504,6 +511,31 @@ int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	return (ios_ok == __send_1_full_message(sock, msg, false, n_bytes, ca, LIB_NAME)) ? 0 : -1;
 }
 
+int bdev_backend_api::create_dp(const backend_bdev_id &id, MGMT::msg_content &msg) {
+	if (!info.is_valid())
+		return -__LINE__;
+	const size_t size = msg.build_reg_buf();
+	auto *pr = &msg.pay.c_register_buf;
+	// Initialize datapath of producer
+	const uint64_t n_bytes = io_csring::n_needed_bytes(info.block_size);
+	pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
+	if (has_remote()) {
+		dp = new datapath_t<bdev_stats_clnt>(pr->name, global_clnt_context_imp::get().shm_io_bufs, info);
+		*(uint64_t*)dp->shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
+		const io_buffer_t buf = io_buffer_t::construct(dp->shm_ring.get_buf(), dp->shm_ring.get_n_bytes());
+		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), srv_addr);
+		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+		if (send_to(msg, size) < 0) {
+			delete dp; dp = nullptr;
+			return -__LINE__;
+		}
+		check_incoming();
+	} else {	// Same datapath but without server side
+		dp = new datapath_t<bdev_stats_clnt>(nullptr, global_clnt_context_imp::get().shm_io_bufs, info);
+	}
+	return 0;
+}
+
 int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *clnt_name) {
 	srv_addr = conf.conn.remot_sock_addr;
 	const sock_t::type s_type = MGMT::get_com_type(srv_addr);
@@ -526,7 +558,6 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 	}
 	is_control_path_ok = false;
 	io_listener_tid = 0;
-	stats = bdev_stats_clnt();
 	{
 		const size_t size = msg.build_hello();
 		auto *p = &msg.pay.c_hello;
@@ -535,27 +566,9 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 			check_incoming();
 		else
 			goto _out;
-	} {
-		if (!info.is_valid())
-			goto _out;
-		const size_t size = msg.build_reg_buf();
-		auto *pr = &msg.pay.c_register_buf;
-		// Initialize datapath of producer
-		dp.block_size = info.block_size;
-		dp.num_total_bytes = info.num_total_blocks * info.block_size;
-		const uint64_t n_bytes = align_up(sizeof(io_csring), (uint64_t)dp.block_size);
-		pr->build_scheduler(conf.id, n_bytes / (uint64_t)info.block_size);
-		ASSERT_IN_PRODUCTION(dp.shm_ring.init_producer(pr->name, n_bytes) == 0);
-		*(uint64_t*)dp.shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
-		const io_buffer_t buf = io_buffer_t::construct(dp.shm_ring.get_buf(), n_bytes);
-		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), srv_addr);
-		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
-		if (send_to(msg, size) >= 0) {
-			check_incoming();
-		} else
-			goto _out;
-		dp.create(true, global_clnt_context_imp::get().shm_io_bufs);
 	}
+	if (create_dp(conf.id, msg) < 0)
+		goto _out;
 	if (MGMT::set_large_io_buffers)
 		sock.set_io_buffer_size(1<<19, 1<<19);
 	info.bdev_descriptor = sock.fd();
@@ -564,21 +577,21 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 		ASSERT_IN_PRODUCTION(err <= 0);
 	}
 _out:
-	if (info.bdev_descriptor <= 0)
-		this->close(conf.id);				// Cleanup open with close
+	if (!info.is_valid())
+		disconnect(conf.id);				// Cleanup open with close
 	return info.bdev_descriptor;
 }
 
 int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	if (!io.is_valid_for(info.block_size))
 		return -__LINE__;
-	t_lock_guard l(dp.shm_io_bufs->with_lock());
-	const base_shm_element *g_map = dp.shm_io_bufs->insert_on_client(io);
+	t_lock_guard l(dp->shm_io_bufs->with_lock());
+	const base_shm_element *g_map = dp->shm_io_bufs->insert_on_client(io);
 	if (!g_map)
 		return -__LINE__;			// Buffer rejected by global hash
-	if (!dp.reg_bufs_set.add(g_map->buf_idx)) {
+	if (!dp->reg_bufs_set.add(g_map->buf_idx)) {
 		pr_err1("%s: Wrong register buf request to " PRINT_IO_BUF_FMT ", it is already registered to this bdevs as " PRINT_REG_IDX_FMT "\n", info.name, PRINT_IO_BUF_ARGS(io), g_map->buf_idx);
-		dp.shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
+		dp->shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
 		return -__LINE__;			// Already mapped to this block device
 	}
 	MGMT::msg_content msg; (void)id;
@@ -586,7 +599,7 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	auto *pr = &msg.pay.c_register_buf;
 	pr->build_io_buffer(*g_map, info.block_size);
 	pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
-	if (dp.has_remote()) {
+	if (has_remote()) {
 		*(uint64_t*)g_map->mem.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
 		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
@@ -597,13 +610,13 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 }
 
 int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io) {
-	t_lock_guard l(dp.shm_io_bufs->with_lock());
-	const base_shm_element *g_map = dp.shm_io_bufs->find1(io);
+	t_lock_guard l(dp->shm_io_bufs->with_lock());
+	const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
 	if (!g_map) {
 		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
 		return -__LINE__;
 	}
-	if (!dp.reg_bufs_set.has(g_map->buf_idx)) {
+	if (!dp->reg_bufs_set.has(g_map->buf_idx)) {
 		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
 		return -__LINE__;
 	}
@@ -613,17 +626,17 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 	pr->build_io_buffer(*g_map, info.block_size);
 	pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
 	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
-	if (dp.has_remote()) {
+	if (has_remote()) {
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
 	}
-	ASSERT_IN_PRODUCTION(dp.reg_bufs_set.del(g_map->buf_idx));
-	dp.shm_io_bufs->dec_ref(g_map);
+	ASSERT_IN_PRODUCTION(dp->reg_bufs_set.del(g_map->buf_idx));
+	dp->shm_io_bufs->dec_ref(g_map);
 	return 0;
 }
 
-int bdev_backend_api::close(const backend_bdev_id& id, const bool do_kill_server) {
+int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_server) {
 	if (io_listener_tid) {
 		MGMT::msg_content msg;
 		size_t size;
@@ -639,8 +652,7 @@ int bdev_backend_api::close(const backend_bdev_id& id, const bool do_kill_server
 		ASSERT_IN_PRODUCTION(err == 0);
 		io_listener_tid = 0;
 	}
-	stats.~bdev_stats_clnt();
-	dp.destroy();
+	delete dp;
 	sock.nice_close();
 	info.clear();
 	return 0;
@@ -675,8 +687,8 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
-				//t_lock_guard l(dp.shm_io_bufs->with_lock());
-				BUG_ON(!dp.shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
+				//t_lock_guard l(dp->shm_io_bufs->with_lock());
+				BUG_ON(!dp->shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
@@ -697,8 +709,8 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::dp_complete)) {
 			// Drain all awaiting completions
 			bool need_wakeup_srvr = false, wakup_on_msg;
-			int idx = dp.clnt_receive_completion(&wakup_on_msg);
-			for (; idx >= 0; idx = dp.clnt_receive_completion(&wakup_on_msg)) {
+			int idx = dp->clnt_receive_completion(&wakup_on_msg);
+			for (; idx >= 0; idx = dp->clnt_receive_completion(&wakup_on_msg)) {
 				need_wakeup_srvr |= wakup_on_msg;
 				pr_verb1(PRINT_IO_CQE_ELEM_FMT " processed completion. Need_wakeup=%d\n", idx, wakup_on_msg);
 			}
@@ -720,7 +732,7 @@ int bdev_backend_api::dp_wakeup_server(void) {
 	auto *p = &msg.pay.dp_submit;
 	p->sender_added_new_work = true;
 	p->sender_ready_for_work = false;
-	stats.n_doorbels_wakeup_srvr++;
+	dp->stats.n_doorbels_wakeup_srvr++;
 	return send_to(msg, size);
 }
 

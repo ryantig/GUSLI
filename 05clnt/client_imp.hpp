@@ -45,22 +45,23 @@ class bdev_backend_api {									// API to server 1 block device
 	connect_addr ca;										// Connected server address
 	time_t last_keepalive;
 	const char* srv_addr;
-	struct bdev_stats_clnt stats;
 
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
 	sem_t wait_control_path;
+	bool has_remote(void) const { return srv_addr != NULL; }
 	bool check_incoming();
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
 	void on_keep_alive_received(void) { time(&last_keepalive); }
  public:
-	class datapath_t dp;
+	datapath_t<bdev_stats_clnt> *dp = nullptr;
 	bdev_info info;											// block device information visible for user
 	bdev_backend_api() { io_listener_tid = 0; info.clear(); }
 	int hand_shake(const bdev_config_params &conf, const char *clnt_name);
+	int create_dp( const backend_bdev_id &id, MGMT::msg_content &msg);
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
-	int close(     const backend_bdev_id& id, const bool do_kill_server = false);
+	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);
 	int dp_wakeup_server(void);
 	static void* io_completions_listener(bdev_backend_api *_self);
 };
@@ -72,7 +73,12 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 	server_bdev() { control_path_lock.init(); }
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }
-	bool is_alive(void) const { return ((conf.type != conf.DUMMY_DEV_INVAL) && (get_fd() > 0)); }
+	bool is_alive(void) const {
+		const bool rv = ((conf.type != conf.DUMMY_DEV_INVAL) && (get_fd() > 0));
+		if (rv)
+			ASSERT_IN_PRODUCTION(b.dp != nullptr);
+		return rv;
+	}
 	uint32_t get_num_uses(void) const;
 	bool is_still_used(void) const { return get_num_uses() != 0; }
 };

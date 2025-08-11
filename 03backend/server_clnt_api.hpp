@@ -125,39 +125,38 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 };
 
 /***************************** Generic datapath ******************************/
-class datapath_t {												// Datapath of block device
+template <class T_stats> class datapath_t {												// Datapath of block device
 	bool verify_map_valid(     const io_map_t    &map) const {
-		return (map.is_valid_for(block_size) &&
-				(map.get_offset_end_lba() < num_total_bytes) &&
+		return (map.is_valid_for(binfo.block_size) &&
+				(map.get_offset_end_lba() < binfo.get_bdev_size()) &&
 				shm_io_bufs->does_include(map.data)); }
 	bool verify_io_param_valid(const server_io_req &io) const;
 	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
  public:
 	t_shared_mem shm_ring;							// Mapped Submition/completion queues.
-	shm_io_bufs_global_t *shm_io_bufs = nullptr;	// Pointer to global structure
+	shm_io_bufs_global_t *shm_io_bufs;				// Pointer to global structure
 	shm_io_bufs_unuque_set_for_bdev reg_bufs_set;
-	uint32_t block_size;						// Todo: const pointer to binfo
-	uint64_t num_total_bytes;
-	void create(bool is_producer, shm_io_bufs_global_t *_ext_g) {
+	in_air_ios_holder in_air;
+	T_stats stats;
+	const bdev_info &binfo;
+	datapath_t(const char* producer_name, shm_io_bufs_global_t *_ext_g, const bdev_info &bi) : in_air(bi.num_max_inflight_io), binfo(bi) {
 		shm_io_bufs = _ext_g;
-		if (is_producer)
+		if (producer_name) {    // Producer
+			const size_t n_bytes = io_csring::n_needed_bytes(bi.block_size);
+			ASSERT_IN_PRODUCTION(shm_ring.init_producer(producer_name, n_bytes) == 0);
 			get()->init();
+		}
 	}
-	void create_client_local(shm_io_bufs_global_t *_ext_g) {		// No server at all, client manages bdevs directly (no communication with server)
-		shm_io_bufs = _ext_g;
-	}
-	bool has_remote(void) const { return shm_ring.get_buf() != NULL; }
-	datapath_t() : block_size(0), num_total_bytes(0) { }
 	~datapath_t() {}
-	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer) const;
-	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer) const;
+	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer);
+	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer);
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
-	void destroy(void) { ASSERT_IN_PRODUCTION(reg_bufs_set.size() == 0); shm_ring = t_shared_mem{}; }
 };
 
-inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
+template <class T>
+inline bool datapath_t<T>::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 	io_map_t &map = io.params.change_map();
 	if (!shm_io_bufs->remap_to_local(map.data))			// Remap the 1 range io buffer or scatter gather buffer
 		return false;
@@ -185,7 +184,8 @@ inline bool datapath_t::srvr_remap_io_bufs_to_my(server_io_req &io) const {
 	return true;
 }
 
-inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
+template <class T>
+inline bool datapath_t<T>::verify_io_param_valid(const server_io_req &io) const {
 	if (unlikely(io.params.is_polling_mode()))				// Polling mode not supported yet
 		return false;
 	if (!io.params.is_multi_range())
@@ -199,7 +199,9 @@ inline bool datapath_t::verify_io_param_valid(const server_io_req &io) const {
 	}
 	return shm_io_bufs->does_include(io.params.map().data);		// Scatter-gather is accesible to server
 }
-inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) const {
+
+template <class T>
+inline int datapath_t<T>::clnt_send_io(io_request &io, bool *need_wakeup_srvr) {
 	server_io_req *sio = (server_io_req*)&io;
 	int rv = 0;
 	if (!io.params.is_safe_io() && !verify_io_param_valid(*sio)) {
@@ -211,31 +213,33 @@ inline int datapath_t::clnt_send_io(io_request &io, bool *need_wakeup_srvr) cons
 	if (rv < 0) {
 		sio->set_error(io_error_codes::E_THROTTLE_RETRY_LATER);
 		return -1;
-	}
+	} // Note: here io can already be free() because completion arrived
 	return rv;
 }
 
-inline int datapath_t::clnt_receive_completion(bool *need_wakeup_srvr) const {
+template <class T>
+inline int datapath_t<T>::clnt_receive_completion(bool *need_wakeup_srvr) {
 	io_csring *r = get();
 	io_csring_cqe::context_t comp;
 	const int cqe = r->cq.remove(&comp, need_wakeup_srvr);
-	if (cqe >= 0) {
-		server_io_req* io = comp.io_ptr;
-		BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
-		BUG_ON(!io->params.has_callback(), "How else would we notify the sender that IO finished?");
-		pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_CQE_ELEM_FMT ".rv[%ld]\n", PRINT_IO_REQ_ARGS(io->params), cqe, comp.rv);
-		io->set_success(comp.rv);
-		return cqe;
-	}	// No completions arrived, client poller can go to sleep
+	if (cqe < 0)
+		return cqe;		// No completions arrived, client poller can go to sleep
+	server_io_req* io = comp.io_ptr;
+	BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
+	BUG_ON(!io->params.has_callback(), "How else would we notify the sender that IO finished?");
+	pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_CQE_ELEM_FMT ".rv[%ld]\n", PRINT_IO_REQ_ARGS(io->params), cqe, comp.rv);
+	io->set_success(comp.rv);
 	return cqe;
 }
 
-inline int datapath_t::srvr_receive_io(server_io_req &io, bool *need_wakeup_clnt) const {
+template <class T>
+inline int datapath_t<T>::srvr_receive_io(server_io_req &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
 	return r->sq.remove(&io.params, need_wakeup_clnt);
 }
 
-inline int datapath_t::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt) const {
+template <class T>
+inline int datapath_t<T>::srvr_finish_io(server_io_req &io, bool *need_wakeup_clnt) const {
 	io_csring *r = get();
 	io_csring_cqe::context_t comp{(server_io_req*)io.get_comp_ctx(), io.get_raw_rv()};
 	int rv = r->cq.insert(comp, need_wakeup_clnt);

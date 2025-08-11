@@ -27,13 +27,13 @@ int srvr_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) 
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	const t_shared_mem *shm_ptr;
-	t_lock_guard l(dp.shm_io_bufs->with_lock());
+	t_lock_guard l(dp->shm_io_bufs->with_lock());
 	if (pr->is_io_buf) {
-		shm_ptr = &dp.shm_io_bufs->insert_on_server(pr->name, pr->buf_idx, (void*)pr->client_pointer, n_bytes)->mem;
-		BUG_ON(!dp.reg_bufs_set.add(pr->buf_idx), "Client allowed second registration on buf index=%u", pr->buf_idx);
+		shm_ptr = &dp->shm_io_bufs->insert_on_server(pr->name, pr->buf_idx, (void*)pr->client_pointer, n_bytes)->mem;
+		BUG_ON(!dp->reg_bufs_set.add(pr->buf_idx), "Client allowed second registration on buf index=%u", pr->buf_idx);
 	} else {
-		ASSERT_IN_PRODUCTION(dp.shm_ring.init_consumer(pr->name, n_bytes) == 0);
-		shm_ptr = &dp.shm_ring;
+		ASSERT_IN_PRODUCTION(dp->shm_ring.init_consumer(pr->name, n_bytes) == 0);
+		shm_ptr = &dp->shm_ring;
 	}
 	// Verify cookie
 	const int rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
@@ -45,14 +45,14 @@ int srvr_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) 
 int srvr_imp::__clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf) {
 	const auto *pr = &msg.pay.c_unreg_buf;
 	ASSERT_IN_PRODUCTION(pr->is_io_buf == true);
-	t_lock_guard l(dp.shm_io_bufs->with_lock());
-	BUG_ON(!dp.reg_bufs_set.del(pr->buf_idx), "Client allowed unregister of unknown buf index=%u for bdev", pr->buf_idx);
-	base_shm_element *g_map = dp.shm_io_bufs->find2(pr->buf_idx);
+	t_lock_guard l(dp->shm_io_bufs->with_lock());
+	BUG_ON(!dp->reg_bufs_set.del(pr->buf_idx), "Client allowed unregister of unknown buf index=%u for bdev", pr->buf_idx);
+	base_shm_element *g_map = dp->shm_io_bufs->find2(pr->buf_idx);
 	BUG_ON(!g_map, "Client allowed unregister of unknown buf index=%u globally", pr->buf_idx);
 	ASSERT_IN_PRODUCTION((void*)pr->client_pointer == g_map->other_party_ptr);
 	const io_buffer_t buf = g_map->get_buf(); my_buf = buf.ptr;
 	const int rv = 0;
-	dp.shm_io_bufs->dec_ref(g_map);
+	dp->shm_io_bufs->dec_ref(g_map);
 	pr_infoS(this, PRINT_UNR_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
 	return rv;
 }
@@ -74,8 +74,7 @@ void srvr_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struc
 
 void srvr_imp::__clnt_close(const char* reason) {
 	b.close1(reason);
-	stats = bdev_stats_srvr();
-	dp.destroy();
+	delete dp; dp = nullptr;
 }
 
 void srvr_imp::client_accept(connect_addr& addr) {
@@ -119,7 +118,7 @@ class backend_io_executor {
 		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
 		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io lanuched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
 		io.params.set_completion(client_io_ctx, NULL);			// Restore client context
-		const int cmp_idx = srv->dp.srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
+		const int cmp_idx = srv->dp->srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
 		pr_verbS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell={s=%u,c=%u}\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, cmp_idx, client_io_ctx, need_wakeup_clnt_io_submitter, need_wakeup_clnt_comp_reader);
 		if (need_wakeup_clnt_io_submitter || need_wakeup_clnt_comp_reader) {
 			MGMT::msg_content msg;	// Send wakeup completion to client on all executed IO's
@@ -127,7 +126,7 @@ class backend_io_executor {
 			auto *p = &msg.pay.dp_complete;
 			p->sender_added_new_work = need_wakeup_clnt_comp_reader;
 			p->sender_ready_for_work = need_wakeup_clnt_io_submitter;
-			srv->stats.inc(*p);
+			srv->dp->stats.inc(*p);
 			srv->send_to(msg, n_send_bytes, addr);
 		}
 		if (io.params.is_multi_range())
@@ -140,19 +139,19 @@ class backend_io_executor {
 		addr = _addr;
 		srv = &_srv;
 		thread_id = (uint64_t)pthread_self();
-		sqe_indx = srv->dp.srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
+		sqe_indx = srv->dp->srvr_receive_io(io, &need_wakeup_clnt_io_submitter);
 		if (unlikely(need_wakeup_clnt_io_submitter))
 			pr_errS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT "Client sent more than allowed > %u[ios], if it blocked will try waking him up\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, srv->binfo.num_max_inflight_io);
 	}
 	bool has_io_to_do(void) const { return (sqe_indx >= 0); }
 	bool run(void) {
 		if (has_io_to_do()) {
-			srv->stats.inc(io);			// Dont access io maps as they are not remapped yet
+			srv->dp->stats.inc(io);			// Dont access io maps as they are not remapped yet
 			client_io_ctx = io.get_comp_ctx();
 			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
 			if (io.is_valid()) {
-				if (srv->dp.srvr_remap_io_bufs_to_my(io)) {
+				if (srv->dp->srvr_remap_io_bufs_to_my(io)) {
 					io.start_execution();
 					srv->b.exec_io(io);		// Launch io execution
 				} else {
@@ -238,7 +237,7 @@ int srvr_imp::run_once(void) noexcept {
 			pr_errS(this, "Open failed by backend rv=%d\n", binfo.bdev_descriptor);
 			msg.pay.s_hello_ack.info.bdev_descriptor = 0;
 		}
-		dp.create(false, this->shm_io_bufs);
+		dp = new datapath_t<bdev_stats_srvr>(nullptr, this->shm_io_bufs, this->binfo);
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::register_buf)) {
 		void* my_buf = nullptr;

@@ -62,8 +62,7 @@ class srvr_imp : public base_library  {
 	sock_t sock;						// Control path accept-client socket
 	sock_t io_sock;						// Communication socket with client
 	connect_addr ca;					// Connected client address
-	class datapath_t dp;
-	bdev_stats_srvr stats;
+	datapath_t<bdev_stats_srvr> *dp = nullptr;
 	// Generic per server
 	class shm_io_bufs_global_t *shm_io_bufs;
 	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
