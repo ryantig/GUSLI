@@ -18,7 +18,7 @@
 #include "gusli_client_api.hpp"
 #include "../common.hpp"
 
-enum io_exec_mode { ILLEGAL = 0, POLLABLE, ASYNC_CB, URING_POLLABLE, URING_BLOCKING, SYNC_BLOCKING_1_BY_1, N_MODES } mode;
+enum io_exec_mode { ILLEGAL = 0, POLLABLE, ASYNC_CB, URING_POLLABLE, URING_BLOCKING, SYNC_BLOCKING_1_BY_1, N_MODES };
 static const char* io_exec_mode_str(io_exec_mode m) {
 	switch(m) {
 		case SYNC_BLOCKING_1_BY_1: return "BSync_block";
@@ -41,6 +41,7 @@ class unitest_io {
 	bool _expect_success = true;
 	bool _verbose = true;
 	char _should_try_cancel = 0;
+	enum io_exec_mode mode;
  public:
 	unsigned int n_ios = 0;		// Number of executed ios
 	unsigned int n_cancl = 0;	// Number of canceled ios
