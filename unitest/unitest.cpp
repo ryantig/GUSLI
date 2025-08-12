@@ -658,6 +658,7 @@ void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
 	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start);
 	log_unitest("UnRegist-mem took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
 	//__verify_mapped_properly(io_bufs);
+	free(io_bufs[0].ptr);
 }
 
 /*****************************************************************************/
