@@ -603,7 +603,7 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	pr->build_io_buffer(*g_map, info.block_size);
 	pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
 	if (has_remote()) {
-		*(uint64_t*)g_map->mem.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
+		// Note: Dont touch *(uint64_t*)g_map->mem.get_buf() - It might be used now with io to a different bdev, possible on different server
 		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;

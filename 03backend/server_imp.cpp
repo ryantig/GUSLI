@@ -27,18 +27,22 @@ int srvr_imp::__clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf) 
 	const auto *pr = &msg.pay.c_register_buf;
 	const uint64_t n_bytes = (uint64_t)pr->num_blocks * binfo.block_size;
 	const t_shared_mem *shm_ptr;
+	int rv = 0;
 	t_lock_guard l(dp->shm_io_bufs->with_lock());
 	if (pr->is_io_buf) {
 		shm_ptr = &dp->shm_io_bufs->insert_on_server(pr->name, pr->buf_idx, (void*)pr->client_pointer, n_bytes)->mem;
 		BUG_ON(!dp->reg_bufs_set.add(pr->buf_idx), "Client allowed second registration on buf index=%u", pr->buf_idx);
+		// Note: shm_ptr can be used by client or io on other bdevs (other servers), dont read or write from this mem without explicit instruction from client
 	} else {
 		ASSERT_IN_PRODUCTION(dp->shm_ring.init_consumer(pr->name, n_bytes) == 0);
 		shm_ptr = &dp->shm_ring;
+		rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO; // Verify cookie
 	}
-	// Verify cookie
-	const int rv = (*(u_int64_t*)shm_ptr->get_buf() == MGMT::shm_cookie) ? 0 : -EIO;
 	const io_buffer_t buf = io_buffer_t::construct(shm_ptr->get_buf(), n_bytes); my_buf = buf.ptr;
-	pr_infoS(this, PRINT_REG_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
+	if (rv != 0)
+		pr_errS( this, PRINT_REG_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s, shm buffer content corrupted!\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
+	else
+		pr_infoS(this, PRINT_REG_BUF_FMT ", clnt_ptr=0x%lx, rv=%d, name=%s\n", PRINT_REG_BUF_ARGS(pr, buf), pr->client_pointer, rv, pr->name);
 	return rv;
 }
 
