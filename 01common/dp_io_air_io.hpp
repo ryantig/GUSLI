@@ -60,7 +60,7 @@ class in_air_ios_holder {
 		ASSERT_IN_PRODUCTION(ios_arr[i] == &io);
 		ios_arr[i] = nullptr;
 		bmp.remove(i);
-		--num_ios_in_air;
+		ASSERT_IN_PRODUCTION(--num_ios_in_air < num_max_inflight_io);
 		io.unique_id_assign();	// Assign invalid value in case of io retry
 	}
 	idx_t find_next_free_element_from(idx_t i = 0) const {

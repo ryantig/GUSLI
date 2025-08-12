@@ -23,8 +23,8 @@ class fail_server_ram : private gusli::srvr_backend_bdev_api {
 	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
 	gusli::bdev_info binfo;
 	bool should_stuck;						// Never return completion on io?
-	gusli::bdev_info open1(const char* who) noexcept override { return binfo; }
-	int             close1(const char* who) noexcept override { return 0; }
+	gusli::bdev_info open1(const char* who) noexcept override { (void)who; return binfo; }
+	int             close1(const char* who) noexcept override { (void)who; return 0; }
 	void exec_io(gusli::backend_io_req& io) noexcept override {
 		if (should_stuck) {
 			dslog("Stuck IO[%c].ptr=%p\n", io.params.op(), &io);
@@ -37,6 +37,7 @@ class fail_server_ram : private gusli::srvr_backend_bdev_api {
 	fail_server_ram(const char* _name, const char* listen_addr, bool all_ios_stuck = false) {
 		strncpy(par.listen_address, listen_addr, sizeof(par.listen_address)-1);
 		par.server_name = (all_ios_stuck ? "SrvStuck" : "SrvFail_");
+		should_stuck = all_ios_stuck;
 		binfo.clear();
 		my_assert(set_thread_name(binfo.name, _name) == 0); // For debug, set its thread to block device name
 		binfo.bdev_descriptor = 202020202;
