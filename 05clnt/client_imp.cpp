@@ -93,7 +93,7 @@ int bdev_config_params::init_parse(int version, const char* const argv[], int ar
 /************************************ API ********************************/
 int global_clnt_context_imp::init(const global_clnt_context::init_params& _par, const char* metadata_json_format) noexcept {
 	if (is_initialized()) {
-		pr_err1("already initialized: %u[devices], doing nothing\n", bdevs.n_devices);
+		pr_err1("already initialized: %u[devices], doing nothing\n", bdevs.n_devices());
 		return EEXIST;	// Success
 	}
 	#define abort_exe_init_on_err() { pr_err1("Initialization Error in line %d\n", __LINE__); shutting_down = true; free((char*)par.client_name); return -__LINE__; }
@@ -105,7 +105,7 @@ int global_clnt_context_imp::init(const global_clnt_context::init_params& _par, 
 	if (start() != 0)
 		abort_exe_init_on_err()
 	const int rv = parse_conf();
-	pr_note1("initialized: %u devices, log_fd=%u rv=%d\n", bdevs.n_devices, fileno(par.log), rv);
+	pr_note1("initialized: %u devices, log_fd=%u rv=%d\n", bdevs.n_devices(), fileno(par.log), rv);
 	if (rv != 0)
 		abort_exe_init_on_err();
 	sprintf(lib_info_json, metadata_json_format, LIB_NAME, __stringify(VER_TAGID) , COMMIT_ID, opt_level, TRACE_LEVEL, __stringify(COMPILATION_DATE));
@@ -239,20 +239,14 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 	}
 }
 
-uint32_t server_bdev::get_num_uses(void) const {
-	nvTODO("Count in air io's, not only registered mem bufs");
-	if (conf.has_storage())
-		return (uint32_t)b.dp->reg_bufs_set.size();
-	return 0;
-}
-
 static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
 	const backend_bdev_id& id = bdev->conf.id;
 	enum connect_rv rv = C_OK;
+	datapath_t<bdev_stats_clnt> *dp = bdev->b.dp;
 	if (!bdev->is_alive()) {
 		rv = C_NO_RESPONSE;
-	} else if (bdev->is_still_used()) {
-		pr_err1("Error: name=%s, still have %u[mapped-buffers]\n", bdev->b.info.name, bdev->get_num_uses());
+	} else if (dp->is_still_used()) {
+		pr_err1("Error: name=%s, still have %u[mapped-buffers], %u[ios]\n", bdev->b.info.name, dp->get_num_mem_reg_ranges(), dp->get_num_in_air_ios());
 		return C_REMAINS_OPEN;
 	} else if (bdev->conf.is_dummy()) {
 		bdev->b.disconnect(id, do_suicide);
@@ -357,7 +351,7 @@ enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& 
 	const enum connect_rv rv = c.bdev_bufs_unregist(id, bufs);
 	if (rv != C_OK)
 		return rv;
-	if (!bdev->is_still_used())
+	if (!bdev->b.dp->is_still_used())
 		(void)__bdev_disconnect(bdev, stop_server);		// User has nothing to do with close failure
 	return C_OK;
 }
@@ -381,10 +375,10 @@ void global_clnt_context::bdev_ctl_report_data_corruption(const backend_bdev_id&
 void io_request_base::submit_io(void) noexcept {
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
-	server_bdev *bdev = NULL;
+	const server_bdev *bdev = NULL;
 	BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 	if (params.get_bdev_descriptor() > 0)
-		bdev = global_clnt_context_imp::get().bdevs.find_by(params.get_bdev_descriptor());
+		bdev = global_clnt_context_imp::get().bdevs.find_by_io(params.get_bdev_descriptor());
 	if (unlikely(!bdev)) {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
@@ -727,7 +721,7 @@ bool bdev_backend_api::check_incoming() {
 	return rv;
 }
 
-int bdev_backend_api::dp_wakeup_server(void) {
+int bdev_backend_api::dp_wakeup_server(void) const {
 	MGMT::msg_content msg;
 	const size_t size = msg.build_dp_subm();
 	auto *p = &msg.pay.dp_submit;

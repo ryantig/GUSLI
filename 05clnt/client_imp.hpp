@@ -63,7 +63,7 @@ class bdev_backend_api {									// API to server 1 block device
 	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
 	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
 	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
-	int dp_wakeup_server(void);
+	int dp_wakeup_server(void) const;
 	static void* io_completions_listener(bdev_backend_api *_self);
 };
 
@@ -80,34 +80,29 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 			ASSERT_IN_PRODUCTION(b.dp != nullptr);
 		return rv;
 	}
-	uint32_t get_num_uses(void) const;
-	bool is_still_used(void) const { return get_num_uses() != 0; }
 };
 
-struct bdevs_hash { 					// Hash table of connected servers
-	static constexpr int N_MAX_BDEVS = 8;
-	server_bdev arr[N_MAX_BDEVS];
-	int n_devices = 0;
-	bdevs_hash() { }
-	server_bdev *find_by(int fd) const {
-		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
-			if (fd == arr[i].get_fd())
-				return (server_bdev *)&arr[i];
+class bdevs_hash { 					// Hash table of connected servers
+	std::vector<struct server_bdev> arr;
+ public:
+	const server_bdev *find_by_io(int fd) const {		// Datapath: find by io
+		for (const server_bdev& i : arr) {
+			if (fd == i.get_fd())
+				return &i;
 		}
 		return NULL;
 	}
-	server_bdev *find_by(const backend_bdev_id& id) const {
-		for (int i = 0; i < N_MAX_BDEVS; i++ ) {
-			if (id == arr[i].conf.id)
-				return (server_bdev *)&arr[i];
+	server_bdev *find_by(const backend_bdev_id& id) {	// Control path, non const because need to lock bdev
+		for (server_bdev& i : arr) {
+			if (id == i.conf.id)
+				return &i;
 		}
 		return NULL;
 	}
 	bool has_any_bdev_open(void) const {
-		for (int i = 0; i < N_MAX_BDEVS; i++ )
-			if (arr[i].is_alive()) {
-				const auto* bdev = &arr[i];
-				pr_info1("Still open: bdev " PRINT_BDEV_ID_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev));
+		for (const server_bdev& i : arr)
+			if (i.is_alive()) {
+				pr_info1("Still open: bdev " PRINT_BDEV_ID_FMT "\n", PRINT_BDEV_ID_ARGS(i));
 				return true;
 			}
 		return false;
@@ -148,14 +143,14 @@ struct bdevs_hash { 					// Hash table of connected servers
 				while (char_is_visible(*p)) p++;	// Skip the argument itself
 				if (*p == 0) break;
 			}
-			const int bdev_parse_rv = arr[n_devices].conf.init_parse(version, argv, argc);
+			const int bdev_parse_rv = arr.emplace_back().conf.init_parse(version, argv, argc);
 			if (bdev_parse_rv != 0)
 				return bdev_parse_rv;
-			n_devices++;
 		}
 		return 0;
 	}
-	void clear(void) { n_devices = 0; }
+	int n_devices(void) const { return (int)arr.size(); }
+	void clear(void) { arr.clear(); }
 };
 
 class global_clnt_context_imp : no_implicit_constructors, public base_library { // Singletone: Library context
