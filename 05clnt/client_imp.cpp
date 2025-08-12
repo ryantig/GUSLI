@@ -218,6 +218,11 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	}
 }
 
+enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id) noexcept {
+	(void)id;
+	return C_NO_DEVICE;
+}
+
 enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
@@ -287,6 +292,19 @@ void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint
 	}
 }
 
+uint32_t global_clnt_context_imp::bdev_ctl_get_n_in_air_ios(const backend_bdev_id& id) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
+	if (bdev) {
+		t_lock_guard l(bdev->control_path_lock);
+		if (bdev->is_alive()) {
+			const uint32_t rv = bdev->b.dp->get_num_in_air_ios();
+			pr_verb1(PRINT_BDEV_ID_FMT ".n_ios=%u\n", PRINT_BDEV_ID_ARGS(*bdev), rv);
+			return rv;
+		}
+	}
+	return 0;
+}
+
 enum connect_rv global_clnt_context_imp::bdev_get_info(const backend_bdev_id& id, bdev_info *ret_val) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev) return C_NO_DEVICE;
@@ -319,7 +337,10 @@ enum connect_rv global_clnt_context::bdev_connect(const backend_bdev_id& id) con
 }
 enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& id, const mem_list& bufs) const noexcept {
 	return global_clnt_context_imp::get().bdev_bufs_register(id, bufs);
+}
 
+enum connect_rv global_clnt_context::bdev_stop_all_ios(const backend_bdev_id& id) const noexcept {
+	return global_clnt_context_imp::get().bdev_stop_all_ios(id);
 }
 enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs) const noexcept{
 	return global_clnt_context_imp::get().bdev_bufs_unregist(id, bufs);
@@ -369,6 +390,10 @@ int32_t global_clnt_context::bdev_get_descriptor(const backend_bdev_id& id) cons
 
 void global_clnt_context::bdev_ctl_report_data_corruption(const backend_bdev_id& id, uint64_t offset_lba_bytes) const noexcept {
 	global_clnt_context_imp::get().bdev_ctl_report_di(id, offset_lba_bytes);
+}
+
+uint32_t global_clnt_context::bdev_ctl_get_num_in_air_ios(const backend_bdev_id& id) const noexcept {
+	return global_clnt_context_imp::get().bdev_ctl_get_n_in_air_ios(id);
 }
 
 /*****************************************************************************/
