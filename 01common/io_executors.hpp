@@ -271,39 +271,6 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 		return io_error_codes::E_OK;
 	}
 };
-
-/*****************************************************************************/
-class server_side_executor_no_comp : public io_request_executor_base {						// Convert remote async request io to blocking
-	void (*fn)(void *ctx, server_io_req& io);
-	void* ctx;
- public:
-	server_side_executor_no_comp(void (*_fn)(void *, server_io_req&), void *_ctx, server_io_req &_io) : io_request_executor_base(_io, false), fn(_fn), ctx(_ctx) {}
-	void run(void) override {
-		fn(ctx, *io);		// Launch io execution
-		pr_verb1("exec[%p].o[%p].Server io: rv=%ld\n", this, io, io->get_raw_rv());
-		was_rv_already_set_by_remote = true;
-		total_bytes = io->get_raw_rv();
-		detach_io();
-		async_work_done();
-	}
-	enum io_request::cancel_rv cancel(void) override { BUG_NOT_IMPLEMENTED(); return io_request_executor_base::cancel(); }
-};
-
-class server_side_executor : public remote_aio_blocker {				// Todo, make async
-	void (*fn)(void *ctx, server_io_req& io);
-	void* ctx;
- public:
-	server_side_executor(void (*_fn)(void *, server_io_req&), void *_ctx, server_io_req &_io) :
-		remote_aio_blocker(_io), fn(_fn), ctx(_ctx) {
-	}
-	void run(void) override {
-		fn(ctx, *io);		// Launch io execution
-		is_still_running();	// Block until completion
-		pr_verb1("exec[%p].o[%p].Server io: rv=%ld\n", this, io, io->get_raw_rv());
-		detach_io();
-	}
-	enum io_request::cancel_rv cancel(void) override { BUG_NOT_IMPLEMENTED(); return io_request_executor_base::cancel(); }
-};
 }; // namespace gusli
 
 /*****************************************************************************/
