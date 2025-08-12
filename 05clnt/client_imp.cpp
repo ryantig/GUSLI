@@ -673,7 +673,7 @@ int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_s
 		const int err = pthread_join(io_listener_tid, NULL);
 		ASSERT_IN_PRODUCTION(err == 0);
 	}
-	delete dp;
+	delete dp; dp = nullptr;
 	clean_srvr();
 	return 0;
 }
