@@ -204,18 +204,14 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	if (bufs.empty())
 		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
 	t_lock_guard l(bdev->control_path_lock);
-	if (!bdev->is_alive()) {
+	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
-	} else if (bdev->conf.has_storage()) {
-		enum connect_rv rv = C_WRONG_ARGUMENTS;
 	for (size_t i = 0; i < bufs.size(); i++) {
 		const int map_rv = bdev->b.map_buf(id, bufs[i]);
-				rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
+		if (map_rv != 0)
+			return C_WRONG_ARGUMENTS;
 	}
-		return rv;
-	} else {
-		return C_NO_DEVICE;
-	}
+	return C_OK;
 }
 
 enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id) noexcept {
@@ -230,18 +226,19 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 	if (bufs.empty())
 		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
 	t_lock_guard l(bdev->control_path_lock);
-	if (!bdev->is_alive()) {
+	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
-	} else if (bdev->conf.has_storage()) {
-		enum connect_rv rv = C_WRONG_ARGUMENTS;
-		for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
-				const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
-				rv = (map_rv == 0) ? C_OK : C_WRONG_ARGUMENTS;
-		}
-		return rv;
-	} else {
-		return C_NO_DEVICE;
+	const uint32_t num_ios = bdev->b.dp->get_num_in_air_ios();	// Should be 0. Attempt to unregister bufs with in air IO may lead to memory corruption. Prevent this
+	if (num_ios) {
+		pr_err1("Error " PRINT_BDEV_ID_FMT " attemt to unregister mem with %u io's in air. This is a wrong flow that may lead to memory corruption!\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
+		return C_WRONG_ARGUMENTS;
 	}
+	for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
+		const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
+		if (map_rv != 0)
+			return C_WRONG_ARGUMENTS;
+	}
+	return C_OK;
 }
 
 static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
