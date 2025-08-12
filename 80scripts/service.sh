@@ -26,13 +26,14 @@ function GUSLI() {
 		cmd="ps -eLo pid,ppid,comm,user | grep gusli"; echo_title "Processes"; eval $cmd;
 		#cmd="ps -ef | grep gusli"; echo_green $cmd; eval $cmd;
 		cmd="pgrep -fl gusli"; echo_green $cmd; eval $cmd;
+		echo_title "SHM";
 		df -h /dev/shm;
 		cmd='ll /dev/shm/gs* 2>/dev/null'; #echo_green $cmd;
 		eval $cmd;
 		ps_prg=$(pgrep -f gusli);
 		echo_title "Shared mem bufs";
 		for process in $ps_prg; do
-			echo "Process $(cat /proc/$process/comm)[ $process ]:";
+			echo_green "* Process $(cat /proc/$process/comm)[ $process ]:";
 			sudo grep -e /dev/shm/gs -e heap -e 'rw-p 00000000 00:00' /proc/$process/maps;
 		done
 		for process in $ps_prg; do
