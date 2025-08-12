@@ -24,8 +24,8 @@
 namespace gusli {
 
 struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont execute anything, used on stack
-	io_autofail_executor(class io_request& io, io_error_codes rv) {
-		class server_io_req *sio = (class server_io_req*)&io;
+	io_autofail_executor(io_request_base& io, io_error_codes rv) {
+		server_io_req *sio = (server_io_req*)&io;
 		DEBUG_ASSERT(sio->is_valid());				// This executor never connects nor disconnects from io
 		sio->set_error(rv);
 	}
@@ -34,7 +34,7 @@ struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont 
 /*****************************************************************************/
 class io_request_executor_base : no_implicit_constructors {
  protected:
-	class server_io_req* io;						// Link to original IO. If cacnel() not called will always be a valid pointer.
+	server_io_req* io;								// Link to original IO. If cacnel() not called will always be a valid pointer.
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
 	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes'
@@ -92,7 +92,7 @@ class io_request_executor_base : no_implicit_constructors {
 	}
 	void send_async_work_failed(void) { async_work_done(); }// Async work not started, we are still in submit io (polling code has not started, completion callback is not awaited yet)
  public:													// API to use by IO
-	io_request_executor_base(class io_request& _io, const bool is_async) {
+	io_request_executor_base(io_request_base& _io, const bool is_async) {
 		io = static_cast<server_io_req*>(&_io);
 		num_ranges = io->params.num_ranges();
 		is_async_executor = is_async;
@@ -195,7 +195,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 			launch_1_aio_rw(&u.req1);
 		}
 	}
-	aio_request_executor(class io_request& _io) : io_request_executor_base(_io, true), send_error(0) {
+	aio_request_executor(io_request_base& _io) : io_request_executor_base(_io, true), send_error(0) {
 		if (num_ranges > 1) {
 			u.reqs = (typeof(u.reqs))calloc(num_ranges, sizeof(struct aiocb));
 			if (u.reqs) {
@@ -216,7 +216,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 
 /****************************** Blocking executors ****************************************/
 struct blocking_request_executor : public io_request_executor_base {
-	blocking_request_executor(class io_request& _io) : io_request_executor_base(_io, false) {}
+	blocking_request_executor(io_request_base& _io) : io_request_executor_base(_io, false) {}
 	enum io_request::cancel_rv cancel(void) override { BUG_ON(true, "IO was already completed, cancel does nothing and should not be called"); return io_request_executor_base::cancel(); }
 };
 
@@ -246,7 +246,7 @@ class sync_request_executor : public blocking_request_executor {
 		}
 		async_work_done();
 	}
-	sync_request_executor(class io_request& _io) : blocking_request_executor(_io) {}
+	sync_request_executor(io_request_base& _io) : blocking_request_executor(_io) {}
 };
 
 class remote_aio_blocker : public blocking_request_executor {						// Convert remote async request io to blocking
@@ -257,7 +257,7 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 		BUG_ON(sem_post(&exec->wait) != 0, "Error when unblocking waiter");		// Must be last line because after unblock executor can get free
 	}
  public:
-	remote_aio_blocker(io_request &_io) : blocking_request_executor(_io) {
+	remote_aio_blocker(io_request_base &_io) : blocking_request_executor(_io) {
 		DEBUG_ASSERT(io->is_valid());								// Verify no other executor conencted to io
 		io->params.set_completion(this, this->__cb);
 		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
@@ -274,10 +274,10 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 
 /*****************************************************************************/
 class server_side_executor_no_comp : public io_request_executor_base {						// Convert remote async request io to blocking
-	void (*fn)(void *ctx, class server_io_req& io);
+	void (*fn)(void *ctx, server_io_req& io);
 	void* ctx;
  public:
-	server_side_executor_no_comp(void (*_fn)(void *, class server_io_req&), void *_ctx, server_io_req &_io) : io_request_executor_base(_io, false), fn(_fn), ctx(_ctx) {}
+	server_side_executor_no_comp(void (*_fn)(void *, server_io_req&), void *_ctx, server_io_req &_io) : io_request_executor_base(_io, false), fn(_fn), ctx(_ctx) {}
 	void run(void) override {
 		fn(ctx, *io);		// Launch io execution
 		pr_verb1("exec[%p].o[%p].Server io: rv=%ld\n", this, io, io->get_raw_rv());
@@ -290,10 +290,10 @@ class server_side_executor_no_comp : public io_request_executor_base {						// C
 };
 
 class server_side_executor : public remote_aio_blocker {				// Todo, make async
-	void (*fn)(void *ctx, class server_io_req& io);
+	void (*fn)(void *ctx, server_io_req& io);
 	void* ctx;
  public:
-	server_side_executor(void (*_fn)(void *, class server_io_req&), void *_ctx, server_io_req &_io) :
+	server_side_executor(void (*_fn)(void *, server_io_req&), void *_ctx, server_io_req &_io) :
 		remote_aio_blocker(_io), fn(_fn), ctx(_ctx) {
 	}
 	void run(void) override {
@@ -350,7 +350,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			total_bytes += cqe->res;
 	}
 public:
-	uring_request_executor(class io_request& _io) : io_request_executor_base(_io, false) {
+	uring_request_executor(io_request_base& _io) : io_request_executor_base(_io, false) {
 		num_completed = 0;
 		had_failure = false;
 		prep_fn = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;

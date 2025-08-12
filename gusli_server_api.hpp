@@ -21,7 +21,7 @@
 
 namespace gusli {
 
-class backend_io_req : public io_request {						// Data structure for processing incomming IO from gusli client
+class backend_io_req : public io_request_base {					// Data structure for processing incomming IO from gusli client
 	void set_rv(int64_t result) {
 		const bool do_cb = params.has_callback();				// Save param on stack, because this might get free
 		std::atomic_thread_fence(std::memory_order_release);	// Ensure all the needed parts of 'this' were copied to stack, before setting the result

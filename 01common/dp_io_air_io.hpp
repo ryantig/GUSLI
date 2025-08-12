@@ -37,6 +37,10 @@ class server_io_req : public backend_io_req {		// Additional set of internal fun
 	int64_t get_raw_rv(void) const { return out.rv; }
 	void start_execution(void) { out.rv = io_error_codes::E_IN_TRANSFER; }
 	const void *get_comp_ctx(void) const { return params._comp_ctx; }					// For debug prints of who handed this io to backend execution
+
+	~server_io_req() {
+		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Server Destroying io while it is still in air (running)!");
+	}
 };
 
 /*********************** In Air IO's holder ***********************/

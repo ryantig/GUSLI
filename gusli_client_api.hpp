@@ -153,7 +153,7 @@ struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] hea
 	bool init_num_entries(uint32_t n) { n_entries = n; _reserved = 0x6f696d6d; return is_valid(); }
 } __attribute__((aligned(sizeof(long))));
 
-class io_request {								// Data structure for issuing IO
+class io_request_base {							// Data structure for issuing IO
  public:
 	class params_t {							// Parameters for IO, Use setter/getter functions to intialize them
 		io_map_t _map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
@@ -201,7 +201,7 @@ class io_request {								// Data structure for issuing IO
 		bool is_polling_mode(void)        const { return _async_no_comp; }
 		bool is_blocking_io(void)         const { return !has_callback() && !is_polling_mode(); }
 	} params;
-	io_request() { memset(this, 0, sizeof(*this)); }
+	io_request_base() { memset(this, 0, sizeof(*this)); }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
@@ -211,6 +211,11 @@ class io_request {								// Data structure for issuing IO
 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
 private:
 	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;	// Internal function, dont touch
+};
+
+class io_request : public io_request_base {								// Example how you can inherit from io base class or use this class for your io
+ public:
+	SYMBOL_EXPORT ~io_request();										// Added destructor that verifies io is in a correct state (not still running / etc). You can use the base class if you dont need this extra protection
 };
 
 /******************************** Global library context ***********************/

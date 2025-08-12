@@ -147,7 +147,7 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 		}
 	}
 	bool verify_io_param_valid(const server_io_req &io) const;
-	int  clnt_send_io(      io_request &io, bool *need_wakeup_srvr_consumer);
+	int  clnt_send_io(          io_request_base &io, bool *need_wakeup_srvr_consumer);
 	int  clnt_receive_completion(           bool *need_wakeup_srvr_producer);
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
@@ -198,7 +198,7 @@ inline bool datapath_t<T>::verify_io_param_valid(const server_io_req &io) const 
 }
 
 template <class T>
-inline int datapath_t<T>::clnt_send_io(io_request &io, bool *need_wakeup_srvr) {
+inline int datapath_t<T>::clnt_send_io(io_request_base &io, bool *need_wakeup_srvr) {
 	server_io_req *sio = (server_io_req*)&io;
 	int rv = 0;
 	if (unlikely(io.params.is_polling_mode())) {				// Polling mode not supported yet, todo, add support

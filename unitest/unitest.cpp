@@ -95,6 +95,19 @@ int base_lib_mem_registration_bad_path(gusli::global_clnt_context& lib, const gu
 	return 0;
 }
 
+int base_lib_empty_io_unitest(void) {
+	log_line("%s",__FUNCTION__);
+	{ gusli::io_request io; }		// Constructor / destructor
+	{ gusli::io_request io; (void)io.get_error(); }
+	{ gusli::io_request io; (void)io.try_cancel(); }
+	{ gusli::io_request io; io.submit_io(); }
+	{ gusli::io_request io; io.get_error(); (void)io.try_cancel(); }
+	{ gusli::io_request io; io.submit_io(); (void)io.try_cancel(); }
+	{ gusli::io_request_base io; }
+	{ gusli::io_request_base io; io.get_error(); io.get_error(); (void)io.try_cancel(); }
+	return 0;
+}
+
 int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
 	unitest_io my_io;
 	static constexpr const char *data = "Hello world";
@@ -244,6 +257,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 
 /***************************** Clnt Server test ***************************************/
 #include "07examples/server/read_only_ram.hpp"
+#include "07examples/server/fail_server_ram.hpp"
 
 template<class T> class atomic {
 	T v;
@@ -385,7 +399,7 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 
 #include <unistd.h>  // for fork()
 #include <sys/wait.h>
-void client_server_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
+void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	static constexpr const int n_servers = 3;
 	log_line("Remote %d server launch", n_servers);
 	struct {
@@ -672,11 +686,12 @@ int main(int argc, char *argv[]) {
 		(void)pthread_setname_np(pthread_self(), thread_name);
 	}
 	gusli::global_clnt_context* lib = lib_initialize_unitests();
+	base_lib_empty_io_unitest();
 	unitest_auto_open_close(lib);
 	if (do_large_io_test) unitest_huge_mem_map_and_io(lib);
 	base_lib_unitests(*lib, n_iter_race_tests);
 	client_no_server_reply_test(*lib);
-	client_server_test(*lib, num_ios_preassure);
+	client_server_basic_test(*lib, num_ios_preassure);
 	delete lib;
 	log_unitest("Done!!! Success\n\n\n");
 }

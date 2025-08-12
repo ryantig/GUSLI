@@ -378,7 +378,7 @@ void global_clnt_context::bdev_ctl_report_data_corruption(const backend_bdev_id&
 }
 
 /*****************************************************************************/
-void io_request::submit_io(void) noexcept {
+void io_request_base::submit_io(void) noexcept {
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
 	server_bdev *bdev = NULL;
@@ -443,14 +443,14 @@ void io_request::submit_io(void) noexcept {
 	}
 }
 
-io_request_executor_base* io_request::__disconnect_executor_atomic(void) noexcept {
+io_request_executor_base* io_request_base::__disconnect_executor_atomic(void) noexcept {
 	if (!_exec)
 		return nullptr;
 	uint64_t *ptr = (uint64_t *)&_exec;
 	return (io_request_executor_base*)__atomic_exchange_n(ptr, (unsigned long)NULL, __ATOMIC_SEQ_CST);
 }
 
-enum io_error_codes io_request::get_error(void) noexcept {
+enum io_error_codes io_request_base::get_error(void) noexcept {
 	if (out.rv == io_error_codes::E_IN_TRANSFER) {
 		DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
 		if (params.is_polling_mode()) {
@@ -476,7 +476,13 @@ enum io_error_codes io_request::get_error(void) noexcept {
 	return (enum io_error_codes)out.rv;
 }
 
-enum io_request::cancel_rv io_request::try_cancel(bool blocking_wait) noexcept {
+io_request::~io_request() {				// Needed because user may not call get error nor cancel and executor will be stuck. So force call get error
+	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
+	out.rv = io_error_codes::E_INVAL_PARAMS;
+	(void)get_error();
+}
+
+enum io_request::cancel_rv io_request_base::try_cancel(bool blocking_wait) noexcept {
 	if (out.rv != io_error_codes::E_IN_TRANSFER)
 		return io_request::cancel_rv::G_ALLREADY_DONE;
 	DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
