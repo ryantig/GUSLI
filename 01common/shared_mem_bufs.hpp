@@ -81,6 +81,7 @@ class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing
 	void dec_ref(const base_shm_element *el, bool may_free = true);			// Done with buffer 'el', found with functions above
 	const base_shm_element* insert_on_client(const io_buffer_t& r);
 	const base_shm_element* insert_on_server(const char* name, uint32_t buf_idx, void* client_pointer, uint64_t n_bytes);
+	std::vector<io_buffer_t> get_all_bufs(const class shm_io_bufs_unuque_set_for_bdev& u);	// Copy does not affect ref_count
 
 	// Datapath IO API
 	bool does_include(const io_buffer_t &buf) const {						// Client: check if IO is included in registered buffers
@@ -108,6 +109,9 @@ class shm_io_bufs_unuque_set_for_bdev {		// Each block device cannot allow multi
 	bool has(uint32_t buf_idx) const { return u.find(  buf_idx) != u.end(); }
 	bool add(uint32_t buf_idx)       { return u.insert(buf_idx).second; }
 	bool del(uint32_t buf_idx)       { return u.erase( buf_idx) > 0; }
+	std::unordered_set<uint32_t>::const_iterator begin() const { return u.begin(); }
+	std::unordered_set<uint32_t>::const_iterator end() const {   return u.end(); }
+	void clear() { u.clear(); }
 	~shm_io_bufs_unuque_set_for_bdev() { ASSERT_IN_PRODUCTION(size() == 0); }
 };
 
