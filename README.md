@@ -43,6 +43,12 @@ In development https://jirasw.nvidia.com/browse/NVMESH-5811
 ## Contributing
 Upon adding new features, make sure that unitest.cpp covers them and all unit-tests pass.
 
+### Version release: CI for new version release, latest stable version 0.09:
+- [ ] Run Correctness tests (pass the following tests): `./unitest/run ci`;
+- [ ] Verify io performance did not suffer > 1.5[Miops]. Typically 2[M]+ for single code
+- [ ] Tag the version. Example:
+    - [ ] `git tag -a v0.04 -m "changes a, b, fix c"; git push --tags; git ls-remote --tags origin`
+
 ## Authors and acknowledgment
 Show your appreciation to those who have contributed to the project.
 
