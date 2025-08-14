@@ -82,7 +82,7 @@ class in_air_ios_holder {
 		t_lock_guard l(lock_);
 		return num_ios_in_air;
 	}
-	in_air_ios_holder(idx_t n_max_ios) : n_total_ios(0), num_max_inflight_io(n_max_ios), num_ios_in_air(0), bmp(num_max_inflight_io) {
+	in_air_ios_holder(idx_t n_max_ios) : n_total_ios(0), n_throttled_ios(0), num_max_inflight_io(n_max_ios), num_ios_in_air(0), bmp(num_max_inflight_io) {
 		lock_.init();
 		ASSERT_IN_PRODUCTION(bmp.size() < server_io_req::invalid_uid);	// Or else io.params._unique_id cannot hold the value
 		ios_arr = new server_io_req*[n_max_ios];
