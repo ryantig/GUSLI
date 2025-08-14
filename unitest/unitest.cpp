@@ -41,6 +41,7 @@ struct bdev_uuid_cache {
 	static constexpr const char* REMOTE[] = { "5bcdefab01234567", "6765432123456789", "7b56fa4c9f3316"};
 	static constexpr const char* SRVR_NAME[] = { "Bdev0", "Bdev1", "Bdev2"};
 	static constexpr const char* SRVR_ADDR[] = { "/dev/shm/gs472f4b04_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/ };
+	static constexpr const char* SRVR_FAIL_ADDR[] = { "/dev/shm/gsFail0_uds", "/dev/shm/gsFail1_uds" };
 } UUID;
 
 void test_non_existing_bdev(gusli::global_clnt_context& lib) {
@@ -252,6 +253,102 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_OK);
 		base_lib_mem_registration_bad_path(lib, bdev);
 	}
+	return 0;
+}
+
+int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const char* bdev_uuid) {
+	log_line("Stuck IO tests, uuid=%s", bdev_uuid);
+	static constexpr const auto _ok = gusli::connect_rv::C_OK;
+	gusli::backend_bdev_id bdev;
+	bdev.set_from(bdev_uuid);
+	static constexpr const uint32_t n_ios = 6;
+	unitest_io my_io[n_ios];
+	std::vector<gusli::io_buffer_t> mem; mem.reserve(n_ios);
+	for (uint32_t i = 0; i < n_ios; i++)
+		mem.emplace_back(my_io[i].get_map());
+	my_assert(lib.open__bufs_register(bdev, mem) == _ok);
+	gusli::bdev_info bdi;
+	my_assert(lib.bdev_get_info(bdev, bdi) == _ok);
+	my_assert(n_ios > bdi.num_max_inflight_io);				// We test throttling as well
+	const int32_t fd = bdi.bdev_descriptor;
+	const io_exec_mode tested_modes[3] = {io_exec_mode::POLLABLE, io_exec_mode::ASYNC_CB, io_exec_mode::URING_POLLABLE };	//for_each_exec_async_mode(i)
+
+	// Submit A few reads to overlapping lba's
+	for (uint32_t i = 0; i < n_ios; i++) {
+		my_io[i].expect_success(false).io.params.init_1_rng(gusli::G_NOP, fd, bdi.block_size, (i+1) * bdi.block_size, my_io[i].io_buf);
+		my_assert(my_io[i].io.params.map().data.byte_len <= my_io->get_map().byte_len);	// Sanity that we dont do mem corrupt
+		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);	// Dont wait for io completion
+	}
+	// Verify IO's state (while it is in air)
+	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {	// Ios are stuck
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+	}
+	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {	// Those io's were throttled
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_THROTTLE_RETRY_LATER);
+		my_assert(my_io[i].io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
+
+	// Stop all IO's
+	my_assert(lib.close_bufs_unregist(bdev, mem) != _ok);			// IOs are still in air cant unregister/close bdev
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
+	my_assert(lib.bdev_force_refresh(bdev) == _ok);					// Disconnect reconnect and drain ios
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);
+	my_assert(lib.bdev_force_refresh(bdev) == _ok);					// Second stop is meaningless
+
+	// Verify all in-air ios terminated
+	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {	// Stuck Ios were canceled
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		my_io[i].exec_dont_block_finish();
+	}
+	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {	// Throttled ios remain untouched
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_THROTTLE_RETRY_LATER);
+		my_io[i].exec_dont_block_finish();
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);
+
+	log_unitest("After drain, Retry the same ios\n");
+	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
+		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
+
+	// Cancel all except 1 directly by IO pointers
+	for (uint32_t i = 1; i < bdi.num_max_inflight_io; i++) {
+		my_assert(my_io[i].io.try_cancel() ==  gusli::io_request::cancel_rv::G_CANCELED);
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		my_io[i].exec_dont_block_finish();
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 1);		// Only my_io[0] is in air
+
+	// Resubmit the io's that were previously throtteled
+	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {
+		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == (n_ios-bdi.num_max_inflight_io+1));
+
+	// Stop the remaining io's, close the server and verify state
+	my_assert(lib.bdev_force_close(bdev) == _ok);
+	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		my_io[i].exec_dont_block_finish();
+	}
+	for (uint32_t i = 0; i < 1; i++) {
+		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		my_io[i].exec_dont_block_finish();
+	}
+	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);			// Blockdevice is not connected so 0 is returned
+
+	// Block device already closed, Cannot close again
+	my_assert(lib.close_bufs_unregist(bdev, mem, true) == gusli::connect_rv::C_NO_RESPONSE);
+	my_assert(lib.bdev_force_close(bdev) == _ok);	// Already closed, do nothing
+
+	// Refresh will actually connect but without any registered mem
+	my_assert(lib.bdev_force_refresh(bdev) == _ok);
+	mem.clear();
+	my_assert(lib.close_bufs_unregist(bdev, mem, true) == _ok);		// At last disconnect + kill server
 	return 0;
 }
 
@@ -520,6 +617,45 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 	}
 }
 
+void client_server_stuck_io_and_throttle_test(gusli::global_clnt_context& lib) {
+	static constexpr const int n_servers = 1;
+	log_line("Remote %d Stuck_io server launch", n_servers);
+	struct {
+		__pid_t   pid;								// Process id when server is lauched as process via fork()
+	} child[n_servers];
+	for (int i = 0; i < n_servers; i++) {
+		child[i].pid = fork();
+		my_assert(child[i].pid >= 0);
+		if (child[i].pid == 0) {	// Child process
+			fail_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], (i==0));
+			ds.run();
+			exit(0);
+		}
+	}
+	for (int s = 0; s < n_servers; s++) {
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
+		gusli::bdev_info info;
+		{
+			int n_attempts = 0;
+			enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
+			for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));	// Wait for servers to be up
+				con_rv = lib.bdev_connect(bdev);
+			}
+			my_assert(con_rv == gusli::connect_rv::C_OK);
+			__get_connected_bdev_descriptor(lib, bdev);
+		}
+		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
+		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
+	}
+	client_stuck_io_and_throttle_tests(lib, UUID.REMOTE[0]);
+
+	// Wait for all servers process to finish
+	for (int i = 0; i < n_servers; ++i) {
+		wait_for_process(child[i].pid, "server_done");
+	}
+}
+
 void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	log_line("Uninitialized library tests");
 	my_assert(lib.get_metadata_json()[0] == (char)0);			// Empty
@@ -689,6 +825,8 @@ int main(int argc, char *argv[]) {
 	gusli::global_clnt_context* lib = lib_initialize_unitests();
 	base_lib_empty_io_unitest();
 	unitest_auto_open_close(lib);
+	client_server_stuck_io_and_throttle_test(*lib);
+	client_stuck_io_and_throttle_tests(*lib, UUID.AUTO_STUCK);
 	if (do_large_io_test) unitest_huge_mem_map_and_io(lib);
 	base_lib_unitests(*lib, n_iter_race_tests);
 	client_no_server_reply_test(*lib);
