@@ -34,9 +34,10 @@ struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont 
 /*****************************************************************************/
 class io_request_executor_base : no_implicit_constructors {
  protected:
-	server_io_req* io;								// Link to original IO. If cacnel() not called will always be a valid pointer.
+	server_io_req* io;								// Link to original IO. If cancel() not called will always be a valid pointer.
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
+	bool had_construct_failure = false;				// Executor initialization encountered an error
 	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes'
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
 	enum io_type op(void) const { return io->params.op(); }
@@ -87,10 +88,11 @@ class io_request_executor_base : no_implicit_constructors {
 				log_set_rv();
 			}
 		}	// Else: dont access ->io, it might already free, when IO was canceled
+		this->io = NULL;								// IO is not accessible anymore
 		if (is_async_executor) cmp.lock.unlock();
 		__dec_ref(true);
 	}
-	void send_async_work_failed(void) { async_work_done(); }// Async work not started, we are still in submit io (polling code has not started, completion callback is not awaited yet)
+	int send_async_work_failed(void) { async_work_done(); return -1; } // Async work not started, we are still in submit io (polling code has not started, completion callback is not awaited yet)
  public:													// API to use by IO
 	io_request_executor_base(io_request_base& _io, const bool is_async) {
 		io = static_cast<server_io_req*>(&_io);
@@ -104,7 +106,7 @@ class io_request_executor_base : no_implicit_constructors {
 		log_free();
 		if (is_async_executor) { cmp.lock.destroy(); }
 	}
-	virtual void run(void) = 0;								// Start IO execution
+	virtual int run(void) = 0;								// Start IO execution, Return -1 if constructor had failure. Otherwise return 0;
 	virtual enum io_request::cancel_rv cancel(void) {		// Assume IO calls cancel() or detach_io() exactly once, no concurency here
 		io_request::cancel_rv rv;
 		if (is_async_executor) cmp.lock.lock();
@@ -112,7 +114,7 @@ class io_request_executor_base : no_implicit_constructors {
 			rv = io_request::cancel_rv::G_ALLREADY_DONE;
 		} else {
 			cmp.was_canceled = true;
-			this->io = NULL;								// After cacnel finishes, user can free the io
+			this->io = NULL;								// After cancel finishes, user can free the io
 			rv = io_request::cancel_rv::G_CANCELED;
 		}
 		if (is_async_executor) cmp.lock.unlock();
@@ -174,11 +176,9 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		exec->async_work_done();
 	}
  public:
-	void run(void) override {
+	int run(void) override {
+		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		if (num_ranges > 1) {
-			if (!u.reqs) { 	// Initialization error
-				return send_async_work_failed();
-			}
 			num_remaining_req.set(num_ranges);
 			const uint32_t n_req_to_run_on_stack = num_ranges;
 			for (uint32_t i = 0; i < n_req_to_run_on_stack; i++) {
@@ -194,15 +194,19 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		} else {
 			launch_1_aio_rw(&u.req1);
 		}
+		return 0;
 	}
 	aio_request_executor(io_request_base& _io) : io_request_executor_base(_io, true), send_error(0) {
+		if (unlikely(had_construct_failure))
+			return;
 		if (num_ranges > 1) {
 			u.reqs = (typeof(u.reqs))calloc(num_ranges, sizeof(struct aiocb));
 			if (u.reqs) {
 				const io_multi_map_t *mm = get_mm();
 				for (uint32_t i = 0; i < mm->n_entries; i++)
 					prep_aio(&u.reqs[i], mm->entries[i]);
-			}
+			} else
+				had_construct_failure = true;
 		} else {
 			memset(&u.req1, 0, sizeof(u.req1));
 			prep_aio(&u.req1, io->params.map());
@@ -215,7 +219,8 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 };
 
 /****************************** Blocking executors ****************************************/
-struct blocking_request_executor : public io_request_executor_base {
+class blocking_request_executor : public io_request_executor_base {
+ public:
 	blocking_request_executor(io_request_base& _io) : io_request_executor_base(_io, false) {}
 	enum io_request::cancel_rv cancel(void) override { BUG_ON(true, "IO was already completed, cancel does nothing and should not be called"); return io_request_executor_base::cancel(); }
 };
@@ -232,7 +237,8 @@ class sync_request_executor : public blocking_request_executor {
 		return rv;
 	}
  public:
-	void run(void) override {
+	int run(void) override {
+		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		const int fd = io->params.get_bdev_descriptor();
 		if (io->params.num_ranges() == 1) {
 			_do_1_map(fd, op(), io->params.map());
@@ -245,6 +251,7 @@ class sync_request_executor : public blocking_request_executor {
 			}
 		}
 		async_work_done();
+		return 0;
 	}
 	sync_request_executor(io_request_base& _io) : blocking_request_executor(_io) {}
 };
@@ -262,7 +269,10 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 		io->params.set_completion(this, this->__cb);
 		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
 	}
-	void run(void) override {}
+	int run(void) override {
+		if (unlikely(had_construct_failure)) return send_async_work_failed();
+		return 0;
+	}
 	enum io_error_codes is_still_running(void) override {
 		BUG_ON(sem_wait(&wait) != 0, "Error waiting for blocking io");
 		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
@@ -280,15 +290,14 @@ namespace gusli {
 class uring_request_executor : public io_request_executor_base {	// Execute async io with liburing, assume class allocated on heap (cant be on stack because non blocking)
 	typedef void (*prep_func_t)(struct io_uring_sqe*, int fd, const void*buf, unsigned int nbytes, __u64 offset);
 	struct io_uring uring;
-	int num_completed;				// Number of completed io ranges so far
-	bool had_failure;
 	prep_func_t prep_fn;
+	int num_completed;				// Number of completed io ranges so far
 	bool init_uring_queue(void) {
 		io_uring_params p = {};
 		const int urv = io_uring_queue_init_params(num_ranges, &uring, &p);
 		if (urv < 0) {
 			pr_err1("exec[%p].o[%p] Failed to initialize io_uring[%u], rv=%d(%s) " PRINT_EXTERN_ERR_FMT "\n", this, io, num_ranges, urv, strerror(-urv), PRINT_EXTERN_ERR_ARGS);
-			had_failure = true;
+			had_construct_failure = true;
 		} else if (false) {
 			char buf[256];
 			int buf_len = 256, count = 0;
@@ -298,18 +307,18 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			if (buf[0] == 0) BUF_ADD("None");
 			pr_verb1("uring flags=0x%x, params={%s}\n", p.flags, buf);
 		}
-		return !had_failure;
+		return !had_construct_failure;
 	}
 	bool prep_uringio(const io_map_t& map) {
 		struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
 		if (!sqe) {
 			pr_err1("exec[%p].o[%p] Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
-			had_failure = true;
+			had_construct_failure = true;
 		} else {
 			prep_fn(sqe, io->params.get_bdev_descriptor(), map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
 			sqe->user_data = (__u64)this;
 		}
-		return !had_failure;
+		return !had_construct_failure;
 	}
 	void __analyze_1_range(const struct io_uring_cqe *cqe) {
 		pr_verb1("cqe=%p exec=0x%llx, rv=%d\n", cqe, cqe->user_data, cqe->res);
@@ -317,9 +326,9 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			total_bytes += cqe->res;
 	}
 public:
-	uring_request_executor(io_request_base& _io) : io_request_executor_base(_io, false) {
-		num_completed = 0;
-		had_failure = false;
+	uring_request_executor(io_request_base& _io) : io_request_executor_base(_io, false), num_completed(0) {
+		if (unlikely(had_construct_failure))
+			return;
 		prep_fn = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
 		if (!init_uring_queue()) return;
 		if (num_ranges > 1) {
@@ -331,16 +340,16 @@ public:
 		}
 	}
 	~uring_request_executor() { io_uring_queue_exit(&uring); }
-	void run(void) override {
-		if (unlikely(had_failure)) { return send_async_work_failed(); }
+	int run(void) override {
+		if (unlikely(had_construct_failure)) { return send_async_work_failed(); }
 		BUG_ON(io->params.has_callback(), "Wrong executor usage, async mode unsupported yet");
 		const int n_submit = io_uring_submit(&uring);
 		if (n_submit != num_ranges) {
 			BUG_ON(n_submit > 0, "partial io_uring submission not supported yet: %d/%d", n_submit, num_ranges);
-			had_failure = true; return send_async_work_failed();
+			had_construct_failure = true; return send_async_work_failed();
 		}
 		if (io->params.is_polling_mode())
-			return;									// Nothing to do, user will poll for completion
+			return 0;								// Nothing to do, user will poll for completion
 		while (num_completed != num_ranges) {		// Blocking mode, poll uring ourselves
 			struct io_uring_cqe *cqe;
 			const int wait_rv = io_uring_wait_cqe(&uring, &cqe);
@@ -353,6 +362,7 @@ public:
 			io_uring_cqe_seen(&uring, cqe);
 		}
 		async_work_done();
+		return 0;
 	}
 	enum io_request::cancel_rv cancel(void) override {
 		is_still_running();									// Optimization: Poll cqes last time. If IO already completed return success instead of cancel.
