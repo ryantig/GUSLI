@@ -225,6 +225,7 @@ inline int datapath_t<T>::clnt_send_io(io_request_base &io, bool *need_wakeup_sr
 	io_csring *r = get();
 	const int sqe = r->sq.insert(io.params, need_wakeup_srvr);
 	if (sqe < 0) {
+		BUG_ON(true, "Impossible, in air io throttling already verified there is enough place. How is the ring full???");
 		return io_error_codes::E_THROTTLE_RETRY_LATER;
 	} // Note: here io can already be free() because completion arrived
 	return sqe;

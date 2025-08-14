@@ -430,20 +430,16 @@ void io_request_base::submit_io(void) noexcept {
 		}
 		#if defined(HAS_URING_LIB)
 			if (!params.has_callback() && params.may_use_uring())	// Uring does not support async callback mode
-				_exec = new uring_request_executor(*this);
+				_exec = new uring_request_executor(bdev->b.dp->in_air, *this);
 		#endif
 		if (!_exec) {
 			if (!params.is_blocking_io()) {					// Async IO, with / without completion
-				_exec = new aio_request_executor(*this);
+				_exec = new aio_request_executor(bdev->b.dp->in_air, *this);
 			} else {										// Blocking IO
-				_exec = new sync_request_executor(*this);
+				_exec = new sync_request_executor(bdev->b.dp->in_air, *this);
 			}
 		}
-		if (_exec)
-			_exec->run();									// Will auto delete exec upon IO finish;
-		else {
-			io_autofail_executor(*this, io_error_codes::E_INTERNAL_FAULT); // Out of memory error
-		}
+		_exec->run();									// Will auto delete exec upon IO finish;
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) {
 		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_STUCK) {
@@ -451,12 +447,12 @@ void io_request_base::submit_io(void) noexcept {
 	} else if (bdev->conf.is_bdev_remote()) {
 		const bool should_block = params.is_blocking_io();
 		if (unlikely(should_block)) {
-			_exec = new wrap_remote_io_exec_blocking(*this);
+			_exec = new wrap_remote_io_exec_blocking(bdev->b.dp->in_air, *this);
 		} else {
-			_exec = new wrap_remote_io_exec_async(*this);
+			_exec = new wrap_remote_io_exec_async(bdev->b.dp->in_air, *this);
 		}
-			if (_exec)
-				_exec->run();
+		if (_exec->run() < 0)
+			return;
 		bool need_wakeup_srvr;
 		const int send_rv = bdev->b.dp->clnt_send_io(*this, &need_wakeup_srvr);
 		if (send_rv >= 0) {

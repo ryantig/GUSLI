@@ -35,6 +35,7 @@ struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont 
 class io_request_executor_base : no_implicit_constructors {
  protected:
 	server_io_req* io;								// Link to original IO. If cancel() not called will always be a valid pointer.
+	in_air_ios_holder& in_air;						// External class: Holder of all in air ios. IO will connect and disconnect from it
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
 	bool had_construct_failure = false;				// Executor initialization encountered an error
@@ -63,9 +64,11 @@ class io_request_executor_base : no_implicit_constructors {
 			delete this;
 	}
 
-	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start   cmp_ctx=%p"           "\n", this, io, op(), num_ranges, io->params.buf_size(), io->get_comp_ctx()); }
+	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start.uid[%u] cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(), io->unique_id_get(), io->get_comp_ctx()); }
+	void log_start_reject(                                         ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].reject!       cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(),                      io->get_comp_ctx()); }
 	void log_free(                                                 ) const { pr_verb1("exec[%p].o[%p].free"                                                          "\n", this, io                  ); }
-	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]] "                            PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes,     PRINT_EXTERN_ERR_ARGS); }
+	void log_extern_notify(                                        ) const { pr_verb1("exec[%p].o[%p].extern_notify[%ld[b]].uid[%u] "                                "\n", this, io,  total_bytes, io->unique_id_get()); }
+	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]].uid[%u] "                    PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes, io->unique_id_get(),     PRINT_EXTERN_ERR_ARGS); }
 	void log_cancel(                                               ) const { pr_verb1("exec[%p].o[%p].was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
 	void log_put(                                           char rv) const { pr_verb1("exec[%p].o[%p].put[%c(%d%d)]"                                                 "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
  protected:
@@ -76,6 +79,8 @@ class io_request_executor_base : no_implicit_constructors {
 		cmp.has_finished_all_async_tasks = true;
 		if (!cmp.was_canceled) {
 			const int64_t cur_rv = io->get_raw_rv();
+			if (io->has_valid_unique_id())
+				in_air.remove(*io);
 			BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
 			log_set_rv();
 			if (total_bytes >= 0)
@@ -89,13 +94,21 @@ class io_request_executor_base : no_implicit_constructors {
 	}
 	int send_async_work_failed(void) { async_work_done(); return -1; } // Async work not started, we are still in submit io (polling code has not started, completion callback is not awaited yet)
  public:													// API to use by IO
-	io_request_executor_base(io_request_base& _io, const bool is_async) {
+	io_request_executor_base(in_air_ios_holder &_ina, io_request_base& _io, const bool is_async) : in_air(_ina){
 		io = static_cast<server_io_req*>(&_io);
+		DEBUG_ASSERT(io->is_valid());								// Verify no other executor connected to io
+		const bool can_start = in_air.insert(*io);
 		num_ranges = io->params.num_ranges();
 		is_async_executor = is_async;
 		if (is_async_executor) { ref.count.set(2); cmp.lock.init(); }
-		io->start_execution();
-		log_start();
+		if (can_start) {
+			io->start_execution();
+			log_start();
+		} else {													// Throtteled io is rejected: 'is_async' does not matter because failure is syncronous
+			log_start_reject();
+			had_construct_failure = true;
+			total_bytes = io_error_codes::E_THROTTLE_RETRY_LATER;
+		}
 	}
 	virtual ~io_request_executor_base() {
 		log_free();
@@ -105,6 +118,7 @@ class io_request_executor_base : no_implicit_constructors {
 		const int64_t cur_rv = io->get_raw_rv();
 		BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
 		total_bytes = rv;
+		log_extern_notify();
 	}
 
 	virtual int run(void) = 0;								// Start IO execution, Return -1 if constructor had failure. Otherwise return 0;
@@ -115,6 +129,7 @@ class io_request_executor_base : no_implicit_constructors {
 			rv = io_request::cancel_rv::G_ALLREADY_DONE;
 		} else {
 			cmp.was_canceled = true;
+			in_air.remove(*io);
 			this->io = NULL;								// After cancel finishes, user can free the io
 			rv = io_request::cancel_rv::G_CANCELED;
 		}
@@ -197,7 +212,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		}
 		return 0;
 	}
-	aio_request_executor(io_request_base& _io) : io_request_executor_base(_io, true), send_error(0) {
+	aio_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : io_request_executor_base(_ina, _io, true), send_error(0) {
 		if (unlikely(had_construct_failure))
 			return;
 		if (num_ranges > 1) {
@@ -222,7 +237,7 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 /****************************** Blocking executors ****************************************/
 class blocking_request_executor : public io_request_executor_base {
  public:
-	blocking_request_executor(io_request_base& _io) : io_request_executor_base(_io, false) {}
+	blocking_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : io_request_executor_base(_ina, _io, false) {}
 	enum io_request::cancel_rv cancel(void) override { BUG_ON(true, "IO was already completed, cancel does nothing and should not be called"); return io_request_executor_base::cancel(); }
 };
 
@@ -254,13 +269,13 @@ class sync_request_executor : public blocking_request_executor {
 		async_work_done();
 		return 0;
 	}
-	sync_request_executor(io_request_base& _io) : blocking_request_executor(_io) {}
+	sync_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : blocking_request_executor(_ina, _io) {}
 };
 
 class wrap_remote_io_exec_blocking : public blocking_request_executor {						// Convert remote async request io to blocking
 	sem_t wait;					// Block sender until io returns
  public:
-	wrap_remote_io_exec_blocking(io_request_base &_io) : blocking_request_executor(_io) {
+	wrap_remote_io_exec_blocking(in_air_ios_holder &_ina, io_request_base &_io) : blocking_request_executor(_ina, _io) {
 		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
 	}
 	int run(void) override {
@@ -281,7 +296,7 @@ class wrap_remote_io_exec_blocking : public blocking_request_executor {						// 
 
 class wrap_remote_io_exec_async : public io_request_executor_base {
  public:
-	wrap_remote_io_exec_async(io_request_base &_io) : io_request_executor_base(_io, true) {	}
+	wrap_remote_io_exec_async(in_air_ios_holder &_ina, io_request_base &_io) : io_request_executor_base(_ina, _io, true) {	}
 	int run(void) override {
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		return 0;
@@ -342,7 +357,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			total_bytes += cqe->res;
 	}
 public:
-	uring_request_executor(io_request_base& _io) : io_request_executor_base(_io, false), num_completed(0) {
+	uring_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : io_request_executor_base(_ina, _io, false), num_completed(0) {
 		if (unlikely(had_construct_failure))
 			return;
 		prep_fn = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
