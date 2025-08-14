@@ -69,16 +69,24 @@ void srvr_imp::send_to(const MGMT::msg_content &msg, size_t n_bytes, const struc
 		pr_infoS(this, " >> type=%c, fd=%d, msg=%s\n", io_sock.get_type(), io_sock.fd(), msg.raw());
 	send_rv = io_sock.send_msg(msg.raw(), n_bytes, addr);
 	if (send_rv != (ssize_t)n_bytes) {
-		pr_emerg("%s: Send Error rv=%ld, n_bytes=%lu, msg=%s\n", LIB_NAME, send_rv, n_bytes, msg.raw());
-		client_reject();
+		pr_errS(this, "Send Error rv=%ld, n_bytes=%lu, msg=%s\n", send_rv, n_bytes, msg.raw());
+		client_reject("Send error");
 		do_shut_down(-__LINE__);
 	}
-	//return (send_rv == (ssize_t)n_bytes) ? 0 : -1;
 }
 
 void srvr_imp::__clnt_close(const char* reason) {
-	b.close1(reason);
-	delete dp; dp = nullptr;
+	if (dp) {
+		pr_verbS(this, "Destroying datapath\n");
+		b.close1(reason);
+		if (dp->is_still_used()) {	// Auto clean leaked resources
+			pr_errS(this, "Close Error: still have %u[mapped-buffers], %u[ios]\n", dp->get_num_mem_reg_ranges(), dp->get_num_in_air_ios());
+			for (auto it = dp->reg_bufs_set.begin(); it != dp->reg_bufs_set.end(); ++it)	// Print the list of registerd leaked bufs
+				pr_verbS(this, PRINT_MMAP_PREFIX "Force_clenaup buf [%d%c]\n", *it, 'i');
+			dp->registerd_bufs_force_clean();
+		}
+		delete dp; dp = nullptr;
+	}
 }
 
 void srvr_imp::client_accept(connect_addr& addr) {
@@ -100,11 +108,12 @@ void srvr_imp::client_accept(connect_addr& addr) {
 		io_sock.set_io_buffer_size(1<<19, 1<<19);
 }
 
-void srvr_imp::client_reject(void) {
+void srvr_imp::client_reject(const char* why) {
 	if (sock.uses_connection() && sock.is_alive()) {
-		io_sock.nice_close();
+		io_sock.nice_close();	// First kill the connection to stop receiving msgs from client
 		ca.clean();
 	}
+	__clnt_close(why);			// Close if not already closed
 }
 
 class backend_io_executor {
@@ -219,7 +228,7 @@ int srvr_imp::run_once(void) noexcept {
 		if (io_st == ios_block)
 			return exit_error_code;		// Occurs only if io socket is non blocking
 		pr_errS(this, "receive type=%c, io_state=%d, fd=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, io_sock.fd(), PRINT_EXTERN_ERR_ARGS);
-		client_reject();
+		client_reject("read_msg_error");
 		return exit_error_code;			// On next iteration, accept new client
 	}
 	char clnt_path[32];
@@ -256,16 +265,16 @@ int srvr_imp::run_once(void) noexcept {
 		msg.pay.s_unreg_ack.init_with(my_buf, reg_rv);
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::close_nice)) {
-		__clnt_close("nice_close");
+		__clnt_close("nice_close");		// Block device is closed (no datapath) but client is still accepted by server to listen for future reopen()
 		const size_t n_send_bytes = msg.build_cl_ack();
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::die_now)) {
 		do_shut_down(__LINE__);			// Successfull kill by client
-		__clnt_close("suicide");
+		__clnt_close("suicide");		// Optional Optimization: Close memory registration and backend as fast as possible
 		const size_t n_send_bytes = msg.build_die_ack();
 		strcpy(msg.pay.s_die.extra_info, "cdie");
 		send_to(msg, n_send_bytes, addr);
-		client_reject();
+		client_reject("suicide");
 	} else if (msg.is(MGMT::msg::log)) {
 		const char*p = msg.pay.c_log.extra_info;
 		while (*p == ' ') p++;

@@ -68,7 +68,7 @@ class srvr_imp : public base_library  {
 	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
 	bool has_connencted_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
-	void client_reject(void);
+	void client_reject(const char* why);
 	[[nodiscard]] int  __clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf);
 	[[nodiscard]] int  __clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf);
 	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
