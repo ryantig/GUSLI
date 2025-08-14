@@ -219,22 +219,15 @@ inline bool datapath_t<T>::verify_io_param_valid(const server_io_req &io) const 
 template <class T>
 inline int datapath_t<T>::clnt_send_io(io_request_base &io, bool *need_wakeup_srvr) const {
 	server_io_req *sio = (server_io_req*)&io;
-	int rv = 0;
-	if (unlikely(io.params.is_polling_mode())) {				// Polling mode not supported yet, todo, add support
-		sio->set_error(io_error_codes::E_INVAL_PARAMS);
-		return -1;
-	}
 	if (!io.params.is_safe_io() && !verify_io_param_valid(*sio)) {
-		sio->set_error(io_error_codes::E_INVAL_PARAMS);
-		return -1;
+		return io_error_codes::E_INVAL_PARAMS;
 	}
 	io_csring *r = get();
-	rv = r->sq.insert(io.params, need_wakeup_srvr);
-	if (rv < 0) {
-		sio->set_error(io_error_codes::E_THROTTLE_RETRY_LATER);
-		return -1;
+	const int sqe = r->sq.insert(io.params, need_wakeup_srvr);
+	if (sqe < 0) {
+		return io_error_codes::E_THROTTLE_RETRY_LATER;
 	} // Note: here io can already be free() because completion arrived
-	return rv;
+	return sqe;
 }
 
 template <class T>
@@ -246,9 +239,8 @@ inline int datapath_t<T>::clnt_receive_completion(bool *need_wakeup_srvr) const 
 		return cqe;		// No completions arrived, client poller can go to sleep
 	server_io_req* io = comp.io_ptr;
 	BUG_ON(!io, "Server did not return back the client context, Client cant find the completed io");
-	BUG_ON(!io->params.has_callback(), "How else would we notify the sender that IO finished?");
 	pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_CQE_ELEM_FMT ".rv[%ld]\n", PRINT_IO_REQ_ARGS(io->params), cqe, comp.rv);
-	io->set_success(comp.rv);
+	io->client_receive_server_finish_io(comp.rv);
 	return cqe;
 }
 

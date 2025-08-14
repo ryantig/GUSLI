@@ -38,7 +38,6 @@ class io_request_executor_base : no_implicit_constructors {
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
 	bool had_construct_failure = false;				// Executor initialization encountered an error
-	bool was_rv_already_set_by_remote = false;		// was 'rv' of io already set, Typically false. If true, no need to analize 'total_bytes'
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
 	enum io_type op(void) const { return io->params.op(); }
  private:
@@ -77,16 +76,12 @@ class io_request_executor_base : no_implicit_constructors {
 		cmp.has_finished_all_async_tasks = true;
 		if (!cmp.was_canceled) {
 			const int64_t cur_rv = io->get_raw_rv();
-			if (!was_rv_already_set_by_remote) {
-				BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
-				log_set_rv();
+			BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
+			log_set_rv();
+			if (total_bytes >= 0)
 				io->set_success((uint64_t)total_bytes);									// User callback may not call cancel() so no dead lock
-			} else {
-				BUG_ON(cur_rv == (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
-				BUG_ON(io->params.has_callback(), "wrong implementation, io already got its cb and filled the rv");
-				total_bytes = (uint64_t)cur_rv;
-				log_set_rv();
-			}
+			else
+				io->set_error((enum io_error_codes)total_bytes);						// User callback may not call cancel() so no dead lock
 		}	// Else: dont access ->io, it might already free, when IO was canceled
 		this->io = NULL;								// IO is not accessible anymore
 		if (is_async_executor) cmp.lock.unlock();
@@ -106,6 +101,12 @@ class io_request_executor_base : no_implicit_constructors {
 		log_free();
 		if (is_async_executor) { cmp.lock.destroy(); }
 	}
+	virtual void extern_notify_completion(int64_t rv) {				// Executors that wrap external execution flow are notified when flow ends. They dont exectue the IO themselves
+		const int64_t cur_rv = io->get_raw_rv();
+		BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
+		total_bytes = rv;
+	}
+
 	virtual int run(void) = 0;								// Start IO execution, Return -1 if constructor had failure. Otherwise return 0;
 	virtual enum io_request::cancel_rv cancel(void) {		// Assume IO calls cancel() or detach_io() exactly once, no concurency here
 		io_request::cancel_rv rv;
@@ -256,17 +257,10 @@ class sync_request_executor : public blocking_request_executor {
 	sync_request_executor(io_request_base& _io) : blocking_request_executor(_io) {}
 };
 
-class remote_aio_blocker : public blocking_request_executor {						// Convert remote async request io to blocking
+class wrap_remote_io_exec_blocking : public blocking_request_executor {						// Convert remote async request io to blocking
 	sem_t wait;					// Block sender until io returns
-	static void __cb(remote_aio_blocker *exec) {
-		pr_verb1("exec[%p].o[%p].blocked_rio: completion arrived\n", exec, exec->io);
-		exec->was_rv_already_set_by_remote = true;
-		BUG_ON(sem_post(&exec->wait) != 0, "Error when unblocking waiter");		// Must be last line because after unblock executor can get free
-	}
  public:
-	remote_aio_blocker(io_request_base &_io) : blocking_request_executor(_io) {
-		DEBUG_ASSERT(io->is_valid());								// Verify no other executor conencted to io
-		io->params.set_completion(this, this->__cb);
+	wrap_remote_io_exec_blocking(io_request_base &_io) : blocking_request_executor(_io) {
 		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
 	}
 	int run(void) override {
@@ -276,11 +270,33 @@ class remote_aio_blocker : public blocking_request_executor {						// Convert re
 	enum io_error_codes is_still_running(void) override {
 		BUG_ON(sem_wait(&wait) != 0, "Error waiting for blocking io");
 		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
-		io->params.set_completion(NULL, NULL);
 		async_work_done();
 		return io_error_codes::E_OK;
 	}
+	void extern_notify_completion(int64_t rv) override {
+		io_request_executor_base::extern_notify_completion(rv);
+		BUG_ON(sem_post(&wait) != 0, "Error when unblocking waiter");		// Must be last line because after unblock executor can get free
+	}
 };
+
+class wrap_remote_io_exec_async : public io_request_executor_base {
+ public:
+	wrap_remote_io_exec_async(io_request_base &_io) : io_request_executor_base(_io, true) {	}
+	int run(void) override {
+		if (unlikely(had_construct_failure)) return send_async_work_failed();
+		return 0;
+	}
+	void extern_notify_completion(int64_t rv) override {
+		io_request_executor_base::extern_notify_completion(rv);
+		async_work_done();
+	}
+	enum io_request::cancel_rv cancel(void) override {
+		const auto rv = io_request_executor_base::cancel();
+		async_work_done();									// Because extern_notify_completion() will not be called
+		return rv;
+	}
+};
+
 }; // namespace gusli
 
 /*****************************************************************************/

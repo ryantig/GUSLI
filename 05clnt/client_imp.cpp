@@ -394,6 +394,22 @@ uint32_t global_clnt_context::bdev_ctl_get_num_in_air_ios(const backend_bdev_id&
 }
 
 /*****************************************************************************/
+/* IO api race conditions after io was submitted. Worst case - it has an async callback and it is polled:
+	* Multiple user different threads poll IO status via get_error().
+	* Multiple user different threads call try_cancel() due to timeout or any other reason.
+	* When IO completes and gives callback to user. This callback can also execute get_error() or try_cancel()
+	* Once try_cancel() succeeds, IO can be freed so callback must not arrive on canceled ios
+	* With server backend - completion ring wakes up and calls client_receive_server_finish_io(), race with cancel
+
+  Key points:
+	* Once IO status becomes not in transfer (success / failure) user can immediately free it (possibly polling thread).
+	* This implies that in the code we cannot refer to io after rv was set.
+	* Inherent race condition: seting io rv and issuing callback, but user does polling in parallel to callback.
+*/
+void server_io_req::client_receive_server_finish_io(int64_t rv) {
+	_exec->extern_notify_completion(rv);	// Here is a race condition with already canceled io, todo, fix me
+}
+
 void io_request_base::submit_io(void) noexcept {
 	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
 	out.rv = io_error_codes::E_IN_TRANSFER;
@@ -435,22 +451,24 @@ void io_request_base::submit_io(void) noexcept {
 	} else if (bdev->conf.is_bdev_remote()) {
 		const bool should_block = params.is_blocking_io();
 		if (unlikely(should_block)) {
-			_exec = new remote_aio_blocker(*this);
+			_exec = new wrap_remote_io_exec_blocking(*this);
+		} else {
+			_exec = new wrap_remote_io_exec_async(*this);
+		}
 			if (_exec)
 				_exec->run();
-		}
 		bool need_wakeup_srvr;
-		const int rv = bdev->b.dp->clnt_send_io(*this, &need_wakeup_srvr);
-		if (rv >= 0) {
-			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), rv, this, need_wakeup_srvr);
+		const int send_rv = bdev->b.dp->clnt_send_io(*this, &need_wakeup_srvr);
+		if (send_rv >= 0) {
+			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), send_rv, this, need_wakeup_srvr); // This print is mem corrupt
 			if (need_wakeup_srvr) {
 				const int wakeup_rv = bdev->b.dp_wakeup_server();
-				if (wakeup_rv < 0)
-					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waiking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), rv, this);
+				if (wakeup_rv < 0) // PRINT here is mem corrupt
+					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waiking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), send_rv, this);
 			}
 			// Callback will come in future
-		} else {
-			/* Submition failed, Callback already arrived , 'this' can be free already as it returned a callback on failed async io */
+		} else { // Submition failed, Give callback
+			((server_io_req *)this)->client_receive_server_finish_io(send_rv);
 		}
 		if (should_block)
 			_exec->is_still_running();		// Blocking wait, for success or failure

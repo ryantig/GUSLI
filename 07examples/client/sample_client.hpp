@@ -76,7 +76,7 @@ int client_test_write_read_verify_multi(const gusli::bdev_info& info, const std:
 	test_lba::mmio_verify_and_clean(mio, info.block_size);
 	my_io.exec(gusli::G_READ , io_exec_mode::SYNC_BLOCKING_1_BY_1);	// Also verify blocking read
 	test_lba::mmio_verify_and_clean(mio, info.block_size);
-	my_io.expect_success(false).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
+	my_io.expect_success(true).exec(gusli::G_READ, io_exec_mode::POLLABLE);	// Pollable-Fails - not supported yet
 	return 0;
 }
 
