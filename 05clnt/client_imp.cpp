@@ -215,9 +215,52 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 }
 
 enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id, bool do_reconnect) noexcept {
-	(void)id;
-	(void)do_reconnect;
-	return C_NO_DEVICE;
+	server_bdev *bdev = bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
+	const bool is_alive = bdev->is_alive();
+	if (!is_alive && !do_reconnect) {
+		pr_info(PRINT_BDEV_ID_FMT " Force stop on stopped blockdevice, do nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
+		return C_OK;
+	}
+
+	std::vector<io_buffer_t> bufs;
+	if (is_alive) {
+		const uint32_t num_ios = bdev->b.dp->get_num_in_air_ios();
+		if (/*!bdev->b.dp->is_still_used() &&*/ (num_ios == 0) && do_reconnect) {
+			pr_info(PRINT_BDEV_ID_FMT " Refresh does nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
+			return C_OK;				// Nothing to refresh
+		}
+		if (bdev->conf.is_bdev_remote()) {
+			pr_info(PRINT_BDEV_ID_FMT " Force disconnect from server to stop getting io completions\n", PRINT_BDEV_ID_ARGS(*bdev));
+			bdev->b.force_break_connection();
+		}
+
+		pr_info(PRINT_BDEV_ID_FMT " draining %u io's in air\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
+		server_io_req *stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
+		while (stuck_io) {	// For local block devices this loop may do less iterations than num_ios (because io's keep completing). For remote this is impossible because we broke the socket
+			const enum io_request::cancel_rv rv = stuck_io->try_cancel(false);
+			ASSERT_IN_PRODUCTION(rv == io_request::cancel_rv::G_CANCELED);
+			stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
+		}
+
+		// Save the list of registerd bufs to reregister them later
+		bufs = bdev->b.dp->registerd_bufs_get_list();
+		bdev->b.dp->registerd_bufs_force_clean();
+
+		const connect_rv rv_disconnect = bdev->disconnect(false);
+		ASSERT_IN_PRODUCTION(rv_disconnect == connect_rv::C_OK);
+	}
+
+	if (do_reconnect) {
+		const connect_rv rv_reconnect = bdev->connect(par.client_name);
+		ASSERT_IN_PRODUCTION(rv_reconnect == connect_rv::C_OK);
+		pr_info(PRINT_BDEV_ID_FMT " reregistering %u mem bufs\n", PRINT_BDEV_ID_ARGS(*bdev), (uint32_t)bufs.size());
+		const connect_rv rv_rereg = bdev->b.map_buf_do_vec(bufs);
+		ASSERT_IN_PRODUCTION(rv_rereg == connect_rv::C_OK);
+	}
+	return C_OK;
 }
 
 enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_id& id, const std::vector<io_buffer_t>& bufs) noexcept {
