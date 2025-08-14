@@ -443,7 +443,8 @@ void io_request_base::submit_io(void) noexcept {
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) {
 		io_autofail_executor(*this, io_error_codes::E_PERM_FAIL_NO_RETRY);	// Here, injection of all possible errors
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_STUCK) {
-		// No executor, io is stuck
+		_exec = new never_reply_executor(bdev->b.dp->in_air, *this);
+		_exec->run();
 	} else if (bdev->conf.is_bdev_remote()) {
 		const bool should_block = params.is_blocking_io();
 		if (unlikely(should_block)) {

@@ -312,6 +312,24 @@ class wrap_remote_io_exec_async : public io_request_executor_base {
 	}
 };
 
+/*****************************************************************************/
+class never_reply_executor : public io_request_executor_base {
+ public:
+	never_reply_executor(in_air_ios_holder &_ina, io_request_base &_io) : io_request_executor_base(_ina, _io, true) {}
+	int run(void) override {
+		if (unlikely(had_construct_failure)) return send_async_work_failed();
+		pr_verb1("exec[%p].o[%p].will_be_stuck\n", this, io);
+		return 0;
+	}
+	enum io_request::cancel_rv cancel(void) override {
+		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
+		const auto rv = io_request_executor_base::cancel();
+		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
+		async_work_done();
+		return rv;
+	}
+};
+
 }; // namespace gusli
 
 /*****************************************************************************/
