@@ -364,9 +364,11 @@ enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& 
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
-	const enum connect_rv rv = c.bdev_bufs_unregist(id, bufs);
-	if (rv != C_OK)
-		return rv;
+	if (!bufs.empty()) {
+		const enum connect_rv rv = c.bdev_bufs_unregist(id, bufs);
+		if (rv != C_OK)
+			return rv;
+	}
 	if (!bdev->b.dp->is_still_used())
 		bdev->disconnect(stop_server);		// User has nothing to do with close failure
 	return C_OK;
@@ -673,16 +675,21 @@ enum connect_rv bdev_backend_api::map_buf_un_vec(const std::vector<io_buffer_t>&
 
 int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_server) {
 	if (io_listener_tid) {
-		MGMT::msg_content msg;
-		size_t size;
-		if (do_kill_server) {
-			size = msg.build_die();
-		} else {
-			size = msg.build_close();
-			msg.pay.c_close.volume = id;
+		int send_rv = 0;
+		if (sock.is_alive()) {
+			MGMT::msg_content msg;
+			size_t size;
+			if (do_kill_server) {
+				size = msg.build_die();
+			} else {
+				size = msg.build_close();
+				msg.pay.c_close.volume = id;
+			}
+			send_rv = send_to(msg, size);
+			if (send_rv < 0)
+				pr_err1(PRINT_BDEV_UUID_FMT " Unable to disconnect from server %s, rv=%d\n",  id.uuid, srv_addr, send_rv);
 		}
-		ASSERT_IN_PRODUCTION(send_to(msg, size) >= 0);
-		pr_info1("going to join listener_thread tid=0x%lx\n", (long)io_listener_tid);
+		pr_info1("going to join listener_thread tid=0x%lx, sock_alive=%d\n", (long)io_listener_tid, sock.is_alive());
 		const int err = pthread_join(io_listener_tid, NULL);
 		ASSERT_IN_PRODUCTION(err == 0);
 	}
