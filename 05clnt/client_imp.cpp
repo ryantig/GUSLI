@@ -19,6 +19,8 @@
 #include "00utils/utils.hpp"
 #include "client_imp.hpp"
 #include "io_executors.hpp"
+#include <sys/stat.h>
+#include <sys/ioctl.h>
 
 namespace gusli {
 
@@ -126,8 +128,6 @@ int global_clnt_context_imp::destroy(void) noexcept {
 	return finish(LIB_COLOR, 0);
 }
 
-#include <sys/stat.h>
-#include <sys/ioctl.h>
 enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
@@ -173,7 +173,6 @@ enum connect_rv server_bdev::connect(const char* client_name) {
 		if (info->bdev_descriptor > 0) {
 			struct stat sb;
 			const int rv0 = fstat(info->bdev_descriptor, &sb);
-			// unsigned long long size = 0; const int rv1 = ioctl(info->bdev_descriptor, BLKGETSIZE64, &size);
 			if (rv0 != 0) {
 				close(info->bdev_descriptor);
 				return C_NO_DEVICE;
@@ -183,8 +182,13 @@ enum connect_rv server_bdev::connect(const char* client_name) {
 			if (sb.st_size) {
 				info->num_total_blocks = sb.st_size;
 			} else {
-				pr_err1(PRINT_BDEV_ID_FMT " Cannot determine size. Setting default!\n", PRINT_BDEV_ID_ARGS(*bdev));
-				info->num_total_blocks = (1 << 30); // Default[GB]
+				const int rv1 = ioctl(info->bdev_descriptor, BLKGETSIZE64, &sb.st_size);
+				if ((rv1 >=0) && (sb.st_size != 0)) {
+					info->num_total_blocks = sb.st_size;
+				} else {
+					pr_err1(PRINT_BDEV_ID_FMT " Cannot determine size. Setting default!\n", PRINT_BDEV_ID_ARGS(*bdev));
+					info->num_total_blocks = (1 << 30); // Default[GB]
+				}
 			}
 			MGMT::msg_content msg;
 			const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
