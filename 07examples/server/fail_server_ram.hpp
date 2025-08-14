@@ -22,16 +22,13 @@
 class fail_server_ram : private gusli::srvr_backend_bdev_api {
 	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
 	gusli::bdev_info binfo;
-	bool should_stuck;						// Never return completion on io?
-	gusli::bdev_info open1(const char* who) noexcept override { (void)who; return binfo; }
-	int             close1(const char* who) noexcept override { (void)who; return 0; }
+	bool should_stuck;
+	gusli::bdev_info open1(const char* who) noexcept override { dslog("Open1 : %s\n", who); return binfo; }
+	int             close1(const char* who) noexcept override { dslog("Close1: %s\n", who); return 0; }
 	void exec_io(gusli::backend_io_req& io) noexcept override {
-		if (should_stuck) {
-			dslog("Stuck IO[%c].ptr=%p\n", io.params.op(), &io);
-		} else {
-			dslog("Fail_ IO[%c].ptr=%p\n", io.params.op(), &io);
+		dslog("%s IO[%c].ptr=%p\n", par.server_name, io.params.op(), &io);
+		if (!should_stuck)
 			io.set_error(gusli::io_error_codes::E_PERM_FAIL_NO_RETRY);
-		}
 	}
  public:
 	fail_server_ram(const char* _name, const char* listen_addr, bool all_ios_stuck = false) {
