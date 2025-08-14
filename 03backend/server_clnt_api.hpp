@@ -157,6 +157,20 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 	int  srvr_receive_io(         server_io_req &io, bool *need_wakeup_clnt_producer) const;
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
+
+	std::vector<io_buffer_t> registerd_bufs_get_list(void) const {
+		return shm_io_bufs->get_all_bufs(reg_bufs_set);
+	}
+
+	void registerd_bufs_force_clean(void) {
+		t_lock_guard l(shm_io_bufs->with_lock());
+		for (auto it = reg_bufs_set.begin(); it != reg_bufs_set.end(); ++it) {
+			base_shm_element *g_map = shm_io_bufs->find2(*it);
+			BUG_ON(!g_map, PRINT_MMAP_PREFIX " GC: unknown buf [%d%c] globally", *it, 'i');
+			shm_io_bufs->dec_ref(g_map);
+		}
+		reg_bufs_set.clear();
+	}
 };
 
 template <class T>
