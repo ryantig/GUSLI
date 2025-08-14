@@ -40,6 +40,7 @@ class unitest_io {
 	bool is_waiting_for_callback;
 	bool _expect_success = true;
 	bool _verbose = true;
+	bool _should_wait_for_io_finish = true;
 	char _should_try_cancel = 0;
 	enum io_exec_mode mode;
  public:
@@ -51,7 +52,10 @@ class unitest_io {
 	static void __comp_cb(unitest_io *c) {
 		const ge io_rv = c->io.get_error();
 		my_assert(io_rv != ge::E_IN_TRANSFER);							// When callback is is done and cannot be in air
-		my_assert(io_rv != ge::E_CANCELED_BY_CALLER);					// If canceled by caller, callback cannot arrive
+		if (!c->_should_wait_for_io_finish) {
+			my_assert((io_rv == ge::E_CANCELED_BY_CALLER) || (io_rv == ge::E_THROTTLE_RETRY_LATER));		// Stuck ios can be resolved only by force cancelation or throttling
+		} else
+			my_assert(io_rv != ge::E_CANCELED_BY_CALLER);				// Even if canceled by caller, while IO is in air, callback cannot arrive
 		c->is_waiting_for_callback = false;
 		c->print_io_comp();
 		if (c->_should_try_cancel)
@@ -61,19 +65,18 @@ class unitest_io {
 	void blocking_wait_for_io_finish(void) {
 		if (mode == io_exec_mode::ASYNC_CB) {
 			if (io.get_error() == ge::E_CANCELED_BY_CALLER) {
-				print_io_comp();							// Callback will not come
-				my_assert(is_waiting_for_callback == true);
+				print_io_comp();
+				my_assert(is_waiting_for_callback == true);	// Callback will not come
 				is_waiting_for_callback = false;
 			} else {
-				my_assert(sem_wait(&wait) == 0);			// Callback already arrived
-				my_assert(is_waiting_for_callback == false);
+				my_assert(sem_wait(&wait) == 0);			// Block until Callback arrives
 			}
 		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
 			while (io.get_error() == ge::E_IN_TRANSFER) {
 				//std::this_thread::sleep_for(std::chrono::nanoseconds(100));
 			}
 			print_io_comp();
-		} else {
+		} else { /* Nothing to do for blocking io */
 			print_io_comp();
 		}
 		assert_rv();
@@ -85,7 +88,8 @@ class unitest_io {
 		my_assert(is_waiting_for_callback == false);
 		if (io_rv == ge::E_CANCELED_BY_CALLER) {
 			n_cancl++;
-			my_assert(_should_try_cancel == 'C');		// Blocking cancel waits for IO to finish
+			if (_should_wait_for_io_finish)
+				my_assert(_should_try_cancel == 'C');		// Blocking cancel waits for IO to finish
 		} else {
 			const bool io_succeeded = (io_rv == ge::E_OK);
 			my_assert(io_succeeded == _expect_success);
@@ -119,13 +123,25 @@ class unitest_io {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
 			(void)io.try_cancel(_should_try_cancel == 'B');
 		}
-		blocking_wait_for_io_finish();
+		if (_should_wait_for_io_finish)
+			blocking_wait_for_io_finish();
 		return *this;
 	}
 	void exec_cancel(gusli::io_type _op, io_exec_mode _mode, bool is_blocking_cancel = false) {
 		_should_try_cancel = is_blocking_cancel ? 'B' : 'C';
 		exec(_op, _mode);
 	}
+	void exec_dont_block(gusli::io_type _op, io_exec_mode _mode) {
+		my_assert(_should_wait_for_io_finish == true);
+		_should_wait_for_io_finish = false;
+		exec(_op, _mode);
+	}
+	void exec_dont_block_finish(void) {
+		my_assert(_should_wait_for_io_finish == false);
+		blocking_wait_for_io_finish();
+		_should_wait_for_io_finish = true;
+	}
+
 	unitest_io& expect_success(bool val) { _expect_success = val; return *this; }
 	unitest_io& clear_stats(void) { n_ios = n_cancl = 0; return *this; }
 	unitest_io& enable_prints(bool val) { _verbose = val; return *this; }
