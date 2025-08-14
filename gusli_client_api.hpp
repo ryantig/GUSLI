@@ -261,19 +261,20 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	using mem_list = std::vector<io_buffer_t>;
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_connect(      const backend_bdev_id&)                  const noexcept;	// Open block device, must be done before register buffers or submitting io
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_register(const backend_bdev_id&, const mem_list&) const noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_stop_all_ios( const backend_bdev_id&)                  const noexcept;	// Cancel all io air IO's. Call this if you want to unregister-mem / close block device but some IO's are stuck. Each io with registrred callback will execute the callback. Polling thread will observer io cancelation
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const mem_list&) const noexcept;
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_disconnect(   const backend_bdev_id&)                  const noexcept;
 
 	// Same as above but with implicit open/close using auto refcount on bdev
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv open__bufs_register(const backend_bdev_id&, const mem_list&)                           const noexcept;	// Register shared memory buffers which will store the content of future io
-	SYMBOL_EXPORT_NO_DISCARD enum connect_rv close_bufs_unregist(const backend_bdev_id&, const mem_list&, bool stop_server = false) const noexcept;
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv close_bufs_unregist(const backend_bdev_id&, const mem_list&, bool stop_server = false) const noexcept;	// Reverse of the above, stop server param kills the server app. No reconnection is possible
 
 	// Get block device information (after it was oppened)
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_get_info(      const backend_bdev_id&, bdev_info &rv)  const noexcept;
 	SYMBOL_EXPORT_NO_DISCARD int32_t   bdev_get_descriptor(      const backend_bdev_id&)                 const noexcept;
 
 	// Advanced Control API towards server, for debugging / testing / crisis management
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_force_close(   const backend_bdev_id&, bool reconnect = false) const noexcept;	// Call this if you want to unregister-mem / close block device but some IO's are stuck. Cancels all io air IO's, executes their callbacks. Can Reconnect to server and reregister memory buffers
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_force_refresh( const backend_bdev_id& id)              const noexcept { return bdev_force_close(id, true); }
 	SYMBOL_EXPORT         void bdev_ctl_report_data_corruption(  const backend_bdev_id&, uint64_t lba)   const noexcept;	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.
 	SYMBOL_EXPORT     uint32_t bdev_ctl_get_num_in_air_ios(      const backend_bdev_id&)                 const noexcept;	// Get the amount of ios in air for this block device. For debugging
 	SYMBOL_EXPORT         void bdev_ctl_log_msg(                 const backend_bdev_id&, std::string &s) const noexcept;	// Send a short message to write to server logs. Max 56 bytes/ascii-characters

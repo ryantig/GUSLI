@@ -54,14 +54,17 @@ class bdev_backend_api {									// API to server 1 block device
 	bool check_incoming();
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
 	void on_keep_alive_received(void) { time(&last_keepalive); }
+	int map_buf(   const io_buffer_t);
+	int map_buf_un(const io_buffer_t);
  public:
 	datapath_t<bdev_stats_clnt> *dp = nullptr;
 	bdev_info info;											// block device information visible for user
 	bdev_backend_api() { clean_srvr(); }
+	void force_break_connection(void) { sock.nice_close(); }
 	int hand_shake(const bdev_config_params &conf, const char *clnt_name);	// Constructor: Connect to remote server
 	int create_dp( const backend_bdev_id &id, MGMT::msg_content &msg);		// Constructor: Connect to local bdev (serverless)
-	int map_buf(   const backend_bdev_id& id, const io_buffer_t buf);
-	int map_buf_un(const backend_bdev_id& id, const io_buffer_t buf);
+	enum connect_rv map_buf_do_vec(const std::vector<io_buffer_t>& bufs);
+	enum connect_rv map_buf_un_vec(const std::vector<io_buffer_t>& bufs);
 	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
 	int dp_wakeup_server(void) const;
 	static void* io_completions_listener(bdev_backend_api *_self);
@@ -72,6 +75,8 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 	bdev_backend_api b;					// Remote connection
 	t_lock_mutex_recursive control_path_lock;
 	server_bdev() { control_path_lock.init(); }
+	enum connect_rv connect(const char* clnt_name);
+	enum connect_rv disconnect(const bool do_suicide);
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }
 	bool is_alive(void) const {
@@ -171,7 +176,7 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 
 	enum connect_rv bdev_connect(      const backend_bdev_id&) noexcept;
 	enum connect_rv bdev_bufs_register(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
-	enum connect_rv bdev_stop_all_ios( const backend_bdev_id&) noexcept;
+	enum connect_rv bdev_stop_all_ios( const backend_bdev_id&, bool do_reconnect) noexcept;
 	enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
 	enum connect_rv bdev_disconnect(   const backend_bdev_id&) noexcept;
 	enum connect_rv bdev_get_info(     const backend_bdev_id&, bdev_info *ret_val) noexcept;

@@ -130,10 +130,15 @@ int global_clnt_context_imp::destroy(void) noexcept {
 #include <sys/ioctl.h>
 enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
-	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
+	return bdev->connect(par.client_name);
+}
+
+enum connect_rv server_bdev::connect(const char* client_name) {
+	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
+	server_bdev *bdev = this;
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
 	pr_info1("Open " PRINT_BDEV_ID_FMT ", flag=0x%x\n", PRINT_BDEV_ID_ARGS(*bdev), o_flag);
 	if (bdev->is_alive())
@@ -189,7 +194,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 			return C_NO_DEVICE;
 		}
 	} else if (bdev->conf.is_bdev_remote()) {
-		bdev->b.hand_shake(bdev->conf, par.client_name);
+		bdev->b.hand_shake(bdev->conf, client_name);
 		if (info->is_valid())
 			return C_OK;
 		return C_NO_RESPONSE;
@@ -206,16 +211,12 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	t_lock_guard l(bdev->control_path_lock);
 	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
-	for (size_t i = 0; i < bufs.size(); i++) {
-		const int map_rv = bdev->b.map_buf(id, bufs[i]);
-		if (map_rv != 0)
-			return C_WRONG_ARGUMENTS;
-	}
-	return C_OK;
+	return bdev->b.map_buf_do_vec(bufs);
 }
 
-enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id) noexcept {
+enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id, bool do_reconnect) noexcept {
 	(void)id;
+	(void)do_reconnect;
 	return C_NO_DEVICE;
 }
 
@@ -233,15 +234,11 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 		pr_err1("Error " PRINT_BDEV_ID_FMT " attemt to unregister mem with %u io's in air. This is a wrong flow that may lead to memory corruption!\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
 		return C_WRONG_ARGUMENTS;
 	}
-	for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
-		const int map_rv = bdev->b.map_buf_un(id, bufs[i]);
-		if (map_rv != 0)
-			return C_WRONG_ARGUMENTS;
-	}
-	return C_OK;
+	return bdev->b.map_buf_un_vec(bufs);
 }
 
-static enum connect_rv __bdev_disconnect(server_bdev *bdev, const bool do_suicide) {
+enum connect_rv server_bdev::disconnect(const bool do_suicide) {
+	server_bdev *bdev = this;
 	const backend_bdev_id& id = bdev->conf.id;
 	enum connect_rv rv = C_OK;
 	datapath_t<bdev_stats_clnt> *dp = bdev->b.dp;
@@ -275,7 +272,7 @@ enum connect_rv global_clnt_context_imp::bdev_disconnect(const backend_bdev_id& 
 	if (!bdev)
 		return C_NO_DEVICE;
 	t_lock_guard l(bdev->control_path_lock);
-	return __bdev_disconnect(bdev, false);
+	return bdev->disconnect(false);
 }
 
 void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint64_t offset_lba_bytes) noexcept {
@@ -283,7 +280,7 @@ void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint
 	if (bdev) {
 		pr_err1("Error: User reported data corruption on " PRINT_BDEV_ID_FMT ", lba=0x%lx[B]\n", PRINT_BDEV_ID_ARGS(*bdev), offset_lba_bytes);
 		t_lock_guard l(bdev->control_path_lock);
-		__bdev_disconnect(bdev, true);
+		bdev->disconnect(true);
 	} else {
 		pr_err1("Error: User reported data corruption on unknown " PRINT_BDEV_UUID_FMT ", lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
 	}
@@ -336,9 +333,10 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 	return global_clnt_context_imp::get().bdev_bufs_register(id, bufs);
 }
 
-enum connect_rv global_clnt_context::bdev_stop_all_ios(const backend_bdev_id& id) const noexcept {
-	return global_clnt_context_imp::get().bdev_stop_all_ios(id);
+enum connect_rv global_clnt_context::bdev_force_close(const backend_bdev_id& id, bool do_reconnect) const noexcept {
+	return global_clnt_context_imp::get().bdev_stop_all_ios(id, do_reconnect);
 }
+
 enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs) const noexcept{
 	return global_clnt_context_imp::get().bdev_bufs_unregist(id, bufs);
 }
@@ -370,7 +368,7 @@ enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& 
 	if (rv != C_OK)
 		return rv;
 	if (!bdev->b.dp->is_still_used())
-		(void)__bdev_disconnect(bdev, stop_server);		// User has nothing to do with close failure
+		bdev->disconnect(stop_server);		// User has nothing to do with close failure
 	return C_OK;
 }
 
@@ -601,7 +599,7 @@ _out:
 	return info.bdev_descriptor;
 }
 
-int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
+int bdev_backend_api::map_buf(const io_buffer_t io) {
 	if (!io.is_valid_for(info.block_size))
 		return -__LINE__;
 	t_lock_guard l(dp->shm_io_bufs->with_lock());
@@ -613,7 +611,7 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 		dp->shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
 		return -__LINE__;			// Already mapped to this block device
 	}
-	MGMT::msg_content msg; (void)id;
+	MGMT::msg_content msg;
 	const size_t size = msg.build_reg_buf();
 	auto *pr = &msg.pay.c_register_buf;
 	pr->build_io_buffer(*g_map, info.block_size);
@@ -628,7 +626,16 @@ int bdev_backend_api::map_buf(const backend_bdev_id& id, const io_buffer_t io) {
 	return 0;
 }
 
-int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io) {
+enum connect_rv bdev_backend_api::map_buf_do_vec(const std::vector<io_buffer_t>& bufs) {
+	for (size_t i = 0; i < bufs.size(); i++) {
+		const int map_rv = map_buf(bufs[i]);
+		if (map_rv != 0)
+			return C_WRONG_ARGUMENTS;
+	}
+	return C_OK;
+}
+
+int bdev_backend_api::map_buf_un(const io_buffer_t io) {
 	t_lock_guard l(dp->shm_io_bufs->with_lock());
 	const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
 	if (!g_map) {
@@ -639,7 +646,7 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
 		return -__LINE__;
 	}
-	MGMT::msg_content msg; (void)id;
+	MGMT::msg_content msg;
 	const size_t size = msg.build_unr_buf();
 	auto *pr = &msg.pay.c_unreg_buf;
 	pr->build_io_buffer(*g_map, info.block_size);
@@ -653,6 +660,15 @@ int bdev_backend_api::map_buf_un(const backend_bdev_id& id, const io_buffer_t io
 	ASSERT_IN_PRODUCTION(dp->reg_bufs_set.del(g_map->buf_idx));
 	dp->shm_io_bufs->dec_ref(g_map);
 	return 0;
+}
+
+enum connect_rv bdev_backend_api::map_buf_un_vec(const std::vector<io_buffer_t>& bufs) {
+	for (int i = (int)bufs.size()-1; i >= 0; i--) {			// Assuming same vector as register - do reverse order to reduce vector moves
+		const int map_rv = map_buf_un(bufs[i]);
+		if (map_rv != 0)
+			return C_WRONG_ARGUMENTS;
+	}
+	return C_OK;
 }
 
 int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_server) {
@@ -767,7 +783,7 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	for (bdev->is_control_path_ok = true; bdev->is_control_path_ok; ) {
 		bdev->check_incoming();
 	}
-	pr_info1("\t\t\tListener end\n");
+	pr_info1("\t\t\tListener name=%s addr=%s end\n", bdev->info.name, bdev->srv_addr);
 	return NULL;
 }
 
