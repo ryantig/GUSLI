@@ -58,7 +58,29 @@ class unitest_io {
 			my_assert(c->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
 		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter. Must be last expression to prevent the callback from running while io is retried.
 	}
+	void blocking_wait_for_io_finish(void) {
+		if (mode == io_exec_mode::ASYNC_CB) {
+			if (io.get_error() == ge::E_CANCELED_BY_CALLER) {
+				print_io_comp();							// Callback will not come
+				my_assert(is_waiting_for_callback == true);
+				is_waiting_for_callback = false;
+			} else {
+				my_assert(sem_wait(&wait) == 0);			// Callback already arrived
+				my_assert(is_waiting_for_callback == false);
+			}
+		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
+			while (io.get_error() == ge::E_IN_TRANSFER) {
+				//std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+			}
+			print_io_comp();
+		} else {
+			print_io_comp();
+		}
+		assert_rv();
+	}
 	void assert_rv(void) {
+		if (io.params.op() == gusli::G_READ)
+			io_buf[io.params.buf_size()] = 0;		// Null termination for prints of buffer content
 		const ge io_rv = io.get_error();
 		my_assert(is_waiting_for_callback == false);
 		if (io_rv == ge::E_CANCELED_BY_CALLER) {
@@ -97,26 +119,7 @@ class unitest_io {
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
 			(void)io.try_cancel(_should_try_cancel == 'B');
 		}
-		if (mode == io_exec_mode::ASYNC_CB) {
-			if (io.get_error() == ge::E_CANCELED_BY_CALLER) {
-				print_io_comp();							// Callback will not come
-				my_assert(is_waiting_for_callback == true);
-				is_waiting_for_callback = false;
-			} else {
-				my_assert(sem_wait(&wait) == 0);			// Callback already arrived
-				my_assert(is_waiting_for_callback == false);
-			}
-		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
-			while (io.get_error() == ge::E_IN_TRANSFER) {
-				//std::this_thread::sleep_for(std::chrono::nanoseconds(100));
-			}
-			print_io_comp();
-		} else {
-			print_io_comp();
-		}
-		if (_op == gusli::G_READ)
-			io_buf[n_bytes] = 0;		// Null termination for prints of buffer content
-		assert_rv();
+		blocking_wait_for_io_finish();
 		return *this;
 	}
 	void exec_cancel(gusli::io_type _op, io_exec_mode _mode, bool is_blocking_cancel = false) {
