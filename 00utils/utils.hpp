@@ -268,7 +268,7 @@ class sock_t {
 	int  clnt_connect_to_srvr_tcp(uint32_t port, const ip_addr_str ip,    connect_addr& ca, bool is_blocking);
 	int  clnt_connect_to_srvr_uds(const char* domain_socket_path,         connect_addr& ca, bool is_blocking);
 	void print_address(                        char addr[32]      , const connect_addr& src) const;				// Upon incommin msg, extract server address
-	void nice_close(bool force = false);
+	void nice_close(void);
 	ssize_t send_msg(const void *buf, size_t len,                   const connect_addr& ca) const;
 };
 

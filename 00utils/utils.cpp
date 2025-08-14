@@ -193,10 +193,10 @@ int sock_t::srvr_accept_clnt(struct connect_addr& ca) const {
 	return accept(_fd, &ca.u.b, &sinlen);
 }
 
-void sock_t::nice_close(bool force) {
+void sock_t::nice_close(void) {
 	epoll_reply_stop();
 	if (is_alive()) {
-		if (force) shutdown(_fd, SHUT_RDWR);	// Stop all read/write on socket, existing data remains in the socket
+		shutdown(_fd, SHUT_RDWR);	// Stop all read/write on socket, existing data remains in the socket. Must be called in multithreaded app, becasue close on thread1 will not unblock thread2 which is blocked on read/write
 		close(_fd); _fd = -1;
 	}
 }
