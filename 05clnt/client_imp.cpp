@@ -666,22 +666,24 @@ _out:
 int bdev_backend_api::map_buf(const io_buffer_t io) {
 	if (!io.is_valid_for(info.block_size))
 		return -__LINE__;
-	t_lock_guard l(dp->shm_io_bufs->with_lock());
-	const base_shm_element *g_map = dp->shm_io_bufs->insert_on_client(io);
-	if (!g_map)
-		return -__LINE__;			// Buffer rejected by global hash
-	if (!dp->reg_bufs_set.add(g_map->buf_idx)) {
-		pr_err1("%s: Wrong register buf request to " PRINT_IO_BUF_FMT ", it is already registered to this bdevs as " PRINT_REG_IDX_FMT "\n", info.name, PRINT_IO_BUF_ARGS(io), g_map->buf_idx);
-		dp->shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
-		return -__LINE__;			// Already mapped to this block device
-	}
 	MGMT::msg_content msg;
 	const size_t size = msg.build_reg_buf();
-	auto *pr = &msg.pay.c_register_buf;
-	pr->build_io_buffer(*g_map, info.block_size);
-	pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
-	if (has_remote()) {
+	{
+		t_lock_guard l(dp->shm_io_bufs->with_lock());
+		const base_shm_element *g_map = dp->shm_io_bufs->insert_on_client(io);
+		if (!g_map)
+			return -__LINE__;			// Buffer rejected by global hash
+		if (!dp->reg_bufs_set.add(g_map->buf_idx)) {
+			pr_err1("%s: Wrong register buf request to " PRINT_IO_BUF_FMT ", it is already registered to this bdevs as " PRINT_REG_IDX_FMT "\n", info.name, PRINT_IO_BUF_ARGS(io), g_map->buf_idx);
+			dp->shm_io_bufs->dec_ref(g_map, false);	// Abort, dec ref. Verify cannot free the global because its ref must be >= 2
+			return -__LINE__;			// Already mapped to this block device
+		}
+		auto *pr = &msg.pay.c_register_buf;
 		// Note: Dont touch *(uint64_t*)g_map->mem.get_buf() - It might be used now with io to a different bdev, possible on different server
+		pr->build_io_buffer(*g_map, info.block_size);
+		pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
+	}	// Release lock here
+	if (has_remote()) {
 		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
@@ -700,29 +702,35 @@ enum connect_rv bdev_backend_api::map_buf_do_vec(const std::vector<io_buffer_t>&
 }
 
 int bdev_backend_api::map_buf_un(const io_buffer_t io) {
-	t_lock_guard l(dp->shm_io_bufs->with_lock());
-	const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
-	if (!g_map) {
-		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
-		return -__LINE__;
-	}
-	if (!dp->reg_bufs_set.has(g_map->buf_idx)) {
-		pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
-		return -__LINE__;
-	}
 	MGMT::msg_content msg;
 	const size_t size = msg.build_unr_buf();
-	auto *pr = &msg.pay.c_unreg_buf;
-	pr->build_io_buffer(*g_map, info.block_size);
-	pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
-	ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+	{
+		t_lock_guard l(dp->shm_io_bufs->with_lock());
+		const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
+		if (!g_map) {
+			pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
+			return -__LINE__;
+		}
+		if (!dp->reg_bufs_set.has(g_map->buf_idx)) {
+			pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it is registered to other bdevs, not to this one\n", PRINT_IO_BUF_ARGS(io));
+			return -__LINE__;
+		}
+		auto *pr = &msg.pay.c_unreg_buf;
+		pr->build_io_buffer(*g_map, info.block_size);
+		pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
+	}	// Release lock here
 	if (has_remote()) {
+		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
 	}
-	ASSERT_IN_PRODUCTION(dp->reg_bufs_set.del(g_map->buf_idx));
-	dp->shm_io_bufs->dec_ref(g_map);
+	{	// After server replied to us, remove the buffer
+		t_lock_guard l(dp->shm_io_bufs->with_lock());
+		const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
+		ASSERT_IN_PRODUCTION(g_map && dp->reg_bufs_set.del(g_map->buf_idx));
+		dp->shm_io_bufs->dec_ref(g_map);
+	}
 	return 0;
 }
 
@@ -789,7 +797,7 @@ bool bdev_backend_api::check_incoming() {
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
-				//t_lock_guard l(dp->shm_io_bufs->with_lock());
+				t_lock_guard l(dp->shm_io_bufs->with_lock());
 				BUG_ON(!dp->shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
