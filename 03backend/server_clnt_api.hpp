@@ -392,6 +392,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		size_t build_unr_ack(void) { hdr.init(MGMT::msg::unreg_ack);	BUIL_MSG_RET }
 		size_t build_close(void) {   hdr.init(MGMT::msg::close_nice);	pay.c_close.reserved = 0UL; BUIL_MSG_RET }
 		size_t build_cl_ack(void) {  hdr.init(MGMT::msg::close_ack);	BUIL_MSG_RET }
+		size_t build_log(const std::string& s) { hdr.init(MGMT::msg::log);	strncpy_no_trunc_warning(pay.c_log.extra_info, s.c_str(), 56); BUIL_MSG_RET }
 		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.extra_info[0] = 0; BUIL_MSG_RET }
 		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.extra_info[0] = 0; BUIL_MSG_RET }
 		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	BUIL_MSG_RET }

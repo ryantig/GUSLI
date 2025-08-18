@@ -218,6 +218,32 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 	return bdev->b.map_buf_do_vec(bufs);
 }
 
+enum connect_rv bdev_backend_api::bdev_ctl_log_msg1(const std::string &s) const noexcept {
+	if (!sock.is_alive())
+		return C_NO_RESPONSE;
+	MGMT::msg_content msg;
+	const size_t size = msg.build_log(s);
+	const int send_rv = send_to(msg, size);
+	return (send_rv < 0) ? C_NO_RESPONSE : C_OK;
+}
+
+enum connect_rv global_clnt_context_imp::bdev_ctl_log_msg2(const backend_bdev_id& id, const std::string &s) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
+	t_lock_guard l(bdev->control_path_lock);
+	if (!bdev->is_alive())
+		return C_NO_RESPONSE;
+	if (!bdev->conf.is_bdev_remote()) {
+		pr_info1(PRINT_BDEV_ID_FMT " Just local print %s\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
+		return C_OK;
+	}
+	const enum connect_rv rv = bdev->b.bdev_ctl_log_msg1(s);
+	if (rv != C_OK)
+		pr_err1(PRINT_BDEV_ID_FMT " Error logging to server %s, rv=%d\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str(), rv);
+	return rv;
+}
+
 enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id, bool do_reconnect) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
@@ -382,6 +408,10 @@ enum connect_rv global_clnt_context::bdev_bufs_register(const backend_bdev_id& i
 
 enum connect_rv global_clnt_context::bdev_force_close(const backend_bdev_id& id, bool do_reconnect) const noexcept {
 	return global_clnt_context_imp::get().bdev_stop_all_ios(id, do_reconnect);
+}
+
+enum connect_rv global_clnt_context::bdev_ctl_log_msg(const backend_bdev_id& id, const std::string &s) const noexcept {
+	return global_clnt_context_imp::get().bdev_ctl_log_msg2(id, s);
 }
 
 enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs) const noexcept{

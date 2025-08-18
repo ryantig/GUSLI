@@ -166,6 +166,8 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
 		}
 		test_io_no_result_check_by_user(lib, bdev);
+		std::string msg = "print_clnt_msg";
+		my_assert(gusli::connect_rv::C_OK == lib.bdev_ctl_log_msg(bdev, msg));
 	}
 	if (1) {
 		log_line("Cancel while io is in air all modes");
@@ -564,6 +566,12 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 	}
+	{
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
+		std::string msg = "print_clnt_msg";
+		enum gusli::connect_rv msg_rv = lib.bdev_ctl_log_msg(bdev, msg);
+		my_assert(msg_rv == gusli::connect_rv::C_OK);
+	}
 
 	unitest_io my_io;
 	std::vector<gusli::io_buffer_t> io_bufs;
@@ -710,6 +718,8 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_io.exec(gusli::G_READ,  SYNC_BLOCKING_1_BY_1);
 	my_io.io.params.init_1_rng(gusli::G_WRITE,  1, 0, 16, NULL);
 	my_io.exec(gusli::G_READ,  POLLABLE);
+	std::string msg = "print_clnt_msg";
+	my_assert(rv == lib.bdev_ctl_log_msg(bdev, msg));
 }
 
 gusli::global_clnt_context* lib_initialize_unitests(void) {

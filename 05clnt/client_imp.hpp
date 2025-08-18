@@ -65,6 +65,7 @@ class bdev_backend_api {									// API to server 1 block device
 	int create_dp( const backend_bdev_id &id, MGMT::msg_content &msg);		// Constructor: Connect to local bdev (serverless)
 	enum connect_rv map_buf_do_vec(const std::vector<io_buffer_t>& bufs);
 	enum connect_rv map_buf_un_vec(const std::vector<io_buffer_t>& bufs);
+	enum connect_rv bdev_ctl_log_msg1(const std::string &s) const noexcept;
 	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
 	int dp_wakeup_server(void) const;
 	static void* io_completions_listener(bdev_backend_api *_self);
@@ -182,6 +183,7 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 	enum connect_rv bdev_get_info(     const backend_bdev_id&, bdev_info *ret_val) noexcept;
 	void bdev_ctl_report_di(           const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
 	uint32_t bdev_ctl_get_n_in_air_ios(const backend_bdev_id&) noexcept;
+	enum connect_rv bdev_ctl_log_msg2(  const backend_bdev_id& id, const std::string &s) noexcept;
 };
 
 } // namespace gusli
