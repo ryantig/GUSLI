@@ -650,7 +650,7 @@ int bdev_backend_api::create_dp(const backend_bdev_id &id, MGMT::msg_content &ms
 		*(uint64_t*)dp->shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
 		const io_buffer_t buf = io_buffer_t::construct(dp->shm_ring.get_buf(), dp->shm_ring.get_n_bytes());
 		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), srv_addr);
-		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0) {
 			delete dp; dp = nullptr;
 			return -__LINE__;
@@ -727,10 +727,10 @@ int bdev_backend_api::map_buf(const io_buffer_t io) {
 		pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
 	}	// Release lock here
 	if (has_remote()) {
-		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
-		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
+		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
 	}
 	return 0;
 }
@@ -763,10 +763,10 @@ int bdev_backend_api::map_buf_un(const io_buffer_t io) {
 		pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
 	}	// Release lock here
 	if (has_remote()) {
-		ASSERT_IN_PRODUCTION(sem_init(&wait_control_path, 0, 0) == 0);
+		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
-		ASSERT_IN_PRODUCTION(sem_wait(&wait_control_path) == 0);
+		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
 	}
 	{	// After server replied to us, remove the buffer
 		t_lock_guard l(dp->shm_io_bufs->with_lock());
@@ -844,12 +844,12 @@ void bdev_backend_api::check_incoming(void) {
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
-			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
+			ASSERT_IN_PRODUCTION(sem_post(&wait_server_reply) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::unreg_ack)) {
 			const auto *pr = &msg.pay.s_unreg_ack;
 			pr_info1("UnRegistAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
-			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
+			ASSERT_IN_PRODUCTION(sem_post(&wait_server_reply) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::server_kick)) {
 			BUG_NOT_IMPLEMENTED();
 		} else if (msg.is(MGMT::msg::close_ack)) {

@@ -48,7 +48,7 @@ class bdev_backend_api {									// API to server 1 block device
 	const char* srv_addr;
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
-	sem_t wait_control_path;
+	sem_t wait_server_reply;
 	void clean_srvr(void) { sock.nice_close(); srv_addr = nullptr; is_control_path_ok = false; io_listener_tid = 0; info.clear(); }
 	bool has_remote(void) const { return srv_addr != NULL; }
 	void check_incoming(void);
