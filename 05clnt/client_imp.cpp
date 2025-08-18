@@ -811,17 +811,16 @@ int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_s
 	return 0;
 }
 
-bool bdev_backend_api::check_incoming() {
+void bdev_backend_api::check_incoming(void) {
 	connect_addr addr = this->ca;
 	MGMT::msg_content msg;
-	bool rv = false;
 	const enum io_state io_st = __read_1_full_message(sock, msg, false, addr);
 	if (io_st != ios_ok) {
 		pr_info1("receive type=%c, io_state=%d, " PRINT_EXTERN_ERR_FMT "\n", sock.get_type(), io_st, PRINT_EXTERN_ERR_ARGS);
 		if (io_state_broken(io_st))
 			is_control_path_ok = false;
 		BUG_ON(io_st == ios_block, "Client listener should have blocking wait for io completion, It has no other job to do");
-		return rv;
+		return;
 	}
 	char server_path[32];
 	sock.print_address(server_path, addr);	// Todo: Multiple servers, find the correct one
@@ -832,7 +831,7 @@ bool bdev_backend_api::check_incoming() {
 	if (true) {
 		on_keep_alive_received(); // Every message is considered a keep alive
 		if (msg.is(MGMT::msg::keepalive)) {
-			return false;	// Nothing special to do
+			return;
 		} else if (msg.is(MGMT::msg::hello_ack)) {
 			this->info = msg.pay.s_hello_ack.info;
 			ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(info.num_max_inflight_io));
@@ -843,12 +842,12 @@ bool bdev_backend_api::check_incoming() {
 				t_lock_guard l(dp->shm_io_bufs->with_lock());
 				BUG_ON(!dp->shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
-			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
+			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
 			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::unreg_ack)) {
 			const auto *pr = &msg.pay.s_unreg_ack;
-			pr_info1("UnRegistAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, rv);
+			pr_info1("UnRegistAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
 			ASSERT_IN_PRODUCTION(sem_post(&wait_control_path) == 0);	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::server_kick)) {
@@ -874,9 +873,8 @@ bool bdev_backend_api::check_incoming() {
 		} else {
 			BUG_ON(true, "Unhandled message %s\n", msg.hdr.type);
 		}
-		return true;	// Need to respond to control path change
 	}
-	return rv;
+	return;
 }
 
 int bdev_backend_api::dp_wakeup_server(void) const {

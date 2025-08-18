@@ -51,7 +51,7 @@ class bdev_backend_api {									// API to server 1 block device
 	sem_t wait_control_path;
 	void clean_srvr(void) { sock.nice_close(); srv_addr = nullptr; is_control_path_ok = false; io_listener_tid = 0; info.clear(); }
 	bool has_remote(void) const { return srv_addr != NULL; }
-	bool check_incoming();
+	void check_incoming(void);
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
 	void on_keep_alive_received(void) { time(&last_keepalive); }
 	int map_buf(   const io_buffer_t);
