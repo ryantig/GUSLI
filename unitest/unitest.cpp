@@ -158,42 +158,7 @@ int base_lib_empty_io_unitest(void) {
 	return 0;
 }
 
-int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
-	unitest_io my_io;
-	static constexpr const char *data = "Hello world";
-	static constexpr const uint64_t data_len = __builtin_strlen(data);
-	gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
-	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
-	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
-	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
-	if (1) {
-		log_line("Submit async/sync/pollable write");
-		for_each_exec_mode(i) {
-			strcpy(my_io.io_buf, data);
-			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
-			my_io.clean_buf();
-			my_io.exec(gusli::G_READ, (io_exec_mode)i);
-			my_assert(strcmp(data, my_io.io_buf) == 0);
-			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
-		}
-		test_io_no_result_check_by_user(lib, bdev);
-		std::string msg = "print_clnt_msg";
-		my_assert(gusli::connect_rv::C_OK == lib.bdev_ctl_log_msg(bdev, msg));
-	}
-	if (1) {
-		log_line("Cancel while io is in air all modes");
-		my_io.clear_stats();
-		for_each_exec_mode(i) {
-			my_io.clean_buf();
-			my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
-			if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
-				my_assert(strcmp(data, my_io.io_buf) == 0);
-		}
-	}
+int io_race_conditions_unittest(unitest_io& my_io, const char *data, int n_iter_race_tests) {
 	if (1) {
 		const int n_iters = n_iter_race_tests;
 		log_line("Race-Pollable in-air-io test %d[iters]", n_iters);
@@ -230,6 +195,46 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_io.enable_prints(true).clear_stats();
 		fflush(stderr);
 	}
+	return 0;
+}
+
+int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 10000) {
+	unitest_io my_io;
+	static constexpr const char *data = "Hello world";
+	static constexpr const uint64_t data_len = __builtin_strlen(data);
+	gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
+	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
+	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
+	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
+	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
+	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+	if (1) {
+		log_line("Submit async/sync/pollable write");
+		for_each_exec_mode(i) {
+			strcpy(my_io.io_buf, data);
+			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
+			my_io.clean_buf();
+			my_io.exec(gusli::G_READ, (io_exec_mode)i);
+			my_assert(strcmp(data, my_io.io_buf) == 0);
+			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
+		}
+		test_io_no_result_check_by_user(lib, bdev);
+		std::string msg = "print_clnt_msg";
+		my_assert(gusli::connect_rv::C_OK == lib.bdev_ctl_log_msg(bdev, msg));
+	}
+	if (1) {
+		log_line("Cancel while io is in air all modes");
+		my_io.clear_stats();
+		for_each_exec_mode(i) {
+			my_io.clean_buf();
+			my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
+			if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
+				my_assert(strcmp(data, my_io.io_buf) == 0);
+		}
+	}
+	io_race_conditions_unittest(my_io, data, n_iter_race_tests);
 
 	if (1) {
 		log_line("Multi-Range-Read");
