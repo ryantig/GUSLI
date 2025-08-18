@@ -555,9 +555,19 @@ enum io_error_codes io_request_base::get_error(void) noexcept {
 }
 
 io_request::~io_request() {				// Needed because user may not call get error nor cancel and executor will be stuck. So force call get error
-	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
-	out.rv = io_error_codes::E_INVAL_PARAMS;
-	(void)get_error();
+	if (out.rv == io_error_codes::E_IN_TRANSFER) {
+		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Destroying io while it is still in air (running)\n", PRINT_IO_REQ_ARGS(params), this);
+		if (params.is_polling_mode()) {
+			const cancel_rv crv = try_cancel();
+			pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", cancel_rv=%d\n", PRINT_IO_REQ_ARGS(params), this, crv);
+		}
+		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
+	}
+	if (_exec) {
+		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Started IO and never checked that it finished (rv=%ld). Force cleanup\n", PRINT_IO_REQ_ARGS(params), this, out.rv);
+		out.rv = io_error_codes::E_INVAL_PARAMS;
+		(void)get_error();
+	}
 }
 
 enum io_request::cancel_rv io_request_base::try_cancel(bool blocking_wait) noexcept {

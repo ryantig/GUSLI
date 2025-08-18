@@ -147,3 +147,11 @@ class unitest_io {
 	unitest_io& enable_prints(bool val) { _verbose = val; return *this; }
 	void clean_buf(void) { memset(io_buf, 0, buf_align); memset(io_buf, 'C', 16); }
 };
+
+gusli::io_buffer_t alloc_io_buffer(const uint32_t block_size, uint32_t n_blocks) {
+	gusli::io_buffer_t map;
+	map.byte_len = (uint64_t)block_size * (uint64_t)n_blocks;
+	my_assert(posix_memalign(&map.ptr, block_size, map.byte_len) == 0);
+	my_assert(map.is_valid_for(block_size));
+	return map;
+}

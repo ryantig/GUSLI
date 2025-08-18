@@ -96,6 +96,40 @@ int base_lib_mem_registration_bad_path(gusli::global_clnt_context& lib, const gu
 	return 0;
 }
 
+int test_io_no_result_check_by_user(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
+	log_line("Submit io, dont check result");
+	static constexpr const auto _ok = gusli::connect_rv::C_OK;
+	gusli::bdev_info bdi;
+	std::vector<gusli::io_buffer_t> mem;
+	mem.emplace_back(alloc_io_buffer(UNITEST_SERVER_BLOCK_SIZE, 4));
+	my_assert(lib.bdev_bufs_register(bdev, mem) == _ok);
+	my_assert(lib.bdev_get_info(bdev, bdi) == _ok);
+	const int32_t fd = bdi.bdev_descriptor;
+	sem_t wait;
+	const auto __cb = [](void* c) -> void { my_assert(sem_post((sem_t*)c) == 0); };
+
+	for_each_exec_mode(i) {
+		io_exec_mode mode = (io_exec_mode)i;
+		gusli::io_request io;
+		io.params.init_1_rng(gusli::G_READ, fd, bdi.block_size, bdi.block_size, mem[0].ptr);
+		io.params.set_try_use_uring((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
+		if (mode == io_exec_mode::ASYNC_CB) {
+			io.params.set_completion(&wait, __cb);
+			my_assert(sem_init(&wait, 0, 0) == 0);
+		} else if ((mode == POLLABLE) || (mode == URING_POLLABLE)) {
+			io.params.set_async_pollable();
+		} else if ((mode == SYNC_BLOCKING_1_BY_1) || (mode == URING_BLOCKING)) {
+			io.params.set_blocking();
+		}
+		io.submit_io();
+		if (mode == io_exec_mode::ASYNC_CB)
+			my_assert(sem_wait(&wait) == 0);
+	}	// Here io destructor is called while io is potentially in air and not checked by user
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
+	free(mem[0].ptr);
+	return 0;
+}
+
 int base_lib_empty_io_unitest(void) {
 	log_line("%s",__FUNCTION__);
 	{ gusli::io_request io; }		// Constructor / destructor
@@ -131,6 +165,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_assert(strcmp(data, my_io.io_buf) == 0);
 			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
 		}
+		test_io_no_result_check_by_user(lib, bdev);
 	}
 	if (1) {
 		log_line("Cancel while io is in air all modes");
@@ -461,13 +496,6 @@ static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, co
 	io.submit_io(); 										// LBA outside of block device range
 }
 
-static gusli::io_buffer_t __alloc_io_buffer(const uint32_t block_size, uint32_t n_blocks) {
-	gusli::io_buffer_t map;
-	map.byte_len = (uint64_t)block_size * (uint64_t)n_blocks;
-	my_assert(posix_memalign(&map.ptr, block_size, map.byte_len) == 0);
-	my_assert(map.is_valid_for(block_size));
-	return map;
-}
 static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_bufs) {
 	static constexpr const size_t test_phrase_len = 32;
 	char test_phrase[test_phrase_len + 1] __attribute__((aligned(sizeof(long))));
@@ -540,7 +568,7 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 	unitest_io my_io;
 	std::vector<gusli::io_buffer_t> io_bufs;
 	io_bufs.reserve(2);
-	io_bufs.emplace_back(__alloc_io_buffer(UNITEST_SERVER_BLOCK_SIZE, MAX_SERVER_IN_FLIGHT_IO));
+	io_bufs.emplace_back(alloc_io_buffer(UNITEST_SERVER_BLOCK_SIZE, MAX_SERVER_IN_FLIGHT_IO));
 	io_bufs.emplace_back(my_io.get_map());										// shared buffer for 1 io test
 
 	for (int s = 0; s < n_servers; s++) {
@@ -778,7 +806,7 @@ void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
 	bdev.set_from(UUID.DEV_ZERO);
 	std::vector<gusli::io_buffer_t> io_bufs;
 	uint64_t time_start = get_cur_timestamp_unix(), time_end, n_micro_sec;
-	io_bufs.emplace_back(__alloc_io_buffer(block_size, n_bytes / block_size));
+	io_bufs.emplace_back(alloc_io_buffer(block_size, n_bytes / block_size));
 	const gusli::io_buffer_t &map = io_bufs[0];
 	//__verify_mapped_properly(io_bufs); time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); log_unitest("Verify write: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
 	my_assert(lib->open__bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
