@@ -223,6 +223,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		test_io_no_result_check_by_user(lib, bdev);
 		std::string msg = "print_clnt_msg";
 		my_assert(gusli::connect_rv::C_OK == lib.bdev_ctl_log_msg(bdev, msg));
+		my_assert(gusli::connect_rv::C_OK == lib.bdev_ctl_reboot(bdev, msg));
 	}
 	if (1) {
 		log_line("Cancel while io is in air all modes");
@@ -362,7 +363,23 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 	}
 	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);
 
-	log_unitest("After drain, Retry the same ios\n");
+	if (1) {
+		log_unitest("After drain, Retry the same ios, server disconnects client\n");
+		std::string dbg_msg = "FORCE disconenct";
+		for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
+			my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);	// Dont wait for io completion
+			my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+		}
+		my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
+		my_assert(lib.bdev_ctl_reboot(bdev, dbg_msg) == _ok);					// Disconnect reconnect and drain ios
+		my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);
+		for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {	// Stuck Ios were canceled
+			my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+			my_io[i].exec_dont_block_finish();
+		}
+	}
+
+	log_unitest("After drain, Retry the same ios, client cancels them 1by1\n");
 	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
 		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
 		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
@@ -723,6 +740,7 @@ void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	my_io.exec(gusli::G_READ,  POLLABLE);
 	std::string msg = "print_clnt_msg";
 	my_assert(rv == lib.bdev_ctl_log_msg(bdev, msg));
+	my_assert(rv == lib.bdev_ctl_reboot(bdev, msg));
 }
 
 gusli::global_clnt_context* lib_initialize_unitests(void) {

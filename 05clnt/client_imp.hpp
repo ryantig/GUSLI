@@ -40,7 +40,9 @@ class bdev_stats_clnt {
 	}
 };
 
+// Todo: Unite the 2 structs below
 class bdev_backend_api {									// API to server 1 block device
+ public:
 	// Communication with server
 	sock_t sock;											// Socket through which clnt talks to server
 	connect_addr ca;										// Connected server address
@@ -49,7 +51,12 @@ class bdev_backend_api {									// API to server 1 block device
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
 	sem_t wait_server_reply;
-	void clean_srvr(void) { sock.nice_close(); srv_addr = nullptr; is_control_path_ok = false; io_listener_tid = 0; info.clear(); }
+	sem_t wait_server_io_enabled;
+	atomic_uint32_t should_try_reconnect;
+	datapath_t<bdev_stats_clnt> *dp = nullptr;
+	bdev_info info;											// block device information visible for user
+ private:
+	void clean_srvr(void) { sock.nice_close(); srv_addr = nullptr; is_control_path_ok = false; io_listener_tid = 0; should_try_reconnect.set(1); info.clear(); }
 	bool has_remote(void) const { return srv_addr != NULL; }
 	void check_incoming(void);
 	int  send_to(MGMT::msg_content &msg, size_t n_bytes) const __attribute__((warn_unused_result));
@@ -57,8 +64,6 @@ class bdev_backend_api {									// API to server 1 block device
 	int map_buf(   const io_buffer_t);
 	int map_buf_un(const io_buffer_t);
  public:
-	datapath_t<bdev_stats_clnt> *dp = nullptr;
-	bdev_info info;											// block device information visible for user
 	bdev_backend_api() { clean_srvr(); }
 	void force_break_connection(void) { sock.nice_close(); }
 	int hand_shake(const bdev_config_params &conf, const char *clnt_name);	// Constructor: Connect to remote server
@@ -66,6 +71,8 @@ class bdev_backend_api {									// API to server 1 block device
 	enum connect_rv map_buf_do_vec(const std::vector<io_buffer_t>& bufs);
 	enum connect_rv map_buf_un_vec(const std::vector<io_buffer_t>& bufs);
 	enum connect_rv bdev_ctl_log_msg1(const std::string &s) const noexcept;
+	enum connect_rv bdev_ctl_reboot1(const std::string &s) noexcept;
+	void            bdev_ctl_reboot1_wait_for_srvr_disconnect(void) noexcept;
 	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
 	int dp_wakeup_server(void) const;
 	static void* io_completions_listener(bdev_backend_api *_self);
@@ -184,6 +191,7 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 	void bdev_ctl_report_di(           const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
 	uint32_t bdev_ctl_get_n_in_air_ios(const backend_bdev_id&) noexcept;
 	enum connect_rv bdev_ctl_log_msg2(  const backend_bdev_id& id, const std::string &s) noexcept;
+	enum connect_rv bdev_ctl_reboot2(   const backend_bdev_id& id, const std::string &s) noexcept;
 };
 
 } // namespace gusli

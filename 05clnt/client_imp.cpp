@@ -244,6 +244,80 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_log_msg2(const backend_bdev_id
 	return rv;
 }
 
+enum connect_rv bdev_backend_api::bdev_ctl_reboot1(const std::string &s) noexcept {
+	if (!sock.is_alive())
+		return C_NO_RESPONSE;
+	MGMT::msg_content msg;
+	const size_t size = msg.build_reboot(s);
+	const int send_rv = send_to(msg, size);
+	return (send_rv < 0) ? C_NO_RESPONSE : C_OK;
+}
+
+void bdev_backend_api::bdev_ctl_reboot1_wait_for_srvr_disconnect(void) noexcept {
+	ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0); // Wait for disconenction of server from client
+}
+
+class reconnect_to_server_task {
+	server_bdev *bdev;
+	const backend_bdev_id& id;
+	pthread_t tid;
+	static void* __exec(reconnect_to_server_task* me) {
+		char old_name[32], new_name[32];	// Linux allows thread names of at most 16[b]
+		auto *b = &me->bdev->b;
+		const int srvr_prefix_len = (int)strncpy_no_trunc_warning(new_name, b->info.name, 12);
+		strncpy_no_trunc_warning(&new_name[srvr_prefix_len], "cREC", 5);
+		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
+		pr_info1("\t\t\t%s[IO-Reconnector].p[%p].started, renaming %s->%s\n", b->info.name, me, old_name, new_name);
+		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
+		if (rename_rv != 0)
+			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
+
+		global_clnt_context_imp::get().bdev_stop_all_ios(me->id, true);
+		pr_info1("\t\t\t%s[IO-Reconnector].p[%p].done\n", b->info.name, me);
+		ASSERT_IN_PRODUCTION(sem_post(&b->wait_server_io_enabled) == 0);
+		delete me;
+		return nullptr;
+	}
+ public:
+	reconnect_to_server_task(server_bdev *_bdev) : bdev(_bdev), id(bdev->conf.id) {
+		const int err = pthread_create(&tid, NULL, (void* (*)(void*))__exec, this);
+		ASSERT_IN_PRODUCTION(err <= 0);
+	}
+};
+
+enum connect_rv global_clnt_context_imp::bdev_ctl_reboot2(const backend_bdev_id& id, const std::string &s) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
+	if (!bdev)
+		return C_NO_DEVICE;
+	enum connect_rv rv;
+	{
+		t_lock_guard l(bdev->control_path_lock);
+		if (!bdev->is_alive())
+			return C_NO_RESPONSE;
+		ASSERT_IN_PRODUCTION(sem_init(&bdev->b.wait_server_io_enabled, 0, 0) == 0);
+		ASSERT_IN_PRODUCTION(sem_init(&bdev->b.wait_server_reply, 0, 0) == 0);
+		if (bdev->conf.is_bdev_remote()) {
+			pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].send\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
+			rv = bdev->b.bdev_ctl_reboot1(s);	// Server will disconenct from client, listener will fail and try reconnect
+		} else {
+			pr_info1(PRINT_BDEV_ID_FMT " Reboot is a local drain. Reason %s\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
+			ASSERT_IN_PRODUCTION(sem_post(&bdev->b.wait_server_reply) == 0);	// Simulate as if server stopped and listener detected this
+			const uint32_t should_reconnect = bdev->b.should_try_reconnect.read();
+			ASSERT_IN_PRODUCTION(should_reconnect == true);
+			new reconnect_to_server_task(bdev);
+			rv = C_OK;
+		}
+	} // Unlock
+	if (rv == C_OK) {
+		bdev->b.bdev_ctl_reboot1_wait_for_srvr_disconnect();
+		pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].waited_for_shutdown\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
+		ASSERT_IN_PRODUCTION(sem_wait(&bdev->b.wait_server_io_enabled) == 0); // Wait for reconenction of server from client
+	} else {
+		pr_err1(PRINT_BDEV_ID_FMT " Error rebooting server %s, rv=%d\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str(), rv);
+	}
+	return rv;
+}
+
 enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id& id, bool do_reconnect) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
@@ -264,6 +338,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 		}
 		if (bdev->conf.is_bdev_remote()) {
 			pr_info1(PRINT_BDEV_ID_FMT " Force disconnect from server to stop getting io completions\n", PRINT_BDEV_ID_ARGS(*bdev));
+			bdev->b.should_try_reconnect.set(false);		// Because we are going to explicitly reconnect
 			bdev->b.force_break_connection();
 		}
 
@@ -412,6 +487,10 @@ enum connect_rv global_clnt_context::bdev_force_close(const backend_bdev_id& id,
 
 enum connect_rv global_clnt_context::bdev_ctl_log_msg(const backend_bdev_id& id, const std::string &s) const noexcept {
 	return global_clnt_context_imp::get().bdev_ctl_log_msg2(id, s);
+}
+
+enum connect_rv global_clnt_context::bdev_ctl_reboot(const backend_bdev_id& id, const std::string &s) const noexcept {
+	return global_clnt_context_imp::get().bdev_ctl_reboot2(id, s);
 }
 
 enum connect_rv global_clnt_context::bdev_bufs_unregist(const backend_bdev_id& id, const mem_list& bufs) const noexcept{
@@ -731,6 +810,7 @@ int bdev_backend_api::map_buf(const io_buffer_t io) {
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
+		// Note: Here server may disconnect and reconnect from client but buffers list is already set
 	}
 	return 0;
 }
@@ -761,18 +841,16 @@ int bdev_backend_api::map_buf_un(const io_buffer_t io) {
 		auto *pr = &msg.pay.c_unreg_buf;
 		pr->build_io_buffer(*g_map, info.block_size);
 		pr_info1(PRINT_UNR_BUF_FMT ", name=%s, srvr_ptr=%p, ref_cnt[%u]--\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->other_party_ptr, g_map->ref_count);
+
+		dp->reg_bufs_set.del(g_map->buf_idx);
+		dp->shm_io_bufs->dec_ref(g_map);
 	}	// Release lock here
 	if (has_remote()) {
 		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
 		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
-	}
-	{	// After server replied to us, remove the buffer
-		t_lock_guard l(dp->shm_io_bufs->with_lock());
-		const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
-		ASSERT_IN_PRODUCTION(g_map && dp->reg_bufs_set.del(g_map->buf_idx));
-		dp->shm_io_bufs->dec_ref(g_map);
+		// Note: Here server replied or disconnected. Upon reconnect buffers list should be updated
 	}
 	return 0;
 }
@@ -790,6 +868,7 @@ int bdev_backend_api::disconnect(const backend_bdev_id& id, const bool do_kill_s
 	if (io_listener_tid) {
 		int send_rv = 0;
 		if (sock.is_alive()) {
+			should_try_reconnect.set(false);		// Because we are explicitly disconnecting, no reconnection needed
 			MGMT::msg_content msg;
 			size_t size;
 			if (do_kill_server) {
@@ -898,11 +977,16 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
 	}
+	server_bdev *s = container_of(bdev, server_bdev, b);
 	for (bdev->is_control_path_ok = true; bdev->is_control_path_ok; ) {
 		bdev->check_incoming();
 	}
-	const uint32_t should_reconnect = false;
+	ASSERT_IN_PRODUCTION(sem_post(&bdev->wait_server_reply) == 0);	// In case of error???
+	const uint32_t should_reconnect = bdev->should_try_reconnect.read();
 	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconenct[%d]\n", bdev->info.name, bdev->srv_addr, should_reconnect);
+	if (should_reconnect) {
+		new reconnect_to_server_task(s);
+	}
 	return NULL;
 }
 

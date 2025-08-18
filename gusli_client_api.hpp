@@ -279,7 +279,7 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	SYMBOL_EXPORT         void bdev_ctl_report_data_corruption(  const backend_bdev_id&, uint64_t lba)   const noexcept;	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.
 	SYMBOL_EXPORT     uint32_t bdev_ctl_get_num_in_air_ios(      const backend_bdev_id&)                 const noexcept;	// Get the amount of ios in air for this block device. For debugging
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_ctl_log_msg(   const backend_bdev_id&, const std::string &s) const noexcept;	// Send a short message to write to server logs. Max 56 bytes/ascii-characters
-	SYMBOL_EXPORT         void bdev_ctl_reboot(                  const backend_bdev_id&                ) const noexcept;	// Will force a server to disconnect and reconnect a client
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_ctl_reboot(    const backend_bdev_id&, const std::string &s) const noexcept;	// Will force a server to disconnect and reconnect a client, pass optional debug reason
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 };
