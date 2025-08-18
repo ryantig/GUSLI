@@ -497,9 +497,12 @@ void io_request_base::submit_io(void) noexcept {
 	if (unlikely(!bdev)) {
 		pr_err1("Error: Invalid bdev descriptor of io=%d. Open bdev to obtain a valid descriptor\n", params.get_bdev_descriptor());
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
-	} else if (bdev->conf.is_bdev_local()) {
+		return;
+	}
+	server_io_req *sio = (server_io_req*)this;
+	sio->is_remote_set(bdev->conf.is_bdev_remote());
+	if (bdev->conf.is_bdev_local()) {
 		if (!params.is_safe_io()) {
-			server_io_req *sio = (server_io_req*)this;
 			if (!bdev->b.dp->verify_io_param_valid(*sio)) {
 				io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 				return;

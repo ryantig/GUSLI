@@ -166,7 +166,8 @@ class io_request_base {							// Data structure for issuing IO
 		uint16_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kuburnetes due to security issues of liburing
 		uint16_t _has_mm              : 1;		// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
 		uint16_t _async_no_comp       : 1;		// Internal flag, IO is async but caller will poll it instead of completion
-		uint16_t _unique_id           : 12;		// Internal use, During execution each IO gets a unique id (unique for in air io's) so it can be easily tracked and retrieved if stuck
+		uint16_t _is_remote_bdev      : 1;		// Internal flag, IO is going to server (not local client block device)
+		uint16_t _unique_id           : 11;		// Internal use, During execution each IO gets a unique id (unique for in air io's) so it can be easily tracked and retrieved if stuck
 		void (*_comp_cb)(void* ctx);			// Completion callback, Called from library internal thread, dont do processing/wait-for-locks in this context!
 		void *_comp_ctx;						// Callers Completion context passed to the function above
 		friend class backend_io_req;			// Access to _comp fields

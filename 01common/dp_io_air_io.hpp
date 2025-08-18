@@ -27,10 +27,12 @@ class server_io_req : public backend_io_req {		// Additional set of internal fun
  public:											// Note this is the same as base class, just add functions for the executor of the io
 	// unique id functionality (io throttling / in air io)
 	using uid_t = uint16_t;
-	static constexpr const uid_t invalid_uid = 0xFFF;
+	static constexpr const uid_t invalid_uid = 0x7FF;		// All 11 bits set
 	void unique_id_assign(uid_t id = invalid_uid) { params._unique_id = id; }
 	uid_t unique_id_get(void) const { return params._unique_id; }
 	bool has_valid_unique_id(void) const { return (params._unique_id != invalid_uid); }
+	void is_remote_set(bool v) { params._is_remote_bdev = v; }
+	bool is_remote_get() const { return params._is_remote_bdev; }
 
 	// IO Executor functionality
 	bool is_valid(void) const { return (_exec == nullptr); }							// Verify no executor connected to io (from previous retry?)
