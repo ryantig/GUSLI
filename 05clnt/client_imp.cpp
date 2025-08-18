@@ -251,7 +251,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 	t_lock_guard l(bdev->control_path_lock);
 	const bool is_alive = bdev->is_alive();
 	if (!is_alive && !do_reconnect) {
-		pr_info(PRINT_BDEV_ID_FMT " Force stop on stopped blockdevice, do nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
+		pr_info1(PRINT_BDEV_ID_FMT " Force stop on stopped blockdevice, do nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
 		return C_OK;
 	}
 
@@ -259,15 +259,15 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 	if (is_alive) {
 		const uint32_t num_ios = bdev->b.dp->get_num_in_air_ios();
 		if (/*!bdev->b.dp->is_still_used() &&*/ (num_ios == 0) && do_reconnect) {
-			pr_info(PRINT_BDEV_ID_FMT " Refresh does nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
+			pr_info1(PRINT_BDEV_ID_FMT " Refresh does nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
 			return C_OK;				// Nothing to refresh
 		}
 		if (bdev->conf.is_bdev_remote()) {
-			pr_info(PRINT_BDEV_ID_FMT " Force disconnect from server to stop getting io completions\n", PRINT_BDEV_ID_ARGS(*bdev));
+			pr_info1(PRINT_BDEV_ID_FMT " Force disconnect from server to stop getting io completions\n", PRINT_BDEV_ID_ARGS(*bdev));
 			bdev->b.force_break_connection();
 		}
 
-		pr_info(PRINT_BDEV_ID_FMT " draining %u io's in air\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
+		pr_info1(PRINT_BDEV_ID_FMT " draining %u io's in air\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
 		server_io_req *stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
 		while (stuck_io) {	// For local block devices this loop may do less iterations than num_ios (because io's keep completing). For remote this is impossible because we broke the socket
 			const enum io_request::cancel_rv rv = stuck_io->try_cancel(false);
@@ -286,7 +286,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 	if (do_reconnect) {
 		const connect_rv rv_reconnect = bdev->connect(par.client_name);
 		ASSERT_IN_PRODUCTION(rv_reconnect == connect_rv::C_OK);
-		pr_info(PRINT_BDEV_ID_FMT " reregistering %u mem bufs\n", PRINT_BDEV_ID_ARGS(*bdev), (uint32_t)bufs.size());
+		pr_info1(PRINT_BDEV_ID_FMT " reregistering %u mem bufs\n", PRINT_BDEV_ID_ARGS(*bdev), (uint32_t)bufs.size());
 		const connect_rv rv_rereg = bdev->b.map_buf_do_vec(bufs);
 		ASSERT_IN_PRODUCTION(rv_rereg == connect_rv::C_OK);
 	}
@@ -895,7 +895,7 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 		const int srvr_prefix_len = (int)strncpy_no_trunc_warning(new_name, bdev->info.name, 12);
 		strncpy_no_trunc_warning(&new_name[srvr_prefix_len], "cIOl", 5);
 		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
-		pr_info1("\t\t\tListener started, renaming %s->%s for %s\n", old_name, new_name, bdev->info.name);
+		pr_info1("\t\t\t%s[Listener].started, renaming %s->%s\n", bdev->info.name, old_name, new_name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
@@ -903,7 +903,8 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 	for (bdev->is_control_path_ok = true; bdev->is_control_path_ok; ) {
 		bdev->check_incoming();
 	}
-	pr_info1("\t\t\tListener name=%s addr=%s end\n", bdev->info.name, bdev->srv_addr);
+	const uint32_t should_reconnect = false;
+	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconenct[%d]\n", bdev->info.name, bdev->srv_addr, should_reconnect);
 	return NULL;
 }
 
