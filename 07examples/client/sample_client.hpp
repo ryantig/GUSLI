@@ -27,10 +27,12 @@ int client_test_write_read_verify_1blk(const gusli::bdev_info& info, unitest_io 
 	test_lba::map1_print(map, "clnt");
 	test_lba::map1_fill( map, info.block_size);
 	my_io.exec(gusli::G_WRITE, io_exec_mode::ASYNC_CB);
-	my_io.clean_buf();
-	my_io.exec(gusli::G_READ, io_exec_mode::ASYNC_CB);
-	my_assert(map.data.ptr == user_buf);
-	test_lba::map1_verify_and_clean(map, info.block_size);
+	for_each_exec_mode(i) {
+		my_io.clean_buf();
+		my_io.exec(gusli::G_READ, (io_exec_mode)i);
+		my_assert(map.data.ptr == user_buf);
+		test_lba::map1_verify_and_clean(map, info.block_size);
+	}
 	return 0;
 }
 
