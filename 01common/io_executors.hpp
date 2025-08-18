@@ -272,6 +272,8 @@ class sync_request_executor : public blocking_request_executor {
 	sync_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : blocking_request_executor(_ina, _io) {}
 };
 
+/*****************************************************************************/
+// Wrap Exectuors. Client sends io to server and this process is wrapped by client side executor to monitor and cancel the io
 class wrap_remote_io_exec_blocking : public blocking_request_executor {						// Convert remote async request io to blocking
 	sem_t wait;					// Block sender until io returns
  public:
@@ -313,6 +315,7 @@ class wrap_remote_io_exec_async : public io_request_executor_base {
 };
 
 /*****************************************************************************/
+// Exectuor for testing. Finishes IO only after it is explicitly canceled by user, effectively makeing IO stuck forever until canceled.
 class never_reply_executor : public io_request_executor_base {
  public:
 	never_reply_executor(in_air_ios_holder &_ina, io_request_base &_io) : io_request_executor_base(_ina, _io, true) {}
@@ -325,7 +328,7 @@ class never_reply_executor : public io_request_executor_base {
 		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
 		const auto rv = io_request_executor_base::cancel();
 		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
-		async_work_done();
+		async_work_done();	// Simulate as if IO just finished exactly after we canceled it.
 		return rv;
 	}
 };
