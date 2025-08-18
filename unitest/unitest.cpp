@@ -19,11 +19,26 @@
 
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
-uint64_t get_cur_timestamp_unix(void) {
-	struct timeval tp;
-	gettimeofday(&tp, nullptr);
-	return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
-}
+class test_timer {	 	// Dont use concurently from multiple threads
+	uint64_t start;
+public:
+	static uint64_t get_cur_timestamp_unix(void) {
+		struct timeval tp;
+		gettimeofday(&tp, nullptr);
+		return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
+	};
+	void     tic(void) { start = get_cur_timestamp_unix(); }
+	uint64_t toc(bool update_start = false) {
+		const uint64_t time_end = get_cur_timestamp_unix();
+		const uint64_t n_micro_sec = (time_end - start);
+		my_assert((int64_t)n_micro_sec > 0);
+		if (update_start)
+			start = time_end;
+		return n_micro_sec;
+	}
+	uint64_t toc_tic(void) { return toc(true); }
+} timer;
+#define log_time(n_micro_sec, fmt, ...) log_unitest(fmt ": time=%5lu.%03u[msec]\n", ##__VA_ARGS__, (n_micro_sec/1000), (unsigned)(n_micro_sec%1000));
 
 static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
 	gusli::bdev_info i;
@@ -183,16 +198,15 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		const int n_iters = n_iter_race_tests;
 		log_line("Race-Pollable in-air-io test %d[iters]", n_iters);
 		my_io.enable_prints(false).expect_success(true).clear_stats();
-		const uint64_t time_start = get_cur_timestamp_unix();
+		timer.tic();
 		for (int n = 0; n < n_iters; n++) {
 			my_io.clean_buf();
 			my_io.exec(gusli::G_READ, POLLABLE);
 			my_assert(my_io.io.get_error() == gusli::io_error_codes::E_OK);
 			my_assert(strcmp(data, my_io.io_buf) == 0);
 		}
-		const uint64_t time_end = get_cur_timestamp_unix();
-		const uint64_t n_micro_sec = (time_end - time_start);
-		log_unitest("Test summary[%s]: time=%5lu.%03u[msec]\n", io_exec_mode_str(POLLABLE), n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+		const uint64_t n_micro_sec = timer.toc();
+		log_time(n_micro_sec, "Test summary[%s]", io_exec_mode_str(POLLABLE));
 		my_io.enable_prints(true).clear_stats();
 	}
 	if (1) {
@@ -201,16 +215,15 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
 			for (int do_blocking_cancel = 0; do_blocking_cancel < 2; do_blocking_cancel++) {
-				const uint64_t time_start = get_cur_timestamp_unix();
+				timer.tic();
 				for (int n = 0; n < n_iters; n++) {
 					my_io.clean_buf();
 					my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i, do_blocking_cancel);
 					if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
 						my_assert(strcmp(data, my_io.io_buf) == 0);
 				}
-				const uint64_t time_end = get_cur_timestamp_unix();
-				const uint64_t n_micro_sec = (time_end - time_start);
-				log_unitest("Test summary[%s]: Blocking=%d.canceled %6u/%6u, time=%5lu.%03u[msec]\n", io_exec_mode_str((io_exec_mode)i), do_blocking_cancel, my_io.n_cancl, my_io.n_ios, n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+				const uint64_t n_micro_sec = timer.toc();
+				log_time(n_micro_sec, "Test summary[%s]: Blocking=%d.canceled %6u/%6u", io_exec_mode_str((io_exec_mode)i), do_blocking_cancel, my_io.n_cancl, my_io.n_ios);
 				my_io.clear_stats();
 			}
 		}
@@ -449,17 +462,14 @@ class all_ios_t {
 		if (n_completed_ios.read() == 0)
 			log_unitest("\tperfTest %lu[op=%c], io_size=%lu[b], io_depth=%u\n", _n_ios_todo, ios[0].params.op(), ios[0].params.buf_size(), io_depth);
 		n_completed_ios.set(0);
-		const uint64_t time_start = get_cur_timestamp_unix();
+		timer.tic();
 		for (int i = 0; i < io_depth; i++) {
 			ios[i].submit_io();
 		}
 		my_assert(sem_wait(&wait) == 0);
-		const uint64_t time_end = get_cur_timestamp_unix();
-		const uint64_t n_micro_sec = (time_end - time_start);
+		const uint64_t n_micro_sec = timer.toc();
 		const uint64_t n_done_ios = n_completed_ios.read();
-		const uint64_t n_done_bytes = n_done_ios * ios[0].params.buf_size();
-		const uint64_t n_GBperSec = (n_done_bytes / n_micro_sec)/1000; (void)n_GBperSec;
-		log_unitest("\tperfTest time=%lu.%03u[msec] %lu[Kios], %lu[Kio/s]\n" /*"t=%lu[GB/sec]\n"*/, n_micro_sec/1000, (unsigned)(n_micro_sec%1000), n_done_ios/1000, ((n_completed_ios.read()*1000)/ n_micro_sec) /*, n_GBperSec*/);
+		log_time(n_micro_sec, "\tperfTest %lu[Kios], %lu[Kio/s]", n_done_ios/1000, ((n_completed_ios.read()*1000)/ n_micro_sec));
 	}
 	~all_ios_t() { }
 };
@@ -803,22 +813,20 @@ void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
 	gusli::backend_bdev_id bdev;
 	bdev.set_from(UUID.DEV_ZERO);
 	std::vector<gusli::io_buffer_t> io_bufs;
-	uint64_t time_start = get_cur_timestamp_unix(), time_end, n_micro_sec;
+	uint64_t n_micro_sec;
+	timer.tic();
 	io_bufs.emplace_back(alloc_io_buffer(block_size, n_bytes / block_size));
 	const gusli::io_buffer_t &map = io_bufs[0];
-	//__verify_mapped_properly(io_bufs); time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); log_unitest("Verify write: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	//__verify_mapped_properly(io_bufs); n_micro_sec = timer.toc_tic(); log_time(n_micro_sec, "Verify write");
 	my_assert(lib->open__bufs_register(bdev, io_bufs) == gusli::connect_rv::C_OK);
-	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); time_start = time_end;
-	log_unitest("register-mem took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	n_micro_sec = timer.toc_tic(); log_time(n_micro_sec, "register-mem took");
 	gusli::io_request io;
 	io.params.init_1_rng(gusli::G_READ, lib->bdev_get_descriptor(bdev), 0, n_bytes, map.ptr);
 	io.params.set_blocking();
 	io.submit_io();
-	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start); time_start = time_end;
-	log_unitest("Read    - op took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	n_micro_sec = timer.toc_tic(); log_time(n_micro_sec, "Read    - op took");
 	my_assert(lib->close_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
-	time_end = get_cur_timestamp_unix(); n_micro_sec = (time_end - time_start);
-	log_unitest("UnRegist-mem took: time=%5lu.%03u[msec]\n", n_micro_sec/1000, (unsigned)(n_micro_sec%1000));
+	n_micro_sec = timer.toc();     log_time(n_micro_sec, "UnRegist-mem took");
 	//__verify_mapped_properly(io_bufs);
 	free(io_bufs[0].ptr);
 }
