@@ -275,11 +275,14 @@ int srvr_imp::run_once(void) noexcept {
 		strcpy(msg.pay.s_die.extra_info, "cdie");
 		send_to(msg, n_send_bytes, addr);
 		client_reject("suicide");
-	} else if (msg.is(MGMT::msg::log)) {
-		const char*p = msg.pay.c_log.extra_info;
-		while (*p == ' ') p++;
+	} else if (msg.is(MGMT::msg::srvr_reboot)) {
+		pr_noteS(this, "Clnt instruct reboot: %s\n", msg.pay.c_reb.extra_info);
 		pr_flush();
-		pr_alert("\n\n\n%s\n", p);
+		client_reject("reboot_clnt_request");
+	} else if (msg.is(MGMT::msg::log)) {
+		pr_flush();
+		pr_noteS(this, "\n\n\n%s\n", msg.pay.c_log.extra_info);
+		pr_flush();
 		const size_t n_send_bytes = msg.build_ping();
 		strcpy(msg.pay.s_kal.extra_info, " LOG-OK");
 		send_to(msg, n_send_bytes, addr);

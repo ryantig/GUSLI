@@ -562,7 +562,7 @@ static void __connect_to_servers(gusli::global_clnt_context& lib, int n_servers)
 	}
 	{
 		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
-		std::string msg = "print_clnt_msg";
+		std::string msg = "  \t  print_clnt_msg";		// With non visible prefix that should be removed
 		enum gusli::connect_rv msg_rv = lib.bdev_ctl_log_msg(bdev, msg);
 		my_assert(msg_rv == gusli::connect_rv::C_OK);
 	}

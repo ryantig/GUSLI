@@ -277,28 +277,29 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	struct msg {
 		struct type_t { const char *str; uint8_t idx; };
 		// Front channel:  Srvr->Clnt
-		static constexpr type_t hello          {"Chello", 0};	// Clnt->Srvr: Hello message
+		static constexpr type_t hello          {"Chello", 0};	// Clnt->Srvr: Hello message (open bdev)
 		static constexpr type_t hello_ack =    {"Shello", 1};	//   \--> Server accepts/reject client
 		static constexpr type_t register_buf = {"Creg__", 2};	// Clnt->Srvr: Register memory buffers
 		static constexpr type_t register_ack = {"SregOk", 3};	//   \--> Server accepts/reject client register
 		static constexpr type_t unreg_buf =    {"CUnreg", 4};	// Clnt->Srvr: Un-Register preveiously mapped memory buffers
 		static constexpr type_t unreg_ack =    {"SunrOk", 5};	//   \--> Server accepts/reject client un-register
-		static constexpr type_t close_nice =   {"Cclose", 6};	// Clnt->Srvr: Close connection
+		static constexpr type_t close_nice =   {"Cclose", 6};	// Clnt->Srvr: Close bdev (socket remains open for future messages)
 		static constexpr type_t close_ack =    {"Sclose", 7};	//   \--> Server response on the above
 		static constexpr type_t die_now =      {"C_DIE!", 8};	// Clnt->Srvr: Order to Kill yourself. In case of detected data corruption or debug
 		static constexpr type_t die_ack =      {"S_RIP!", 9};	//   \--> Server Answer: Suicide ack. Answer sent last before server goes done.
 		static constexpr type_t log =          {"C_LOG_",10};	// Clnt->Srvr: Add the following message to log. Server responds with keep alive
 		static constexpr type_t keepalive =    {"SC_KAL",11};	//    \--> Server Answer: Keep alive with appropriate extra info
 
+		static constexpr type_t srvr_reboot =  {"C_Rebt",12};	// Clnt->Srvr: Reboot your connection with me. Emulate server crash and reconnect back
 		// Back channel:  Srvr->Clnt
-		static constexpr type_t server_kick =  {"Ssorry",12};	// Srvr->Clnt: Force kick client
+		static constexpr type_t server_kick =  {"Ssorry",13};	// Srvr->Clnt: Server wants client to disconnect nicely
 																//   \---> Client may optionally reply with 'close_nice'.
 		// Error handling
-		static constexpr type_t wrong_cmd =    {"SC_UNK",13};	// Both Answer: Unknown command received
+		static constexpr type_t wrong_cmd =    {"SC_UNK",14};	// Both Answer: Unknown command received
 
 		// Datapath
-		static constexpr type_t dp_submit =    {"C_DP>S",14};	// Clients doorbell to notify server that new io is waiting for execution or client can receive completions
-		static constexpr type_t dp_complete =  {"S_DP>C",15};	// Server reply that some completions should be handled or server is ready to receive a new IO
+		static constexpr type_t dp_submit =    {"C_DP>S",15};	// Clients doorbell to notify server that new io is waiting for execution or client can receive completions
+		static constexpr type_t dp_complete =  {"S_DP>C",16};	// Server reply that some completions should be handled or server is ready to receive a new IO
 	};
 	struct msg_content {
 		struct t_header {
@@ -369,10 +370,12 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 			} s_close;
 			struct t_keep_alive  {
 				char extra_info[56];					// Debug info
-			} c_log, s_kal, s_kick, c_die, s_die;
-			struct t_wrong_cmd  {
-				char extra_info[56];					// Information about wrong command
-			} wrong_cmd;
+				void fill(void) { extra_info[0] = 0; }
+				void fill(const std::string& s) {
+					const char *p = s.c_str(); while (char_is_space(*p)) p++;
+					strncpy_no_trunc_warning(extra_info, p, 56);
+				}
+			} c_log, s_kal, s_kick, c_die, s_die, c_reb, wrong_cmd;
 			struct t_dp_cmd  {							// Client is producer of submitions, Server is producer of completions
 				uint64_t reserved;
 				uint32_t sender_added_new_work;			// Boolean: Producer notifies consumer that it added new work for it to consume (Unblock consumer from blocked-read)
@@ -392,12 +395,13 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		size_t build_unr_ack(void) { hdr.init(MGMT::msg::unreg_ack);	BUIL_MSG_RET }
 		size_t build_close(void) {   hdr.init(MGMT::msg::close_nice);	pay.c_close.reserved = 0UL; BUIL_MSG_RET }
 		size_t build_cl_ack(void) {  hdr.init(MGMT::msg::close_ack);	BUIL_MSG_RET }
-		size_t build_log(const std::string& s) { hdr.init(MGMT::msg::log);	strncpy_no_trunc_warning(pay.c_log.extra_info, s.c_str(), 56); BUIL_MSG_RET }
-		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.extra_info[0] = 0; BUIL_MSG_RET }
-		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.extra_info[0] = 0; BUIL_MSG_RET }
+		size_t build_log(   const std::string& s) { hdr.init(MGMT::msg::log);         pay.c_log.fill(s); BUIL_MSG_RET }
+		size_t build_reboot(const std::string& s) { hdr.init(MGMT::msg::srvr_reboot); pay.c_log.fill(s); BUIL_MSG_RET }
+		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.fill(); BUIL_MSG_RET }
+		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.fill(); BUIL_MSG_RET }
 		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	BUIL_MSG_RET }
 		size_t build_skick(void) {   hdr.init(MGMT::msg::server_kick);	BUIL_MSG_RET }
-		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	BUIL_MSG_RET }
+		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	pay.wrong_cmd.fill(); BUIL_MSG_RET }
 		size_t build_dp_subm(void) { hdr.init(MGMT::msg::dp_submit);	pay.dp_submit.reserved = 0UL;   BUIL_MSG_RET }
 		size_t build_dp_comp(void) { hdr.init(MGMT::msg::dp_complete);	pay.dp_complete.reserved = 0UL; BUIL_MSG_RET }
 
