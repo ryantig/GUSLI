@@ -20,7 +20,6 @@
 #define LIB_NAME "GUSLIc"
 #define LIB_COLOR NV_COL_NONE
 #include "03backend/server_clnt_api.hpp"
-#include <semaphore.h>
 
 namespace gusli {
 
@@ -50,8 +49,8 @@ class bdev_backend_api {									// API to server 1 block device
 	const char* srv_addr;
 	bool is_control_path_ok;								// State of control path
 	pthread_t io_listener_tid;
-	sem_t wait_server_reply;
-	sem_t wait_server_io_enabled;
+	completion_t wait_server_reply;
+	completion_t wait_server_io_enabled;
 	atomic_uint32_t should_try_reconnect;
 	datapath_t<bdev_stats_clnt> *dp = nullptr;
 	bdev_info info;											// block device information visible for user
@@ -75,6 +74,7 @@ class bdev_backend_api {									// API to server 1 block device
 	void            bdev_ctl_reboot1_wait_for_srvr_disconnect(void) noexcept;
 	int disconnect(const backend_bdev_id& id, const bool do_kill_server = false);	// Destructor
 	int dp_wakeup_server(void) const;
+	void do_on_listener_thread_terminate(void);
 	static void* io_completions_listener(bdev_backend_api *_self);
 };
 

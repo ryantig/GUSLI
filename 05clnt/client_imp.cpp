@@ -254,7 +254,7 @@ enum connect_rv bdev_backend_api::bdev_ctl_reboot1(const std::string &s) noexcep
 }
 
 void bdev_backend_api::bdev_ctl_reboot1_wait_for_srvr_disconnect(void) noexcept {
-	ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0); // Wait for disconenction of server from client
+	wait_server_reply.wait(); // Wait for disconenction of server from client
 }
 
 class reconnect_to_server_task {
@@ -274,7 +274,7 @@ class reconnect_to_server_task {
 
 		global_clnt_context_imp::get().bdev_stop_all_ios(me->id, true);
 		pr_info1("\t\t\t%s[IO-Reconnector].p[%p].done\n", b->info.name, me);
-		ASSERT_IN_PRODUCTION(sem_post(&b->wait_server_io_enabled) == 0);
+		b->wait_server_io_enabled.done();
 		delete me;
 		return nullptr;
 	}
@@ -294,24 +294,20 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_reboot2(const backend_bdev_id&
 		t_lock_guard l(bdev->control_path_lock);
 		if (!bdev->is_alive())
 			return C_NO_RESPONSE;
-		ASSERT_IN_PRODUCTION(sem_init(&bdev->b.wait_server_io_enabled, 0, 0) == 0);
-		ASSERT_IN_PRODUCTION(sem_init(&bdev->b.wait_server_reply, 0, 0) == 0);
+		bdev->b.wait_server_io_enabled.reset();
 		if (bdev->conf.is_bdev_remote()) {
 			pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].send\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
 			rv = bdev->b.bdev_ctl_reboot1(s);	// Server will disconenct from client, listener will fail and try reconnect
 		} else {
 			pr_info1(PRINT_BDEV_ID_FMT " Reboot is a local drain. Reason %s\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
-			ASSERT_IN_PRODUCTION(sem_post(&bdev->b.wait_server_reply) == 0);	// Simulate as if server stopped and listener detected this
-			const uint32_t should_reconnect = bdev->b.should_try_reconnect.read();
-			ASSERT_IN_PRODUCTION(should_reconnect == true);
-			new reconnect_to_server_task(bdev);
+			bdev->b.do_on_listener_thread_terminate();	// Simulate as in remote path, as if listener thread finished
 			rv = C_OK;
 		}
 	} // Unlock
 	if (rv == C_OK) {
 		bdev->b.bdev_ctl_reboot1_wait_for_srvr_disconnect();
 		pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].waited_for_shutdown\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
-		ASSERT_IN_PRODUCTION(sem_wait(&bdev->b.wait_server_io_enabled) == 0); // Wait for reconenction of server from client
+		bdev->b.wait_server_io_enabled.wait(); // Wait for reconenction of server from client
 	} else {
 		pr_err1(PRINT_BDEV_ID_FMT " Error rebooting server %s, rv=%d\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str(), rv);
 	}
@@ -724,17 +720,18 @@ int bdev_backend_api::create_dp(const backend_bdev_id &id, MGMT::msg_content &ms
 	// Initialize datapath of producer
 	const uint64_t n_bytes = io_csring::n_needed_bytes(info.block_size);
 	pr->build_scheduler(id, n_bytes / (uint64_t)info.block_size);
+	wait_server_reply.reset();
 	if (has_remote()) {
 		dp = new datapath_t<bdev_stats_clnt>(pr->name, global_clnt_context_imp::get().shm_io_bufs, info);
 		*(uint64_t*)dp->shm_ring.get_buf() = MGMT::shm_cookie;		// Insert cookie for the server to verify
 		const io_buffer_t buf = io_buffer_t::construct(dp->shm_ring.get_buf(), dp->shm_ring.get_n_bytes());
 		pr_verb1(PRINT_REG_BUF_FMT ", to=%s\n", PRINT_REG_BUF_ARGS(pr, buf), srv_addr);
-		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0) {
 			delete dp; dp = nullptr;
 			return -__LINE__;
 		}
 		check_incoming();
+		wait_server_reply.wait();
 	} else {	// Same datapath but without server side
 		dp = new datapath_t<bdev_stats_clnt>(nullptr, global_clnt_context_imp::get().shm_io_bufs, info);
 	}
@@ -806,10 +803,9 @@ int bdev_backend_api::map_buf(const io_buffer_t io) {
 		pr_info1(PRINT_REG_BUF_FMT ", name=%s, ref_cnt[%u]\n", PRINT_REG_BUF_ARGS(pr, io), pr->name, g_map->ref_count);
 	}	// Release lock here
 	if (has_remote()) {
-		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
-		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
+		wait_server_reply.wait();
 		// Note: Here server may disconnect and reconnect from client but buffers list is already set
 	}
 	return 0;
@@ -846,10 +842,9 @@ int bdev_backend_api::map_buf_un(const io_buffer_t io) {
 		dp->shm_io_bufs->dec_ref(g_map);
 	}	// Release lock here
 	if (has_remote()) {
-		ASSERT_IN_PRODUCTION(sem_init(&wait_server_reply, 0, 0) == 0);
 		if (send_to(msg, size) < 0)
 			return -__LINE__;
-		ASSERT_IN_PRODUCTION(sem_wait(&wait_server_reply) == 0);
+		wait_server_reply.wait();
 		// Note: Here server replied or disconnected. Upon reconnect buffers list should be updated
 	}
 	return 0;
@@ -923,12 +918,12 @@ void bdev_backend_api::check_incoming(void) {
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
-			ASSERT_IN_PRODUCTION(sem_post(&wait_server_reply) == 0);	// Unlock caller which waits for buffer registration
+			wait_server_reply.done();	// Unlock caller which waits for buffer registration
 		} else if (msg.is(MGMT::msg::unreg_ack)) {
 			const auto *pr = &msg.pay.s_unreg_ack;
 			pr_info1("UnRegistAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);
 			BUG_ON(pr->rv != 0, "rv=%d", pr->rv);
-			ASSERT_IN_PRODUCTION(sem_post(&wait_server_reply) == 0);	// Unlock caller which waits for buffer registration
+			wait_server_reply.done();	// Unlock caller which waits for buffer un-registration
 		} else if (msg.is(MGMT::msg::server_kick)) {
 			BUG_NOT_IMPLEMENTED();
 		} else if (msg.is(MGMT::msg::close_ack)) {
@@ -977,17 +972,20 @@ void* bdev_backend_api::io_completions_listener(bdev_backend_api *bdev) {
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
 	}
-	server_bdev *s = container_of(bdev, server_bdev, b);
 	for (bdev->is_control_path_ok = true; bdev->is_control_path_ok; ) {
 		bdev->check_incoming();
 	}
-	ASSERT_IN_PRODUCTION(sem_post(&bdev->wait_server_reply) == 0);	// In case of error???
-	const uint32_t should_reconnect = bdev->should_try_reconnect.read();
-	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconenct[%d]\n", bdev->info.name, bdev->srv_addr, should_reconnect);
-	if (should_reconnect) {
-		new reconnect_to_server_task(s);
-	}
+	bdev->do_on_listener_thread_terminate();
 	return NULL;
+}
+
+void bdev_backend_api::do_on_listener_thread_terminate(void) {
+	server_bdev *s = container_of(this, server_bdev, b);
+	wait_server_reply.done();	// Wakeup whoever waited for a server reply but will not get it because connection is broken / listener thread existed
+	const uint32_t should_reconnect = should_try_reconnect.read();
+	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconenct[%d]\n", info.name, srv_addr, should_reconnect);
+	if (should_reconnect)
+		new reconnect_to_server_task(s);
 }
 
 }	// namespace

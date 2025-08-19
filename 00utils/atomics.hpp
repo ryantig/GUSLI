@@ -110,6 +110,22 @@ class t_serializer {		// Launch async task and wait for its rv (return value). P
 	}
 };
 
+#include <semaphore.h>
+class completion_t {		// Completion
+	static constexpr const bool verbose = false;	// Use for debugging
+	sem_t s;	// reset(){=0}, done(){change 0->1}, wait(){block until == 1, then reset()}
+	void _t(const char* what) const { if (verbose) printf("Completion[%p].%s\n", &s, what); }
+ public:
+	completion_t() {     _t("con");   ASSERT_IN_PRODUCTION(sem_init(&s, 0, 0) == 0); }
+	void wait(void) {    _t("wait");  ASSERT_IN_PRODUCTION(sem_wait(&s) == 0); _t("unblock"); }
+	void done(void) {    _t("done");  ASSERT_IN_PRODUCTION(sem_post(&s) == 0); }
+	void reset(void) {   _t("reset"); ASSERT_IN_PRODUCTION(sem_init(&s, 0, 0) == 0); }	// In case you dont rely on constructor/destructor and reuse the completion
+	bool is_done(void) { _t("is_don"); return sem_trywait(&s); }
+	~completion_t() {    _t("des");    sem_destroy(&s); }
+};
+
+/************************************ Shared memory **********************************/
+
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>

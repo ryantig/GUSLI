@@ -20,7 +20,6 @@
 #include "dp_io_air_io.hpp"
 #include <aio.h>
 #include <signal.h>
-#include <semaphore.h>		// Waiting for async io completion
 namespace gusli {
 
 struct io_autofail_executor : no_implicit_constructors {			// autofail io, dont execute anything, used on stack
@@ -275,24 +274,22 @@ class sync_request_executor : public blocking_request_executor {
 /*****************************************************************************/
 // Wrap Exectuors. Client sends io to server and this process is wrapped by client side executor to monitor and cancel the io
 class wrap_remote_io_exec_blocking : public blocking_request_executor {						// Convert remote async request io to blocking
-	sem_t wait;					// Block sender until io returns
+	completion_t comp;					// Block sender until io returns
  public:
-	wrap_remote_io_exec_blocking(in_air_ios_holder &_ina, io_request_base &_io) : blocking_request_executor(_ina, _io) {
-		BUG_ON(sem_init(&wait, 0, 0) != 0, "Error initializing blocking io");
-	}
+	wrap_remote_io_exec_blocking(in_air_ios_holder &_ina, io_request_base &_io) : blocking_request_executor(_ina, _io) { }
 	int run(void) override {
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		return 0;
 	}
 	enum io_error_codes is_still_running(void) override {
-		BUG_ON(sem_wait(&wait) != 0, "Error waiting for blocking io");
+		comp.wait();
 		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
 		async_work_done();
 		return io_error_codes::E_OK;
 	}
 	void extern_notify_completion(int64_t rv) override {
 		io_request_executor_base::extern_notify_completion(rv);
-		BUG_ON(sem_post(&wait) != 0, "Error when unblocking waiter");		// Must be last line because after unblock executor can get free
+		comp.done();	// Must be last line because after unblock executor can get free
 	}
 };
 
