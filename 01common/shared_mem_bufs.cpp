@@ -48,7 +48,7 @@ void shm_io_bufs_global_t::put(const char* debug_who) {
 		if (shm_io_bufs_singleton->n_refs > 0)
 			return;
 	}	// Here release the lock to be able to delete
-	pr_info1(PRINT_GLOBAL_BUF_FMT ".destruct\n", PRINT_GLOBAL_BUF_ARGS());
+	pr_info1(PRINT_GLOBAL_BUF_FMT ".destruct.total_n_buffers=%u\n", PRINT_GLOBAL_BUF_ARGS(), shm_io_bufs_singleton->client_unique_buf_idx_generator);
 	if (shm_io_bufs_singleton->n_refs == 0)
 		delete shm_io_bufs_singleton;
 	shm_io_bufs_singleton = nullptr;
