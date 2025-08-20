@@ -341,8 +341,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 		pr_info1(PRINT_BDEV_ID_FMT " draining %u io's in air\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
 		server_io_req *stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
 		while (stuck_io) {	// For local block devices this loop may do less iterations than num_ios (because io's keep completing). For remote this is impossible because we broke the socket
-			const enum io_request::cancel_rv rv = stuck_io->try_cancel(false);
-			ASSERT_IN_PRODUCTION(rv == io_request::cancel_rv::G_CANCELED);
+			stuck_io->internal_cancel();
 			stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
 		}
 
@@ -610,7 +609,7 @@ void io_request_base::submit_io(void) noexcept {
 		if (_exec->run() < 0)
 			return;
 		bool need_wakeup_srvr;
-		const int send_rv = bdev->b.dp->clnt_send_io(*this, &need_wakeup_srvr);
+		const int send_rv = bdev->b.dp->clnt_send_io(*sio, &need_wakeup_srvr);
 		if (send_rv >= 0) {
 			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), send_rv, this, need_wakeup_srvr); // This print is mem corrupt
 			if (need_wakeup_srvr) {
@@ -629,13 +628,6 @@ void io_request_base::submit_io(void) noexcept {
 	}
 }
 
-io_request_executor_base* io_request_base::__disconnect_executor_atomic(void) noexcept {
-	if (!_exec)
-		return nullptr;
-	uint64_t *ptr = (uint64_t *)&_exec;
-	return (io_request_executor_base*)__atomic_exchange_n(ptr, (unsigned long)NULL, __ATOMIC_SEQ_CST);
-}
-
 enum io_error_codes io_request_base::get_error(void) noexcept {
 	if (out.rv == io_error_codes::E_IN_TRANSFER) {
 		DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
@@ -650,55 +642,61 @@ enum io_error_codes io_request_base::get_error(void) noexcept {
 			return io_error_codes::E_IN_TRANSFER;	// Cannot touch async executor
 		}
 	}
-	auto* orig_exec = __disconnect_executor_atomic();	// IO finished
-	if (orig_exec) {
-		ASSERT_IN_PRODUCTION(out.rv != io_error_codes::E_IN_TRANSFER);	// IO has finished
-		orig_exec->detach_io();	// Disconnect executor from io
-	}
-	if (out.rv > 0) {
-		DEBUG_ASSERT(out.rv == (int64_t)params.buf_size());					// No partial io
-		return E_OK;
-	}
-	return (enum io_error_codes)out.rv;
+	return (out.rv > 0) ? io_error_codes::E_OK : (enum io_error_codes)out.rv;
 }
 
-io_request::~io_request() {				// Needed because user may not call get error nor cancel and executor will be stuck. So force call get error
-	if (out.rv == io_error_codes::E_IN_TRANSFER) {
-		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Destroying io while it is still in air (running)\n", PRINT_IO_REQ_ARGS(params), this);
-		if (params.is_polling_mode()) {
-			const cancel_rv crv = try_cancel();
-			pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", cancel_rv=%d\n", PRINT_IO_REQ_ARGS(params), this, crv);
-		}
-		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
-	}
-	if (_exec) {
-		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Started IO and never checked that it finished (rv=%ld). Force cleanup\n", PRINT_IO_REQ_ARGS(params), this, out.rv);
-		out.rv = io_error_codes::E_INVAL_PARAMS;
-		(void)get_error();
-	}
-}
-
-enum io_request::cancel_rv io_request_base::try_cancel(bool blocking_wait) noexcept {
+enum io_request::cancel_rv io_request_base::try_cancel(void /*bool blocking_wait*/) noexcept {
 	if (out.rv != io_error_codes::E_IN_TRANSFER)
 		return io_request::cancel_rv::G_ALLREADY_DONE;
 	DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
-	if (unlikely(blocking_wait)) {				// Wait for IO to finish, may stuck for a long time in this loop
-		while (get_error() == gusli::io_error_codes::E_IN_TRANSFER) {
-			std::this_thread::sleep_for(std::chrono::microseconds(10));
-		}
-		BUG_ON(_exec, "IO has was finished, It must not have a valid executor, rv=%ld", out.rv);
-		return io_request::cancel_rv::G_ALLREADY_DONE;
+	const enum cancel_rv crv = _exec->cancel();	// Instruct executor to fail as fast as possible
+	while (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER) {
+		std::this_thread::sleep_for(std::chrono::microseconds(10));	// Block until executor finishes
+		nvTODO("Todo: Once every 5[sec] print here something to log");
 	}
-	auto* orig_exec = __disconnect_executor_atomic();		// IO finished / Canceled
-	if (orig_exec) {		// Executor still running
-		const enum cancel_rv crv = orig_exec->cancel();
-		if (crv == cancel_rv::G_CANCELED) {
+	(void)_exec->cancel();	// For async executor - wait for it to give callback to user. Already done
+	if (crv == cancel_rv::G_CANCELED) {
 		out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
-			return io_request::cancel_rv::G_CANCELED;
-		} // Else: Already done during call to executor cancel
-	}     // Else: Already done before call to executor cancel
-	return io_request::cancel_rv::G_ALLREADY_DONE;
+	} // Else: Already done during call to executor cancel
+	return crv;
+}
+
+void server_io_req::internal_cancel(void) noexcept {  // Called when external completions (from srvr) cannot arrive anymore
+	pr_verb1(PRINT_EXECUTOR "io[%c].draining.uid[%u]\n", _exec, this, params.op(), unique_id_get());
+	if (out.rv != io_error_codes::E_IN_TRANSFER)
+		return;
+	(void)_exec->cancel();	// Executor will not return callback. IO might be already done so no-op in this case
+	if (_exec->is_still_running() == io_error_codes::E_IN_TRANSFER) {	// Completion will not come so simulate it
+		_exec->mark_not_in_air();
+		_exec->extern_notify_completion((int64_t)io_error_codes::E_CANCELED_BY_CALLER);
+		out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
+		// Here user can call io done and free it!
 	}
+}
+
+void io_request_base::done(void) noexcept {
+	ASSERT_IN_PRODUCTION(out.rv != io_error_codes::E_IN_TRANSFER);		// IO has finished
+	if (_exec) {
+		_exec->detach_io();	// Disconnect executor from io (and free executor)
+		_exec = nullptr;
+	}
+}
+
+io_request::~io_request() {				// Needed because user may not call get error nor cancel and executor will be stuck. So force call get error
+	if (unlikely(out.rv == io_error_codes::E_IN_TRANSFER)) {
+		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Destroying io while it is still in air (running)\n", PRINT_IO_REQ_ARGS(params), this);
+		if (params.is_polling_mode()) {
+			const cancel_rv crv = try_cancel();
+			pr_err1(PRINT_EXECUTOR PRINT_IO_REQ_FMT ", cancel_rv=%d\n", _exec, this,  PRINT_IO_REQ_ARGS(params), crv);
+		}
+		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
+	}
+	if (unlikely(_exec)) {
+		pr_err1(PRINT_EXECUTOR PRINT_IO_REQ_FMT ", User wrong flow, Started IO and never checked that it finished (rv=%ld). Force cleanup\n", _exec, this, PRINT_IO_REQ_ARGS(params), out.rv);
+		done();
+	}
+}
+
 }	// namespace
 /************************* communicate with server *****************************************/
 namespace gusli {

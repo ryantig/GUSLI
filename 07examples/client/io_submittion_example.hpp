@@ -41,7 +41,7 @@ class unitest_io {
 	bool _expect_success = true;
 	bool _verbose = true;
 	bool _should_wait_for_io_finish = true;
-	char _should_try_cancel = 0;
+	bool _should_cancel = false;
 	enum io_exec_mode mode;
  public:
 	unsigned int n_ios = 0;		// Number of executed ios
@@ -58,7 +58,7 @@ class unitest_io {
 			my_assert(io_rv != ge::E_CANCELED_BY_CALLER);				// Even if canceled by caller, while IO is in air, callback cannot arrive
 		c->is_waiting_for_callback = false;
 		c->print_io_comp();
-		if (c->_should_try_cancel)
+		if (c->_should_cancel)
 			my_assert(c->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
 		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter. Must be last expression to prevent the callback from running while io is retried.
 	}
@@ -82,20 +82,22 @@ class unitest_io {
 		assert_rv();
 	}
 	void assert_rv(void) {
-		if (io.params.op() == gusli::G_READ)
-			io_buf[io.params.buf_size()] = 0;		// Null termination for prints of buffer content
+		if ((io.params.op() == gusli::G_READ) && (io.get_error() != ge::E_CANCELED_BY_CALLER)) {
+			const uint64_t n_bytes = io.params.buf_size();
+			io_buf[n_bytes] = 0;		// Null termination for prints of buffer content
+		}
 		const ge io_rv = io.get_error();
 		my_assert(is_waiting_for_callback == false);
 		if (io_rv == ge::E_CANCELED_BY_CALLER) {
 			n_cancl++;
 			if (_should_wait_for_io_finish)
-				my_assert(_should_try_cancel == 'C');		// Blocking cancel waits for IO to finish
+				my_assert(_should_cancel);		// Blocking cancel waits for IO to finish
 		} else {
 			const bool io_succeeded = (io_rv == ge::E_OK);
 			my_assert(io_succeeded == _expect_success);
 		}
 		io.done();
-		_should_try_cancel = 0;
+		_should_cancel = false;	// Reset
 	}
  public:
 	gusli::io_request io;
@@ -120,16 +122,17 @@ class unitest_io {
 		io.params.set_try_use_uring((mode == URING_POLLABLE) || (mode == URING_BLOCKING));
 		is_waiting_for_callback = io.params.has_callback();
 		io.submit_io();
-		if (_should_try_cancel) {
-			std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
-			(void)io.try_cancel(_should_try_cancel == 'B');
+		if (_should_cancel) {
+			if (!io.params.may_use_uring())
+				std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
+			(void)io.try_cancel();
 		}
 		if (_should_wait_for_io_finish)
 			blocking_wait_for_io_finish();
 		return *this;
 	}
-	void exec_cancel(gusli::io_type _op, io_exec_mode _mode, bool is_blocking_cancel = false) {
-		_should_try_cancel = is_blocking_cancel ? 'B' : 'C';
+	void exec_cancel(gusli::io_type _op, io_exec_mode _mode) {
+		_should_cancel = true;
 		exec(_op, _mode);
 	}
 	void exec_dont_block(gusli::io_type _op, io_exec_mode _mode) {

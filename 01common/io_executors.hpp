@@ -38,6 +38,7 @@ class io_request_executor_base : no_implicit_constructors {
 	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
 	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
 	bool had_construct_failure = false;				// Executor initialization encountered an error
+	bool is_remote_io = false;
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
 	enum io_type op(void) const { return io->params.op(); }
  private:
@@ -56,30 +57,29 @@ class io_request_executor_base : no_implicit_constructors {
 			ASSERT_IN_PRODUCTION(ref.io_already_detached_from_me == false);			// Detect double call of IO disconenct
 			ref.io_already_detached_from_me = true;
 		}
-		log_put(is_self ? 'o' : 'e');		// o = operation, e = executor
+		log_put(is_self ? 'e' : 'o');		// o = operation, e = executor
 		const bool should_destroy = (is_async_executor ? (ref.count.dec() == 0) :
 						(cmp.has_finished_all_async_tasks && ref.io_already_detached_from_me));
 		if (should_destroy)
 			delete this;
 	}
 
-	void log_start(                                                ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].start.uid[%u] cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(), io->unique_id_get(), io->get_comp_ctx()); }
-	void log_start_reject(                                         ) const { pr_verb1("exec[%p].o[%p].io[%c].n_ranges[%u].size[%ld[b]].reject!       cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(),                      io->get_comp_ctx()); }
-	void log_free(                                                 ) const { pr_verb1("exec[%p].o[%p].free"                                                          "\n", this, io                  ); }
-	void log_extern_notify(                                        ) const { pr_verb1("exec[%p].o[%p].extern_notify[%ld[b]].uid[%u] "                                "\n", this, io,  total_bytes, io->unique_id_get()); }
-	void log_set_rv(                                               ) const { pr_verb1("exec[%p].o[%p].done[%ld[b]].uid[%u] "                    PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes, io->unique_id_get(),     PRINT_EXTERN_ERR_ARGS); }
-	void log_cancel(                                               ) const { pr_verb1("exec[%p].o[%p].was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
-	void log_put(                                           char rv) const { pr_verb1("exec[%p].o[%p].put[%c(%d%d)]"                                                 "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
+	void log_start(                                                ) const { pr_verb1(PRINT_EXECUTOR "io[%c].n_ranges[%u].size[%ld[b]].start.uid[%u] cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(), io->unique_id_get(), io->get_comp_ctx()); }
+	void log_start_reject(                                         ) const { pr_verb1(PRINT_EXECUTOR "io[%c].n_ranges[%u].size[%ld[b]].reject!       cmp_ctx=%p"     "\n", this, io, op(), num_ranges, io->params.buf_size(),                      io->get_comp_ctx()); }
+	void log_free(                                                 ) const { pr_verb1(PRINT_EXECUTOR "free"                                                          "\n", this, io                  ); }
+	void log_extern_notify(                                        ) const { pr_verb1(PRINT_EXECUTOR "extern_notify[%ld[b]].uid[%u] "                                "\n", this, io,  total_bytes, io->unique_id_get()); }
+	void log_set_rv(                                               ) const { pr_verb1(PRINT_EXECUTOR "done[%ld[b]].uid[%u] "                    PRINT_EXTERN_ERR_FMT "\n", this, io,  total_bytes, io->unique_id_get(),     PRINT_EXTERN_ERR_ARGS); }
+	void log_cancel(                                               ) const { pr_verb1(PRINT_EXECUTOR "was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
+	void log_put(                                           char rv) const { pr_verb1(PRINT_EXECUTOR "put[%c(%d%d)]"                                                 "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
  protected:
-	void log_io_range_failed(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1("exec[%p].o[%p].range[0x%lx].len[0x%lx].failed[%ld]: "    PRINT_EXTERN_ERR_FMT "\n", this, io, lba, len,     rv, PRINT_EXTERN_ERR_ARGS); }
-	void log_io_range_succes(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1("exec[%p].o[%p].range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        this, io, lba, len,     rv); }
+	void log_io_range_failed(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].failed[%ld]: "    PRINT_EXTERN_ERR_FMT "\n", this, io, lba, len,     rv, PRINT_EXTERN_ERR_ARGS); }
+	void log_io_range_succes(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        this, io, lba, len,     rv); }
 	void async_work_done(void) {
 		if (is_async_executor) cmp.lock.lock();
+		ASSERT_IN_PRODUCTION(cmp.has_finished_all_async_tasks == false);				// Double call to async work completion
 		cmp.has_finished_all_async_tasks = true;
 		if (!cmp.was_canceled) {
 			const int64_t cur_rv = io->get_raw_rv();
-			if (io->has_valid_unique_id())
-				in_air.remove(*io);
 			BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
 			log_set_rv();
 			if (total_bytes >= 0)
@@ -87,7 +87,7 @@ class io_request_executor_base : no_implicit_constructors {
 			else
 				io->set_error((enum io_error_codes)total_bytes);						// User callback may not call cancel() so no dead lock
 		}	// Else: dont access ->io, it might already free, when IO was canceled
-		this->io = NULL;								// IO is not accessible anymore
+		// IO is not accessible anymore, user can call destroy io from callback
 		if (is_async_executor) cmp.lock.unlock();
 		__dec_ref(true);
 	}
@@ -97,9 +97,11 @@ class io_request_executor_base : no_implicit_constructors {
 		io = static_cast<server_io_req*>(&_io);
 		DEBUG_ASSERT(io->is_valid());								// Verify no other executor connected to io
 		const bool can_start = in_air.insert(*io);
+		is_remote_io = io->is_remote_get();
 		num_ranges = io->params.num_ranges();
 		is_async_executor = is_async;
-		if (is_async_executor) { ref.count.set(2); cmp.lock.init(); }
+		cmp.lock.init();
+		if (is_async_executor) { ref.count.set(2); }
 		if (can_start) {
 			io->start_execution();
 			log_start();
@@ -114,34 +116,46 @@ class io_request_executor_base : no_implicit_constructors {
 		if (is_async_executor) { cmp.lock.destroy(); }
 	}
 	virtual void extern_notify_completion(int64_t rv) {				// Executors that wrap external execution flow are notified when flow ends. They dont exectue the IO themselves
-		const int64_t cur_rv = io->get_raw_rv();
-		BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
-		total_bytes = rv;
-		log_extern_notify();
+		if (is_remote_io) {
+			const int64_t cur_rv = io->get_raw_rv();					// Executor might already be canceled here, we update 'total_bytes' not cur_rv
+			BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
+			total_bytes = rv;
+			log_extern_notify();
+			async_work_done();
+		} // Local IO, wait for completion from disk/os. Nothing to do
 	}
 
 	virtual int run(void) = 0;								// Start IO execution, Return -1 if constructor had failure. Otherwise return 0;
 	virtual enum io_request::cancel_rv cancel(void) {		// Assume IO calls cancel() or detach_io() exactly once, no concurency here
 		io_request::cancel_rv rv;
-		if (is_async_executor) cmp.lock.lock();
-		if (cmp.has_finished_all_async_tasks) {
+		cmp.lock.lock();									// Multiple cancel calls??? protect with atimc cmpxchng
+		if (cmp.was_canceled) {
+			rv = io_request::cancel_rv::G_CANCELED;
+		} else if (cmp.has_finished_all_async_tasks) {
 			rv = io_request::cancel_rv::G_ALLREADY_DONE;
 		} else {
 			cmp.was_canceled = true;
-			in_air.remove(*io);
-			this->io = NULL;								// After cancel finishes, user can free the io
 			rv = io_request::cancel_rv::G_CANCELED;
+			log_cancel();
 		}
-		if (is_async_executor) cmp.lock.unlock();
-		log_cancel();
-		detach_io();
+		cmp.lock.unlock();
 		return rv;
 	};
 
 	virtual enum io_error_codes is_still_running(void) {		// Query executor status, used for non blocking io's
 		return (cmp.has_finished_all_async_tasks ? io_error_codes::E_OK : io_error_codes::E_IN_TRANSFER);
 	}
-	void detach_io(void) { __dec_ref(false); }
+	void mark_not_in_air(void) {
+		in_air.remove(*io);
+	}
+	void detach_io(void) {	// Function can be called from any stack as well as from async_work_done()
+		BUG_ON(!cmp.has_finished_all_async_tasks, "Executor did not finish yet\n");
+		if (io->has_valid_unique_id())
+			mark_not_in_air();
+		 this->io = nullptr;
+		 __dec_ref(false);
+		// Here io gets free by caller
+	}
 };
 
 /*****************************************************************************/
@@ -281,10 +295,9 @@ class wrap_remote_io_exec_blocking : public blocking_request_executor {						// 
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		return 0;
 	}
-	enum io_error_codes is_still_running(void) override {
+	enum io_error_codes is_still_running(void) override { // Will block until executor finishes
 		comp.wait();
-		pr_verb1("exec[%p].o[%p].blocked_rio: un-block, finish\n", this, io);
-		async_work_done();
+		pr_verb1(PRINT_EXECUTOR "blocked_rio: un-block, finish\n", this, io);
 		return io_error_codes::E_OK;
 	}
 	void extern_notify_completion(int64_t rv) override {
@@ -300,15 +313,6 @@ class wrap_remote_io_exec_async : public io_request_executor_base {
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		return 0;
 	}
-	void extern_notify_completion(int64_t rv) override {
-		io_request_executor_base::extern_notify_completion(rv);
-		async_work_done();
-	}
-	enum io_request::cancel_rv cancel(void) override {
-		const auto rv = io_request_executor_base::cancel();
-		async_work_done();									// Because extern_notify_completion() will not be called
-		return rv;
-	}
 };
 
 /*****************************************************************************/
@@ -317,16 +321,10 @@ class never_reply_executor : public io_request_executor_base {
  public:
 	never_reply_executor(in_air_ios_holder &_ina, io_request_base &_io) : io_request_executor_base(_ina, _io, true) {}
 	int run(void) override {
+		is_remote_io = true;	// Local client executer which emulates remotesrvr no reply
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
-		pr_verb1("exec[%p].o[%p].will_be_stuck\n", this, io);
+		pr_verb1(PRINT_EXECUTOR "will_be_stuck\n", this, io);
 		return 0;
-	}
-	enum io_request::cancel_rv cancel(void) override {
-		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
-		const auto rv = io_request_executor_base::cancel();
-		ASSERT_IN_PRODUCTION(is_still_running() == io_error_codes::E_IN_TRANSFER);
-		async_work_done();	// Simulate as if IO just finished exactly after we canceled it.
-		return rv;
 	}
 };
 
@@ -340,12 +338,13 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	typedef void (*prep_func_t)(struct io_uring_sqe*, int fd, const void*buf, unsigned int nbytes, __u64 offset);
 	struct io_uring uring;
 	prep_func_t prep_fn;
-	int num_completed;				// Number of completed io ranges so far
+	int num_completed;						// Number of completed io ranges so far
+	t_lock_mutex_recursive polling_lock;	// Prevent multiple polling accesses from different threads to uring
 	bool init_uring_queue(void) {
 		io_uring_params p = {};
 		const int urv = io_uring_queue_init_params(num_ranges, &uring, &p);
 		if (urv < 0) {
-			pr_err1("exec[%p].o[%p] Failed to initialize io_uring[%u], rv=%d(%s) " PRINT_EXTERN_ERR_FMT "\n", this, io, num_ranges, urv, strerror(-urv), PRINT_EXTERN_ERR_ARGS);
+			pr_err1(PRINT_EXECUTOR "Failed to initialize io_uring[%u], rv=%d(%s) " PRINT_EXTERN_ERR_FMT "\n", this, io, num_ranges, urv, strerror(-urv), PRINT_EXTERN_ERR_ARGS);
 			had_construct_failure = true;
 		} else if (false) {
 			char buf[256];
@@ -361,7 +360,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	bool prep_uringio(const io_map_t& map) {
 		struct io_uring_sqe *sqe = io_uring_get_sqe(&uring);
 		if (!sqe) {
-			pr_err1("exec[%p].o[%p] Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
+			pr_err1(PRINT_EXECUTOR "Error get io_uring.sqe, io_ranges=%u\n", this, io, num_ranges);
 			had_construct_failure = true;
 		} else {
 			prep_fn(sqe, io->params.get_bdev_descriptor(), map.data.ptr, map.data.byte_len, map.offset_lba_bytes);
@@ -376,6 +375,7 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 	}
 public:
 	uring_request_executor(in_air_ios_holder &_ina, io_request_base& _io) : io_request_executor_base(_ina, _io, false), num_completed(0) {
+		polling_lock.init();
 		if (unlikely(had_construct_failure))
 			return;
 		prep_fn = (op() == G_READ) ? (prep_func_t)io_uring_prep_read : (prep_func_t)io_uring_prep_write;
@@ -388,7 +388,7 @@ public:
 			if (!prep_uringio(io->params.map())) return;
 		}
 	}
-	~uring_request_executor() { io_uring_queue_exit(&uring); }
+	~uring_request_executor() { io_uring_queue_exit(&uring); polling_lock.destroy(); }
 	int run(void) override {
 		if (unlikely(had_construct_failure)) { return send_async_work_failed(); }
 		BUG_ON(io->params.has_callback(), "Wrong executor usage, async mode unsupported yet");
@@ -403,7 +403,7 @@ public:
 			struct io_uring_cqe *cqe;
 			const int wait_rv = io_uring_wait_cqe(&uring, &cqe);
 			if (wait_rv < 0) {
-				pr_err1("exec[%p].o[%p] Failed to get cqe" PRINT_EXTERN_ERR_FMT "\n", this, io, PRINT_EXTERN_ERR_ARGS);
+				pr_err1(PRINT_EXECUTOR "Failed to get cqe" PRINT_EXTERN_ERR_FMT "\n", this, io, PRINT_EXTERN_ERR_ARGS);
 				return send_async_work_failed();
 			}
 			__analyze_1_range(cqe);
@@ -414,16 +414,22 @@ public:
 		return 0;
 	}
 	enum io_request::cancel_rv cancel(void) override {
-		is_still_running();									// Optimization: Poll cqes last time. If IO already completed return success instead of cancel.
-		const auto rv = io_request_executor_base::cancel();
-		if (rv == io_request::cancel_rv::G_CANCELED)
+		polling_lock.lock();
+		//const enum io_error_codes status = io_request_executor_base::is_still_running();
+		const enum io_error_codes status = is_still_running();		// Optimization: Poll cqes last time. If IO already completed return success instead of cancel.
+		io_request::cancel_rv rv = io_request::cancel_rv::G_ALLREADY_DONE;
+		if (status == io_error_codes::E_IN_TRANSFER) {
+			rv = io_request_executor_base::cancel();
 			async_work_done();			// Because there is no async work left
+		}
+		polling_lock.unlock();
 		return rv;
 	}
-	enum io_error_codes is_still_running(void) override {
+	enum io_error_codes is_still_running(void) override { //Protect
 		const io_error_codes rv = io_request_executor_base::is_still_running();
 		if (rv != io_error_codes::E_IN_TRANSFER)
 			return rv;
+		polling_lock.lock();
 		struct io_uring_cqe* cqe;					// Process all available completions
 		unsigned head, count = 0;
 		io_uring_for_each_cqe(&uring, head, cqe) {
@@ -433,7 +439,8 @@ public:
 		io_uring_cq_advance(&uring, count);			// Mark all seen
 		num_completed += count;
 		if (num_completed == num_ranges)
-			async_work_done();
+			async_work_done();						// Next call to this function will abort beause executor is not running anymore
+		polling_lock.unlock();
 		return io_request_executor_base::is_still_running();
 	}
 };

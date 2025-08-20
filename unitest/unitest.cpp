@@ -148,8 +148,9 @@ int base_lib_empty_io_unitest(void) {
 	{ gusli::io_request io; io.submit_io(); }
 	{ gusli::io_request io; io.get_error(); (void)io.try_cancel(); }
 	{ gusli::io_request io; io.submit_io(); (void)io.try_cancel(); }
-	{ gusli::io_request_base io; io.done(); }
+	{ gusli::io_request_base io; io.submit_io(); io.done(); io.get_error(); }
 	{ gusli::io_request_base io; io.get_error(); io.get_error(); (void)io.try_cancel(); }
+	{ gusli::io_request_base io; }
 	return 0;
 }
 
@@ -174,18 +175,16 @@ int io_race_conditions_unittest(const gusli::bdev_info& binfo, unitest_io& my_io
 		log_line("%s: Race-Cancel in-air-io test %d[iters]", binfo.name, n_iters);
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
-			for (int do_blocking_cancel = 0; do_blocking_cancel < 2; do_blocking_cancel++) {
-				timer.tic();
-				for (int n = 0; n < n_iters; n++) {
-					my_io.clean_buf();
-					my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i, do_blocking_cancel);
-					if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
-						my_assert(strcmp(data, my_io.io_buf) == 0);
-				}
-				const uint64_t n_micro_sec = timer.toc();
-				log_time(n_micro_sec, "Test summary[%s]: Blocking=%d.canceled %6u/%6u", io_exec_mode_str((io_exec_mode)i), do_blocking_cancel, my_io.n_cancl, my_io.n_ios);
-				my_io.clear_stats();
+			timer.tic();
+			for (int n = 0; n < n_iters; n++) {
+				my_io.clean_buf();
+				my_io.exec_cancel(gusli::G_READ, (io_exec_mode)i);
+				if (my_io.io.get_error() == gusli::io_error_codes::E_OK)
+					my_assert(strcmp(data, my_io.io_buf) == 0);
 			}
+			const uint64_t n_micro_sec = timer.toc();
+			log_time(n_micro_sec, "Test summary[%s]: canceled %6u/%6u", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios);
+			my_io.clear_stats();
 		}
 		my_io.enable_prints(true).clear_stats();
 		fflush(stderr);
@@ -338,6 +337,7 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {	// Those io's were throttled
 		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_THROTTLE_RETRY_LATER);
 		my_assert(my_io[i].io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+		my_assert(my_io[i].io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	}
 	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
 
@@ -375,38 +375,43 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 		}
 	}
 
-	log_unitest("After drain, Retry the same ios, client cancels them 1by1\n");
-	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
-		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
-		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
-	}
-	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
+	log_unitest("After drain, client cancels them 1by1\n");
+	pthread_t tid[n_ios];
+	const auto __stuck_thread_on_cancel_io = [](void* ctx) -> void* {
+		unitest_io* m = (unitest_io*)ctx;
+		(void)m->io.try_cancel(); //my_assert(m->io.try_cancel() ==  gusli::io_request::cancel_rv::G_CANCELED);
+		my_assert(m->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+		my_assert(m->io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		m->exec_dont_block_finish();
+		return nullptr;
+	};
 
-	// Cancel all except 1 directly by IO pointers
-	for (uint32_t i = 1; i < bdi.num_max_inflight_io; i++) {
-		my_assert(my_io[i].io.try_cancel() ==  gusli::io_request::cancel_rv::G_CANCELED);
-		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
-		my_io[i].exec_dont_block_finish();
-	}
-	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 1);		// Only my_io[0] is in air
+	static constexpr const int n_iters = 3;
+	for (int iter = n_iters-1; iter >= 0; iter--) {
+		log_unitest("\t\t ~~~~~~~~~~~~~~~~~~iter=%d~~~~~~~~~~~~~~~\n", iter);
+		for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
+			my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
+			my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+		}
+		my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
 
-	// Resubmit the io's that were previously throtteled
-	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {
-		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);
-		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
+		// Cancel all except 1 directly by IO pointers
+		for (uint32_t i = 1; i < bdi.num_max_inflight_io; i++) {
+			const int err = pthread_create(&tid[i], NULL, (void* (*)(void*))__stuck_thread_on_cancel_io, &my_io[i]);
+			my_assert(err >= 0);
+		}
+		if (iter == 0)	// Last
+			my_assert(lib.bdev_force_close(bdev) == _ok);	// Unblock all threads
+		else
+			my_assert(lib.bdev_force_refresh(bdev) == _ok);	// Unblock all threads
+		for (uint32_t i = 1; i < bdi.num_max_inflight_io; i++) {
+			const int err = pthread_join(tid[i], NULL);
+			my_assert(err == 0);
+		}
+		my_assert(my_io[0].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
+		my_io[0].exec_dont_block_finish();
 	}
-	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == (n_ios-bdi.num_max_inflight_io+1));
 
-	// Stop the remaining io's, close the server and verify state
-	my_assert(lib.bdev_force_close(bdev) == _ok);
-	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {
-		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
-		my_io[i].exec_dont_block_finish();
-	}
-	for (uint32_t i = 0; i < 1; i++) {
-		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
-		my_io[i].exec_dont_block_finish();
-	}
 	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);			// Blockdevice is not connected so 0 is returned
 
 	// Block device already closed, Cannot close again
@@ -712,6 +717,37 @@ void client_server_stuck_io_and_throttle_test(gusli::global_clnt_context& lib) {
 	}
 }
 
+void client_server_io_racees_test(gusli::global_clnt_context& lib) {
+	static constexpr const int n_servers = 1;
+	log_line("Fail %d Stuck_io server launch", n_servers);
+	struct { __pid_t   pid;	} child[n_servers];
+	for (int i = 0; i < n_servers; i++) {
+		child[i].pid = fork();
+		my_assert(child[i].pid >= 0);
+		if (child[i].pid == 0) {	// Child process
+			zero_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i]);
+			ds.run();
+			exit(0);
+		}
+	}
+	__connect_to_servers(lib, n_servers);
+	if (1) {
+		unitest_io my_io;
+		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
+		std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
+		my_assert(lib.open__bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
+		gusli::bdev_info binfo;
+		my_assert(lib.bdev_get_info(bdev, binfo) == gusli::connect_rv::C_OK);
+		const int32_t fd = binfo.bdev_descriptor;
+		my_io.io.params.init_1_rng(gusli::G_NOP, fd, binfo.block_size, 4*binfo.block_size, my_io.io_buf);
+		io_race_conditions_unittest(binfo, my_io, "", 1000);
+		my_assert(lib.close_bufs_unregist(bdev, mem, true) == gusli::connect_rv::C_OK);
+	}
+	for (int i = 0; i < n_servers; ++i) {
+		wait_for_process(child[i].pid, "server_done");
+	}
+}
+
 void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
 	log_line("Uninitialized library tests");
 	my_assert(lib.get_metadata_json()[0] == (char)0);			// Empty
@@ -882,8 +918,9 @@ int main(int argc, char *argv[]) {
 	gusli::global_clnt_context* lib = lib_initialize_unitests();
 	base_lib_empty_io_unitest();
 	unitest_auto_open_close(lib);
-	client_server_stuck_io_and_throttle_test(*lib);
 	client_stuck_io_and_throttle_tests(*lib, UUID.AUTO_STUCK);
+	client_server_stuck_io_and_throttle_test(*lib);
+	client_server_io_racees_test(*lib);
 	if (do_large_io_test) unitest_huge_mem_map_and_io(lib);
 	base_lib_unitests(*lib, n_iter_race_tests);
 	client_no_server_reply_test(*lib);

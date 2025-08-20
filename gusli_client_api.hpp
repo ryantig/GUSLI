@@ -206,18 +206,16 @@ class io_request_base {							// Data structure for issuing IO
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
 	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
-	SYMBOL_EXPORT_NO_DISCARD enum cancel_rv try_cancel(bool blocking = false) noexcept;	// Cancel asynchronous I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running. Note: Canceled IO will not be used but registered memory might be used
-	SYMBOL_EXPORT void done(void) noexcept {};							// Must call done() after you finish anylizing the run of submit_io(). Can submit the io again / free it / change it and submit again after call to this function
+	SYMBOL_EXPORT_NO_DISCARD enum cancel_rv try_cancel(void) noexcept;	// Cancel I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running. Note: IO cancelation blocks until registered memory will not be used anymore
+	SYMBOL_EXPORT void done(void) noexcept;								// Must call done() after you finish anylizing the run of submit_io(). Can submit the io again / free it / change it and submit again after call to this function
  protected:																// Below extra 16[b] for execution state
 	class io_request_executor_base* _exec;								// During execution executor attaches to IO, Server side uses it to execute io
 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
-private:
-	[[nodiscard]] io_request_executor_base* __disconnect_executor_atomic(void) noexcept;	// Internal function, dont touch
 };
 
 class io_request : public io_request_base {								// Example how you can inherit from io base class or use this class for your io
  public:
-	SYMBOL_EXPORT ~io_request();										// Added destructor that verifies io is in a correct state (not still running / etc). You can use the base class if you dont need this extra protection
+	SYMBOL_EXPORT ~io_request();										// Added destructor that verifies io was properly finished/done (not still running / etc). You can use the base class if you dont need this extra protection
 };
 
 /******************************** Global library context ***********************/

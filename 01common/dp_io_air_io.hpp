@@ -41,6 +41,7 @@ class server_io_req : public backend_io_req {		// Additional set of internal fun
 	const void *get_comp_ctx(void) const { return params._comp_ctx; }					// For debug prints of who handed this io to backend execution
 
 	void client_receive_server_finish_io(int64_t rv);
+	void internal_cancel(void) noexcept;
 	~server_io_req() {
 		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Server Destroying io while it is still in air (running)!");
 	}
