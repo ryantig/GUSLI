@@ -144,12 +144,12 @@ int base_lib_empty_io_unitest(void) {
 	log_line("%s",__FUNCTION__);
 	{ gusli::io_request io; }		// Constructor / destructor
 	{ gusli::io_request io; (void)io.get_error(); }
-	{ gusli::io_request io; (void)io.try_cancel(); }
+	{ gusli::io_request io; (void)io.cancel_wait(); }
 	{ gusli::io_request io; io.submit_io(); }
-	{ gusli::io_request io; io.get_error(); (void)io.try_cancel(); }
-	{ gusli::io_request io; io.submit_io(); (void)io.try_cancel(); }
+	{ gusli::io_request io; io.get_error(); (void)io.cancel_wait(); }
+	{ gusli::io_request io; io.submit_io(); (void)io.cancel_wait(); }
 	{ gusli::io_request_base io; io.submit_io(); io.done(); io.get_error(); }
-	{ gusli::io_request_base io; io.get_error(); io.get_error(); (void)io.try_cancel(); }
+	{ gusli::io_request_base io; io.get_error(); io.get_error(); (void)io.cancel_wait(); }
 	{ gusli::io_request_base io; }
 	return 0;
 }
@@ -205,7 +205,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
-	my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+	my_assert(my_io.io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	if (1) {
 		log_line("Submit async/sync/pollable write");
 		for_each_exec_mode(i) {
@@ -214,7 +214,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.clean_buf();
 			my_io.exec(gusli::G_READ, (io_exec_mode)i);
 			my_assert(strcmp(data, my_io.io_buf) == 0);
-			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
+			my_assert(my_io.io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Blocking io already finished/succeeded
 		}
 		test_io_no_result_check_by_user(lib, bdev);
 		std::string msg = "print_clnt_msg";
@@ -271,7 +271,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 			my_io.exec(gusli::G_NOP,   (io_exec_mode)i);
 			my_io.exec(gusli::G_READ,  (io_exec_mode)i);
 			my_io.exec(gusli::G_WRITE, (io_exec_mode)i);
-			my_assert(my_io.io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already Failed, cannot cancel
+			my_assert(my_io.io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// Already Failed, cannot cancel
 		}
 		lib.~global_clnt_context();							// failed destroy, bdev is still open
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
@@ -336,8 +336,8 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 	}
 	for (uint32_t i = bdi.num_max_inflight_io; i < n_ios; i++) {	// Those io's were throttled
 		my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_THROTTLE_RETRY_LATER);
-		my_assert(my_io[i].io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
-		my_assert(my_io[i].io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+		my_assert(my_io[i].io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+		my_assert(my_io[i].io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 	}
 	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == bdi.num_max_inflight_io);
 
@@ -379,8 +379,8 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 	pthread_t tid[n_ios];
 	const auto __stuck_thread_on_cancel_io = [](void* ctx) -> void* {
 		unitest_io* m = (unitest_io*)ctx;
-		(void)m->io.try_cancel(); //my_assert(m->io.try_cancel() ==  gusli::io_request::cancel_rv::G_CANCELED);
-		my_assert(m->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
+		(void)m->io.cancel_wait(); // Might be already done if server responded quickly before cancel issued, or canceled.
+		my_assert(m->io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE);	// IO not launched so as if already done
 		my_assert(m->io.get_error() == gusli::io_error_codes::E_CANCELED_BY_CALLER);
 		m->exec_dont_block_finish();
 		return nullptr;

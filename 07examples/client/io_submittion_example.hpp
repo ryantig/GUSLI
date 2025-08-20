@@ -59,7 +59,7 @@ class unitest_io {
 		c->is_waiting_for_callback = false;
 		c->print_io_comp();
 		if (c->_should_cancel)
-			my_assert(c->io.try_cancel() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
+			my_assert(c->io.cancel_wait() == gusli::io_request::cancel_rv::G_ALLREADY_DONE); // If callback was returned, IO is done, cannot cancel it
 		my_assert(sem_post(&c->wait) == 0);	// Unblock waiter. Must be last expression to prevent the callback from running while io is retried.
 	}
 	void blocking_wait_for_io_finish(void) {
@@ -125,7 +125,7 @@ class unitest_io {
 		if (_should_cancel) {
 			if (!io.params.may_use_uring())
 				std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
-			(void)io.try_cancel();
+			(void)io.cancel_wait();
 		}
 		if (_should_wait_for_io_finish)
 			blocking_wait_for_io_finish();

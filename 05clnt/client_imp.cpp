@@ -547,15 +547,33 @@ uint32_t global_clnt_context::bdev_ctl_get_num_in_air_ios(const backend_bdev_id&
 /*****************************************************************************/
 /* IO api race conditions after io was submitted. Worst case - it has an async callback and it is polled:
 	* Multiple user different threads poll IO status via get_error().
-	* Multiple user different threads call try_cancel() due to timeout or any other reason.
-	* When IO completes and gives callback to user. This callback can also execute get_error() or try_cancel()
-	* Once try_cancel() succeeds, IO can be freed so callback must not arrive on canceled ios
-	* With server backend - completion ring wakes up and calls client_receive_server_finish_io(), race with cancel
+		* Extra race in polling mode io, where this function actually creates progress and not treats io as const
+		* IO executor is reposnsible for the poling critical section
+	* Multiple user different threads call cancel_wait() due to timeout or any other reason.
+		* IO executor serialized those requests
+	* When IO completes and gives callback to user. This callback can also execute get_error() or cancel_wait()
+		* It will definitely call get_error() at least once
+		* Calling cancel make no sense from callback but user can do this (will get io already done as reply).
+	* Incomming io completions from Server
+		* With server backend - completion ring wakes up and calls client_receive_server_finish_io(), race with cancel ans stop all io's
+		* IO executor ris responsible for managing executor completions separately from user requests (like cancel / io poling)
+	* Stop all ios (Server disconnect and reconnect)
+		* Generate internal cancelation. Behavies like user requested cancel but on all ios.
+	* Once cancel_wait() succeeds, IO can be freed so callback must not arrive on canceled ios
 
   Key points:
-	* Once IO status becomes not in transfer (success / failure) user can immediately free it (possibly polling thread).
+	* Once IO status becomes not in transfer (success / failure) user can immediately call done() and free it (possibly polling thread).
 	* This implies that in the code we cannot refer to io after rv was set.
-	* Inherent race condition: seting io rv and issuing callback, but user does polling in parallel to callback.
+  User potential miss-behaving that will cause memory corruption: (GUSLI does not protect agaisnt it)
+	* Call done() and freeing io from completion callback. This is a bad practice because user may
+		* Poll the same io status from a different thread. done() will be called while another thread does polling
+		* Another thread may run { cancel() / done() } / stop all io and have a race of which thread call done()
+	* Polling IO from 1 thread in parallel to callback arriving on another thread.
+		* Inherent race condition: seting io rv and issuing callback. GUSLI assumes that polling is potentially done so once
+			rv of io is set, immediately done() can be called and io can be free() from the polling thread.
+	* Calling done() and freeing the io too early with async io. A callback of completion may arrive before submit_io() finished
+		It is not advisable to free the io before user submition finished as even harmless prints ("submitted successfully")
+		May cause use after free
 */
 void server_io_req::client_receive_server_finish_io(int64_t rv) {
 	_exec->extern_notify_completion(rv);	// Here is a race condition with already canceled io, todo, fix me
@@ -611,10 +629,11 @@ void io_request_base::submit_io(void) noexcept {
 		bool need_wakeup_srvr;
 		const int send_rv = bdev->b.dp->clnt_send_io(*sio, &need_wakeup_srvr);
 		if (send_rv >= 0) {
-			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), send_rv, this, need_wakeup_srvr); // This print is mem corrupt
+			nvTODO("Here completion from server could already arrived and access to *this below is potentiallu use after free");
+			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), send_rv, this, need_wakeup_srvr);
 			if (need_wakeup_srvr) {
 				const int wakeup_rv = bdev->b.dp_wakeup_server();
-				if (wakeup_rv < 0) // PRINT here is mem corrupt
+				if (wakeup_rv < 0)
 					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waiking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), send_rv, this);
 			}
 			// Callback will come in future
@@ -645,7 +664,7 @@ enum io_error_codes io_request_base::get_error(void) noexcept {
 	return (out.rv > 0) ? io_error_codes::E_OK : (enum io_error_codes)out.rv;
 }
 
-enum io_request::cancel_rv io_request_base::try_cancel(void /*bool blocking_wait*/) noexcept {
+enum io_request::cancel_rv io_request_base::cancel_wait(void /*bool blocking_wait*/) noexcept {
 	if (out.rv != io_error_codes::E_IN_TRANSFER)
 		return io_request::cancel_rv::G_ALLREADY_DONE;
 	DEBUG_ASSERT(!params.is_blocking_io());		// Impossible for blocking io as out.rv would be already set
@@ -686,7 +705,7 @@ io_request::~io_request() {				// Needed because user may not call get error nor
 	if (unlikely(out.rv == io_error_codes::E_IN_TRANSFER)) {
 		pr_err1(PRINT_IO_REQ_FMT PRINT_CLNT_IO_PTR_FMT ", User wrong flow, Destroying io while it is still in air (running)\n", PRINT_IO_REQ_ARGS(params), this);
 		if (params.is_polling_mode()) {
-			const cancel_rv crv = try_cancel();
+			const cancel_rv crv = cancel_wait();
 			pr_err1(PRINT_EXECUTOR PRINT_IO_REQ_FMT ", cancel_rv=%d\n", _exec, this,  PRINT_IO_REQ_ARGS(params), crv);
 		}
 		BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "Destroying io while it is still in air (running)!");
