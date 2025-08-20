@@ -94,6 +94,7 @@ class unitest_io {
 			const bool io_succeeded = (io_rv == ge::E_OK);
 			my_assert(io_succeeded == _expect_success);
 		}
+		io.done();
 		_should_try_cancel = 0;
 	}
  public:

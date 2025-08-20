@@ -148,15 +148,15 @@ int base_lib_empty_io_unitest(void) {
 	{ gusli::io_request io; io.submit_io(); }
 	{ gusli::io_request io; io.get_error(); (void)io.try_cancel(); }
 	{ gusli::io_request io; io.submit_io(); (void)io.try_cancel(); }
-	{ gusli::io_request_base io; }
+	{ gusli::io_request_base io; io.done(); }
 	{ gusli::io_request_base io; io.get_error(); io.get_error(); (void)io.try_cancel(); }
 	return 0;
 }
 
-int io_race_conditions_unittest(unitest_io& my_io, const char *data, int n_iter_race_tests) {
+int io_race_conditions_unittest(const gusli::bdev_info& binfo, unitest_io& my_io, const char *data, int n_iter_race_tests) {
 	if (1) {
 		const int n_iters = n_iter_race_tests;
-		log_line("Race-Pollable in-air-io test %d[iters]", n_iters);
+		log_line("%s: Race-Pollable in-air-io test %d[iters]", binfo.name, n_iters);
 		my_io.enable_prints(false).expect_success(true).clear_stats();
 		timer.tic();
 		for (int n = 0; n < n_iters; n++) {
@@ -171,7 +171,7 @@ int io_race_conditions_unittest(unitest_io& my_io, const char *data, int n_iter_
 	}
 	if (1) {
 		const int n_iters = n_iter_race_tests;
-		log_line("Race-Cancel in-air-io test %d[iters]", n_iters);
+		log_line("%s: Race-Cancel in-air-io test %d[iters]", binfo.name, n_iters);
 		my_io.enable_prints(false).clear_stats();
 		for_each_exec_async_mode(i) {
 			for (int do_blocking_cancel = 0; do_blocking_cancel < 2; do_blocking_cancel++) {
@@ -200,7 +200,9 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 	gusli::backend_bdev_id bdev; bdev.set_from(UUID.LOCAL_FILE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);
-	int32_t fd = __get_connected_bdev_descriptor(lib, bdev);
+	gusli::bdev_info bdi;
+	my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
+	const int32_t fd = bdi.bdev_descriptor;
 	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 	my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
@@ -230,7 +232,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 				my_assert(strcmp(data, my_io.io_buf) == 0);
 		}
 	}
-	io_race_conditions_unittest(my_io, data, n_iter_race_tests);
+	io_race_conditions_unittest(bdi, my_io, data, n_iter_race_tests);
 
 	if (1) {
 		log_line("Multi-Range-Read");
@@ -280,7 +282,6 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Legacy /dev/zero tests");
 		bdev.set_from(UUID.DEV_ZERO);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-		gusli::bdev_info bdi;
 		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
 		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
@@ -450,6 +451,7 @@ class all_ios_t {
 		// log_unitest("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
 		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
 			c->params.change_map().offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
+			c->done();
 			c->submit_io();
 			return;
 		}
@@ -487,6 +489,9 @@ class all_ios_t {
 		const uint64_t n_micro_sec = timer.toc();
 		const uint64_t n_done_ios = n_completed_ios.read();
 		log_time(n_micro_sec, "\tperfTest %lu[Kios], %lu[Kio/s]", n_done_ios/1000, ((n_completed_ios.read()*1000)/ n_micro_sec));
+		for (int i = 0; i < io_depth; i++) {
+			ios[i].done();
+		}
 	}
 	~all_ios_t() { }
 };
@@ -501,28 +506,28 @@ static void _remote_server_bad_path_io_unitests(const gusli::bdev_info& info, co
 		my_assert(_io->get_error() == gusli::io_error_codes::E_INVAL_PARAMS);
 	};
 	io.params.set_completion(&io, __io_invalid_arg_comp_cb);
-	io.submit_io(); 										// No mapped buffers
+	io.done(); io.submit_io(); 										// No mapped buffers
 	gusli::io_multi_map_t* mio = (gusli::io_multi_map_t*)calloc(1, 4096);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
 	mio->init_num_entries(1);
-	io.submit_io(); 										// < 2 ranges are not allowed
+	io.done(); io.submit_io(); 										// < 2 ranges are not allowed
 	mio->init_num_entries(2);
-	io.submit_io(); 										// Wrong mapping of first range, it is zeroed
+	io.done(); io.submit_io(); 										// Wrong mapping of first range, it is zeroed
 	mio->entries[1] = mio->entries[0].init((void*)(1 << 20), (1 << 20), (1 << 20));
-	io.submit_io(); 										// Wrong mapping of first range, it is not inside shared memory area
+	io.done(); io.submit_io(); 										// Wrong mapping of first range, it is not inside shared memory area
 	mio->entries[1] = mio->entries[0].init(dst_block(2), n_block(1), n_block(3));
-	io.submit_io(); 										// Correct mapping, but scatter gather itself is not inside shared memory area
+	io.done(); io.submit_io(); 										// Correct mapping, but scatter gather itself is not inside shared memory area
 	free(mio);
 	mio = (gusli::io_multi_map_t*)dst_block(0);
 	mio->init_num_entries(2);
 	mio->entries[1] = mio->entries[0].init(dst_block(3), n_block(2), n_block(1) / 3);
 	io.params.init_multi(gusli::G_READ, info.bdev_descriptor, *mio);
-	io.submit_io(); 										// Fractional block offset
+	io.done(); io.submit_io(); 										// Fractional block offset
 	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = (1UL << 62);
-	io.submit_io(); 										// LBA outside of block device range
+	io.done(); io.submit_io(); 										// LBA outside of block device range
 	mio->entries[1].offset_lba_bytes = mio->entries[0].offset_lba_bytes = 0;
 	io.params.init_1_rng(gusli::G_READ, info.bdev_descriptor, (1UL << 62), n_block(2), dst_block(0));
-	io.submit_io(); 										// LBA outside of block device range
+	io.done(); io.submit_io(); 										// LBA outside of block device range
 }
 
 static void __verify_mapped_properly(const std::vector<gusli::io_buffer_t>& io_bufs) {
@@ -841,7 +846,7 @@ void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
 	gusli::io_request io;
 	io.params.init_1_rng(gusli::G_READ, lib->bdev_get_descriptor(bdev), 0, n_bytes, map.ptr);
 	io.params.set_blocking();
-	io.submit_io();
+	io.submit_io(); io.done();
 	n_micro_sec = timer.toc_tic(); log_time(n_micro_sec, "Read    - op took");
 	my_assert(lib->close_bufs_unregist(bdev, io_bufs) == gusli::connect_rv::C_OK);
 	n_micro_sec = timer.toc();     log_time(n_micro_sec, "UnRegist-mem took");
