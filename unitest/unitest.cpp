@@ -19,23 +19,18 @@
 
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
+#include <chrono>
 class test_timer {	 	// Dont use concurently from multiple threads
-	uint64_t start;
+	std::chrono::time_point<std::chrono::steady_clock> start;
 public:
-	static uint64_t get_cur_timestamp_unix(void) {
-		struct timeval tp;
-		gettimeofday(&tp, nullptr);
-		return (uint64_t)(tp.tv_sec * 1000000 + tp.tv_usec);
-	};
-	void     tic(void) { start = get_cur_timestamp_unix(); }
+	void     tic(void) { start = std::chrono::steady_clock::now(); }
 	uint64_t toc(bool update_start = false) {
-		const uint64_t time_end = get_cur_timestamp_unix();
-		const uint64_t n_micro_sec = (time_end - start);
-		my_assert((int64_t)n_micro_sec > 0);
-		if (update_start)
+		const auto time_end = std::chrono::steady_clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(time_end - start);
+		if (update_start) {
 			start = time_end;
-		return n_micro_sec;
-	}
+		}
+		return static_cast<uint64_t>(duration.count());	}
 	uint64_t toc_tic(void) { return toc(true); }
 } timer;
 #define log_time(n_micro_sec, fmt, ...) log_unitest(fmt ": time=%5lu.%03u[msec]\n", ##__VA_ARGS__, (n_micro_sec/1000), (unsigned)(n_micro_sec%1000));
