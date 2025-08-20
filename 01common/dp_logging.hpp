@@ -37,6 +37,7 @@ namespace gusli {
 #define PRINT_BDEV_UUID_FMT  "bdev{uuid=%.16s}"
 #define PRINT_BDEV_ID_FMT    "bdev{uuid=%.16s, %s[%c].addr[%s]}"
 #define PRINT_BDEV_ID_ARGS(bdev) (bdev).conf.id.uuid, (bdev).b.info.name, (bdev).conf.type, (bdev).conf.conn.any
+#define PRINT_EXECUTOR      "exec[%p].o[%p]."
 
 #if !defined(LIB_NAME) || !defined(LIB_COLOR)
 	#error: Including file must define the above to use generic client/server logging system
