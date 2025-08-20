@@ -281,7 +281,7 @@ class reconnect_to_server_task {
  public:
 	reconnect_to_server_task(server_bdev *_bdev) : bdev(_bdev), id(bdev->conf.id) {
 		const int err = pthread_create(&tid, NULL, (void* (*)(void*))__exec, this);
-		ASSERT_IN_PRODUCTION(err <= 0);
+		ASSERT_IN_PRODUCTION(err == 0);
 	}
 };
 
@@ -563,10 +563,11 @@ void server_io_req::client_receive_server_finish_io(int64_t rv) {
 }
 
 void io_request_base::submit_io(void) noexcept {
-	BUG_ON(out.rv == io_error_codes::E_IN_TRANSFER, "memory corruption: attempt to retry io[%p] before prev execution completed!", this);
-	out.rv = io_error_codes::E_IN_TRANSFER;
+	BUG_ON((out.rv == io_error_codes::E_IN_TRANSFER) ||
+			(_exec != NULL), "memory corruption: attempt to retry io[%p] while it is still running. Before retrying wait for termination or cancel and call done()!", this);
+	server_io_req *sio = (server_io_req*)this;
+	sio->start_execution();
 	const server_bdev *bdev = NULL;
-	BUG_ON(_exec != NULL, "BUG: IO is still running! wait for completion or cancel, before retrying it");
 	if (params.get_bdev_descriptor() > 0)
 		bdev = global_clnt_context_imp::get().bdevs.find_by_io(params.get_bdev_descriptor());
 	if (unlikely(!bdev)) {
@@ -574,7 +575,6 @@ void io_request_base::submit_io(void) noexcept {
 		io_autofail_executor(*this, io_error_codes::E_INVAL_PARAMS);
 		return;
 	}
-	server_io_req *sio = (server_io_req*)this;
 	sio->is_remote_set(bdev->conf.is_bdev_remote());
 	if (bdev->conf.is_bdev_local()) {
 		if (!params.is_safe_io()) {
@@ -693,12 +693,12 @@ enum io_request::cancel_rv io_request_base::try_cancel(bool blocking_wait) noexc
 	if (orig_exec) {		// Executor still running
 		const enum cancel_rv crv = orig_exec->cancel();
 		if (crv == cancel_rv::G_CANCELED) {
-			out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
+		out.rv = (int64_t)io_error_codes::E_CANCELED_BY_CALLER;
 			return io_request::cancel_rv::G_CANCELED;
 		} // Else: Already done during call to executor cancel
 	}     // Else: Already done before call to executor cancel
 	return io_request::cancel_rv::G_ALLREADY_DONE;
-}
+	}
 }	// namespace
 /************************* communicate with server *****************************************/
 namespace gusli {
@@ -774,7 +774,7 @@ int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *cln
 	info.bdev_descriptor = sock.fd();
 	{
 		const int err = pthread_create(&io_listener_tid, NULL, (void* (*)(void*))io_completions_listener, this);
-		ASSERT_IN_PRODUCTION(err <= 0);
+		ASSERT_IN_PRODUCTION(err == 0);
 	}
 _out:
 	if (!info.is_valid())
