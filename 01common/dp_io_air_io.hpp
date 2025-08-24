@@ -124,11 +124,19 @@ class in_air_ios_holder {
 		if (is_empty())
 			return; // Do nothing
 		uint32_t i;
-		for_each_set_bit(i, bmp) {
-			ASSERT_IN_PRODUCTION(ios_arr[i] != nullptr);
-			for_each_io_exec_fn(ios_arr[i]);		// Make sure you function does not require lock or dead lock will occure
-			if (remove)
-				del(*ios_arr[i]);
+		if (!remove) {
+			for_each_set_bit(i, bmp) {
+				ASSERT_IN_PRODUCTION(ios_arr[i] != nullptr);
+				for_each_io_exec_fn(ios_arr[i]);		// Make sure you function does not require lock or dead lock will occure
+			}
+		} else {
+			for_each_set_bit(i, bmp) {
+				auto* ptr = ios_arr[i];
+				ASSERT_IN_PRODUCTION(ptr != nullptr);
+				if (remove)
+					del(*ptr);							// Remove the io from the list
+				for_each_io_exec_fn(ptr);				// Function can free the io. Make sure you function does not require lock or dead lock will occure
+			}
 		}
 		BUG_ON((remove && !is_empty()), "IAIOL: corruption Corruption");
 	}
