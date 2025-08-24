@@ -73,6 +73,7 @@ class srvr_imp : public base_library  {
 	[[nodiscard]] int  __clnt_bufs_unregist(const MGMT::msg_content &msg, void* &my_buf);
 	void __clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr);
 	void __clnt_close(const char* reason);
+	void __abandon_all_clnt_io(void);
 	void do_shut_down(int err_code) { exit_error_code = err_code; shutting_down = true;}
 	void send_to(             const MGMT::msg_content &msg, size_t n_bytes, const struct connect_addr &addr);
 	[[nodiscard]] int run_once(void) noexcept;

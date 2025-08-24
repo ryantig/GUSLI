@@ -80,10 +80,12 @@ void srvr_imp::__clnt_close(const char* reason) {
 		pr_verbS(this, "Destroying datapath\n");
 		b.close1(reason);
 		if (dp->is_still_used()) {	// Auto clean leaked resources
-			pr_errS(this, "Close Error: still have %u[mapped-buffers], %u[ios]\n", dp->get_num_mem_reg_ranges(), dp->get_num_in_air_ios());
+			const uint32_t n_in_air_ios = dp->get_num_in_air_ios();
+			pr_errS(this, "Close: still have %u[mapped-buffers], %u[ios]\n", dp->get_num_mem_reg_ranges(), n_in_air_ios);
 			for (auto it = dp->reg_bufs_set.begin(); it != dp->reg_bufs_set.end(); ++it)	// Print the list of registerd leaked bufs
 				pr_verbS(this, PRINT_MMAP_PREFIX "Force_clenaup buf [%d%c]\n", *it, 'i');
 			dp->registerd_bufs_force_clean();
+			__abandon_all_clnt_io();
 		}
 		delete dp; dp = nullptr;
 	}
@@ -126,8 +128,16 @@ class backend_io_executor {
 	bool need_wakeup_clnt_io_submitter = false;
 	bool need_wakeup_clnt_comp_reader = false;
 
+	void _io_free(void) {
+		if (io.params.is_multi_range())
+			free(io.params.map().data.ptr);	// Copy of scatter gather list
+		if (io.has_valid_unique_id())
+			srv->dp->in_air.remove(io);
+		delete this;
+	}
+
 	void _io_done_cb(void) {
-		pr_verbS(srv, "exec[%p].Server io__cb_: rv=%ld\n", this, io.get_raw_rv());
+		pr_verbS(srv, PRINT_EXECUTOR ".Server io__cb_: rv=%ld\n", this, &io, io.get_raw_rv());
 		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
 		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io lanuched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
 		io.params.set_completion(client_io_ctx, NULL);			// Restore client context
@@ -142,11 +152,10 @@ class backend_io_executor {
 			srv->dp->stats.inc(*p);
 			srv->send_to(msg, n_send_bytes, addr);
 		}
-		if (io.params.is_multi_range())
-			free(io.params.map().data.ptr);	// Copy of scatter gather list
-		delete this;
+		_io_free();
 	}
 	static void static_io_done_cb(backend_io_executor *me) { me->_io_done_cb();	}
+	static void static_io_free_cb(backend_io_executor *me) { me->_io_free();	}
  public:
 	backend_io_executor(const connect_addr& _addr, srvr_imp& _srv) {
 		addr = _addr;
@@ -160,19 +169,20 @@ class backend_io_executor {
 	bool run(void) {
 		if (has_io_to_do()) {
 			srv->dp->stats.inc(io);			// Dont access io maps as they are not remapped yet
+			srv->dp->in_air.insert(io);
 			client_io_ctx = io.get_comp_ctx();
-			pr_verbS(srv, "exec[%p].Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, sqe_indx);
+			pr_verbS(srv, PRINT_EXECUTOR ".Server io_start " PRINT_IO_SQE_ELEM_FMT "\n", this, &io, sqe_indx);
 			io.params.set_completion(this, backend_io_executor::static_io_done_cb);
 			if (io.is_valid()) {
 				if (srv->dp->srvr_remap_io_bufs_to_my(io)) {
 					io.start_execution();
 					srv->b.exec_io(io);		// Launch io execution
 				} else {
-					pr_errS(srv, "exec[%p].IO buffers cannot be remapped. autofail io\n", this);
+					pr_errS(srv, PRINT_EXECUTOR ".IO buffers cannot be remapped. autofail io\n", this, &io);
 					io.set_error(io_error_codes::E_INVAL_PARAMS);
 				}
 			} else {
-				pr_errS(srv, "exec[%p].IO arrived to server in a wrong state, Memory corruption??? autofail io\n", this);	// Verify no other executor connected to io
+				pr_errS(srv, PRINT_EXECUTOR ".IO arrived to server in a wrong state, Memory corruption??? autofail io\n", this, &io);	// Verify no other executor connected to io
 				io.set_error(io_error_codes::E_INVAL_PARAMS);
 			}
 			return true;
@@ -181,7 +191,22 @@ class backend_io_executor {
 			return false;
 		}
 	}
+
+	void abandon(void) {
+		io.params.set_completion(this, backend_io_executor::static_io_free_cb);
+		io.set_error(io_error_codes::E_CANCELED_BY_CALLER);
+	}
 };
+
+void srvr_imp::__abandon_all_clnt_io(void) {
+	const auto __for_each_io = [] (server_io_req* io) -> void {
+		backend_io_executor* exec = (backend_io_executor*)io;
+		pr_info(PRINT_EXECUTOR "Server Leaking io & executor at close" PRINT_IO_REQ_FMT "\n", exec, io, PRINT_IO_REQ_ARGS(io->params));
+		exec->abandon();
+	};
+	dp->in_air.exec_for_each_io(__for_each_io, true);
+	pr_verbS(this, "IO drain fixed\n");
+}
 
 void srvr_imp::__clnt_on_io_receive(const MGMT::msg_content &msg, const connect_addr& addr) {
 	(void)msg;
