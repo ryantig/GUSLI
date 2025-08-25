@@ -16,6 +16,7 @@
  */
 #include "07examples/client/io_submittion_example.hpp"
 #include "07examples/client/sample_client.hpp"
+#include "07examples/client/fork_servers_and_connect.hpp"
 
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
@@ -34,13 +35,6 @@ public:
 	uint64_t toc_tic(void) { return toc(true); }
 } timer;
 #define log_time(n_micro_sec, fmt, ...) log_unitest(fmt ": time=%5lu.%03u[msec]\n", ##__VA_ARGS__, (n_micro_sec/1000), (unsigned)(n_micro_sec%1000));
-
-static int32_t __get_connected_bdev_descriptor(gusli::global_clnt_context& lib, const gusli::backend_bdev_id bdev) {
-	gusli::bdev_info i;
-	my_assert(lib.bdev_get_info(bdev, i) == gusli::connect_rv::C_OK);
-	log_unitest("\tioable: {bdev uuid=%.16s, fd=%d name=%s, block_size=%u[B], #blocks=0x%lx}\n", bdev.uuid, i.bdev_descriptor, i.name, i.block_size, i.num_total_blocks);
-	return i.bdev_descriptor;
-}
 
 struct bdev_uuid_cache {
 	static constexpr const char* LOCAL_FILE =   "150e8400050e8407";
@@ -265,7 +259,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Failed read");
 		bdev.set_from(UUID.AUTO_FAIL);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
+		my_io.io.params.init_1_rng(gusli::G_NOP, get_connected_bdev_descriptor(lib, bdev), 0, 11, my_io.io_buf);
 		my_io.expect_success(false);
 		for_each_exec_mode(i) {
 			my_io.exec(gusli::G_NOP,   (io_exec_mode)i);
@@ -283,7 +277,7 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-		my_io.io.params.init_1_rng(gusli::G_NOP, __get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
+		my_io.io.params.init_1_rng(gusli::G_NOP, get_connected_bdev_descriptor(lib, bdev), 0, 1 * bdi.block_size, my_io.io_buf);
 		my_assert(bdi.block_size == 4096);
 		my_io.expect_success(true);
 		for_each_exec_mode(i) {
@@ -561,58 +555,15 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
 }
 
-#include <unistd.h>  // for fork()
-#include <sys/wait.h>
-
-static void __connect_to_servers(gusli::global_clnt_context& lib, int n_servers) {
-	// Connect to all servers, important not to do this 1 by 1, to test multiple bdevs
-	for (int s = 0; s < n_servers; s++) {
-		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[s]);
-		gusli::bdev_info info;
-		{
-			int n_attempts = 0;
-			enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
-			for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));	// Wait for servers to be up
-				con_rv = lib.bdev_connect(bdev);
-			}
-			my_assert(con_rv == gusli::connect_rv::C_OK);
-			__get_connected_bdev_descriptor(lib, bdev);
-		}
-		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
-		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
-	}
-	{
-		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
-		std::string msg = "  \t  print_clnt_msg";		// With non visible prefix that should be removed
-		enum gusli::connect_rv msg_rv = lib.bdev_ctl_log_msg(bdev, msg);
-		my_assert(msg_rv == gusli::connect_rv::C_OK);
-	}
-}
 
 void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
 	static constexpr const int n_servers = 3;
-	log_line("Remote %d server launch", n_servers);
-	struct {
-		union {
-			pthread_t tid;								// Thread  id when server is lauched as thread
-			__pid_t   pid;								// Process id when server is lauched as process via fork()
-		};
-	} child[n_servers];
-	static constexpr bool launch_server_as_process = true;
-	for (int i = 0; i < n_servers; i++) {
-		child[i].pid = fork();
-		my_assert(child[i].pid >= 0);
-		if (child[i].pid == 0) {	// Child process
-			const bool use_extenral_loop = (UUID.SRVR_ADDR[i][0] == 't');
-			{
-				server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], use_extenral_loop);
-				ds.run();
-			}
-			exit(0);
-		}
-	}
-	__connect_to_servers(lib, n_servers);
+	const auto server_code = [] (int i) -> void {
+		const bool use_extenral_loop = (UUID.SRVR_ADDR[i][0] == 't');
+		server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], use_extenral_loop);
+		ds.run();
+	};
+	servers_list child(lib, UUID.REMOTE, UUID.SRVR_NAME, "basic", n_servers, server_code);
 	unitest_io my_io;
 	std::vector<gusli::io_buffer_t> io_bufs;
 	io_bufs.reserve(2);
@@ -669,7 +620,7 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 		log_line("%s: Connect again", UUID.SRVR_NAME[s]);
 		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
-		__get_connected_bdev_descriptor(lib, bdev);
+		get_connected_bdev_descriptor(lib, bdev);
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(strstr(info.name, UUID.SRVR_NAME[s]) != NULL);
 		log_line("%s: Disconnect & Kill", UUID.SRVR_NAME[s]);
@@ -679,73 +630,36 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 		free(buf.ptr);
 	my_io.io_buf = nullptr;	// Because we already freed it in the line above
 	io_bufs.clear();
-
-	// Wait for all servers process to finish
-	if (launch_server_as_process) {
-		for (int i = 0; i < n_servers; ++i) {
-			wait_for_process(child[i].pid, "server_done");
-		}
-	} else {
-		for (int i = 0; i < n_servers; ++i) {
-			const int err = pthread_join(child[i].tid, NULL);
-			my_assert(err == 0);
-		}
-	}
+	child.wait_for_all();
 }
 
 void client_server_stuck_io_and_throttle_test(gusli::global_clnt_context& lib) {
-	static constexpr const int n_servers = 1;
-	log_line("Remote %d Stuck_io server launch", n_servers);
-	struct {
-		__pid_t   pid;								// Process id when server is lauched as process via fork()
-	} child[n_servers];
-	for (int i = 0; i < n_servers; i++) {
-		child[i].pid = fork();
-		my_assert(child[i].pid >= 0);
-		if (child[i].pid == 0) {	// Child process
-			fail_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], (i==0));
-			ds.run();
-			exit(0);
-		}
-	}
-	__connect_to_servers(lib, n_servers);
+	const auto server_code = [] (int i) -> void {
+		fail_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], true);
+		ds.run();
+	};
+	servers_list child(lib, UUID.REMOTE, UUID.SRVR_NAME, "Stuck_io", 1, server_code);
 	client_stuck_io_and_throttle_tests(lib, UUID.REMOTE[0]);
-
-	// Wait for all servers process to finish
-	for (int i = 0; i < n_servers; ++i) {
-		wait_for_process(child[i].pid, "server_done");
-	}
+	child.wait_for_all();
 }
 
 void client_server_io_racees_test(gusli::global_clnt_context& lib) {
-	static constexpr const int n_servers = 1;
-	log_line("Fail %d Stuck_io server launch", n_servers);
-	struct { __pid_t   pid;	} child[n_servers];
-	for (int i = 0; i < n_servers; i++) {
-		child[i].pid = fork();
-		my_assert(child[i].pid >= 0);
-		if (child[i].pid == 0) {	// Child process
-			zero_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i]);
-			ds.run();
-			exit(0);
-		}
-	}
-	__connect_to_servers(lib, n_servers);
-	if (1) {
-		unitest_io my_io;
-		gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
-		std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
-		my_assert(lib.open__bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-		gusli::bdev_info binfo;
-		my_assert(lib.bdev_get_info(bdev, binfo) == gusli::connect_rv::C_OK);
-		const int32_t fd = binfo.bdev_descriptor;
-		my_io.io.params.init_1_rng(gusli::G_NOP, fd, binfo.block_size, 4*binfo.block_size, my_io.io_buf);
-		io_race_conditions_unittest(binfo, my_io, "", 1000);
-		my_assert(lib.close_bufs_unregist(bdev, mem, true) == gusli::connect_rv::C_OK);
-	}
-	for (int i = 0; i < n_servers; ++i) {
-		wait_for_process(child[i].pid, "server_done");
-	}
+	const auto server_code = [] (int i) -> void {
+		zero_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i]);
+		ds.run();
+	};
+	servers_list child(lib, UUID.REMOTE, UUID.SRVR_NAME, "Races_io", 1, server_code);
+	unitest_io my_io;
+	gusli::backend_bdev_id bdev; bdev.set_from(UUID.REMOTE[0]);
+	std::vector<gusli::io_buffer_t> mem; mem.emplace_back(my_io.get_map());
+	my_assert(lib.open__bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
+	gusli::bdev_info binfo;
+	my_assert(lib.bdev_get_info(bdev, binfo) == gusli::connect_rv::C_OK);
+	const int32_t fd = binfo.bdev_descriptor;
+	my_io.io.params.init_1_rng(gusli::G_NOP, fd, binfo.block_size, 4*binfo.block_size, my_io.io_buf);
+	io_race_conditions_unittest(binfo, my_io, "", 1000);
+	my_assert(lib.close_bufs_unregist(bdev, mem, true) == gusli::connect_rv::C_OK);
+	child.wait_for_all();
 }
 
 void lib_uninitialized_invalid_unitests(gusli::global_clnt_context& lib) {
