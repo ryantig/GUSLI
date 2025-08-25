@@ -38,7 +38,6 @@ const char *__log_to_human(const char *str, const size_t len, char* dst_buf, con
 	}
 	*dst = 0;
 	return dst_buf;
-
 }
 
 const char *__log_to_human(const char *str, const size_t len) {
