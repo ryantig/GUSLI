@@ -96,7 +96,7 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 };
 
 class bdevs_hash { 					// Hash table of connected servers
-	std::vector<struct server_bdev> arr;
+	std::vector<server_bdev> arr;
  public:
 	const server_bdev *find_by_io(int fd) const {		// Datapath: find by io
 		for (const server_bdev& i : arr) {

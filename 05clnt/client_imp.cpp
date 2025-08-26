@@ -156,7 +156,7 @@ enum connect_rv server_bdev::connect(const char* client_name) {
 		const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
 		return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
-		info->bdev_descriptor = open(bdev->conf.conn.local_file_path, o_flag, blk_mode);
+		info->bdev_descriptor = open(bdev->conf.conn.any, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			info->block_size = 1;
 			strcpy(info->name, "LocalFile");
@@ -169,7 +169,7 @@ enum connect_rv server_bdev::connect(const char* client_name) {
 			return C_NO_RESPONSE;
 		}
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
-		info->bdev_descriptor = open(bdev->conf.conn.local_bdev_path, o_flag, blk_mode);
+		info->bdev_descriptor = open(bdev->conf.conn.any, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			struct stat sb;
 			const int rv0 = fstat(info->bdev_descriptor, &sb);
@@ -394,7 +394,7 @@ enum connect_rv server_bdev::disconnect(const bool do_suicide) {
 		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		close(bdev->get_fd());
-		const int remove_rv = remove(bdev->conf.conn.local_file_path);
+		const int remove_rv = remove(bdev->conf.conn.any);
 		rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
 		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
@@ -756,7 +756,7 @@ int bdev_backend_api::create_dp(const backend_bdev_id &id, MGMT::msg_content &ms
 }
 
 int bdev_backend_api::hand_shake(const bdev_config_params &conf, const char *clnt_name) {
-	srv_addr = conf.conn.remot_sock_addr;
+	srv_addr = conf.conn.any;
 	const sock_t::type s_type = MGMT::get_com_type(srv_addr);
 	MGMT::msg_content msg;
 	int conn_rv;

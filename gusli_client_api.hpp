@@ -60,15 +60,12 @@ struct bdev_config_params {
 		DUMMY_DEV_STUCK = 's',						// Dummy device which never completes io. For integration testing of error/failure corner cases
 		DEV_FS_FILE =     'F',						// A file representing the block device.  For working with file systems and testing
 		DEV_BLK_KERNEL =  'K',						// Backwards compatibility to /dev/... kernel implemented block devices including NVMe drives, /dev/zero, etc
-		REMOTE_SRVR =     'N',						// Remote block device (client communicates wih bdev via server)
+		REMOTE_SRVR =     'N',						// Remote block device (client communicates with bdev via server)
 	} type;
 	enum connect_how { SHARED_RW = 'W', READ_ONLY = 'R', EXCLUSIVE_RW = 'X'} how;	// Access permissions for block device
 	bool is_direct_io;								// Attempt for direct io if possible (avoid page cache)
-	union connection_addr_t {						// Union for future options of path/address of server/block-device
-		char local_bdev_path[64];					// Kernel block device, like: /dev/nvme0n2
-		char local_file_path[64];					// Local file path,     like: /tmp/my_file.txt
-		char remot_sock_addr[64];					// Remote server addres: uds/udp/tcp socket. like: /tmp/gs_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/
-		char any[64];
+	union connection_addr_t {						// Path/address of server/block-device. Kernel block device (like /dev/nvme0n2), Local file path (like: /tmp/my_file.txt)
+		char any[64];								// Remote server addres: uds/udp/tcp socket. like: /tmp/gs_uds", "t127.0.0.2" /*tcp*/, "u127.0.0.1" /*udp*/
 	} conn;
 	char security_cookie[16];						// 16[bytes] Utf-8 string, Used for handshake with server, to verify library is authorized to access this bdev
 	bdev_config_params() { memset(this, 0, sizeof(*this)); }

@@ -16,7 +16,7 @@
  */
 #include "../07examples/server/spdk_app_1server.hpp"
 #include "../07examples/client/sample_client.hpp"
-#include <unistd.h>  // for fork()
+
 static int run_server(int argc, const char **argv) {
 	server_spdk_app_1_gusli_server app(argc, argv);
 	return app.get_rv();
