@@ -18,8 +18,9 @@
 #include "gusli_server_api.hpp"
 #include "shared_mem_bufs.hpp"
 
+/* This file defines the control path messaging (communication) between client and server
+	Including handshake, notifications etc. */
 namespace gusli {
-/************************* Control path **************************/
 class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	static constexpr int msg_type_len = 6;	// Header of all messages is 6 bytes long. See below
  public:
