@@ -19,8 +19,8 @@
 #include "gusli_client_api.hpp"
 #define LIB_NAME "GUSLIc"
 #define LIB_COLOR NV_COL_NONE
+#include "01common/cp_messaging.hpp"
 #include "03backend/server_clnt_api.hpp"
-
 namespace gusli {
 
 /*****************************************************************************/

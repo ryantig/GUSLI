@@ -19,7 +19,8 @@
 #include "gusli_server_api.hpp"
 #define LIB_NAME "GUSLIs"
 #define LIB_COLOR NV_COL_PURPL
-#include "server_clnt_api.hpp"
+#include "01common/cp_messaging.hpp"
+#include "03backend/server_clnt_api.hpp"
 namespace gusli {
 
 #define pr_srv_id(s) (s)->b.par.server_name, (s)->binfo.name
