@@ -15,12 +15,10 @@
  * limitations under the License.
  */
 #pragma once
-#include "utils.hpp"
-#include "gusli_client_api.hpp"
 #define LIB_NAME "GUSLIc"
 #define LIB_COLOR NV_COL_NONE
 #include "01common/cp_messaging.hpp"
-#include "03backend/server_clnt_api.hpp"
+#include "01common/dp_io_ring.hpp"
 namespace gusli {
 
 /*****************************************************************************/
