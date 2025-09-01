@@ -29,16 +29,16 @@ namespace gusli {
 #define pr_verbS(srvr, fmt, ...) pr_verb1( "[%s:%s] " fmt, pr_srv_id(srvr), ##__VA_ARGS__)
 
 class bdev_stats_srvr {
-	uint64_t n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp;
+	uint64_t n_doorbells_wakeup_clnt, n_w_sub, n_w_cmp;
 	uint64_t n_io_range_single, n_io_range_multi;
 	void clear(void) { memset(this, 0, sizeof(*this)); }
 	int print_stats(char* buf, int buf_len) {
-		return scnprintf(buf, buf_len, "d={%lu/sub=%lu/cmp=%lu}, io={r1=%lu,rm=%lu}", n_doorbels_wakeup_clnt, n_w_sub, n_w_cmp, n_io_range_single, n_io_range_multi);
+		return scnprintf(buf, buf_len, "d={%lu/sub=%lu/cmp=%lu}, io={r1=%lu,rm=%lu}", n_doorbells_wakeup_clnt, n_w_sub, n_w_cmp, n_io_range_single, n_io_range_multi);
 	}
  public:
 	bdev_stats_srvr() { clear(); }
 	void inc(const MGMT::msg_content::t_payload::t_dp_cmd& p) {
-		n_doorbels_wakeup_clnt++;
+		n_doorbells_wakeup_clnt++;
 		if (p.sender_added_new_work) n_w_cmp++;
 		if (p.sender_ready_for_work) n_w_sub++;
 	}
@@ -66,7 +66,7 @@ class srvr_imp : public base_library  {
 	// Generic per server
 	class shm_io_bufs_global_t *shm_io_bufs;
 	int exit_error_code = 0;			// == 0 /* May continue to run */ < 0 /*Error*/ > 0 /*Success*/
-	bool has_connencted_client(void) const { return io_sock.is_alive(); }
+	bool has_connected_client(void) const { return io_sock.is_alive(); }
 	void client_accept(connect_addr& addr);
 	void client_reject(const char* why);
 	[[nodiscard]] int  __clnt_bufs_register(const MGMT::msg_content &msg, void* &my_buf);
@@ -95,4 +95,4 @@ class srvr_imp : public base_library  {
 	[[nodiscard]] int destroy(void) noexcept;
 };
 
-} // namespace gusli
+} // namespace

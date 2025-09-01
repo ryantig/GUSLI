@@ -83,8 +83,8 @@ void srvr_imp::__clnt_close(const char* reason) {
 			const uint32_t n_in_air_ios = dp->get_num_in_air_ios();
 			pr_errS(this, "Close: still have %u[mapped-buffers], %u[ios]\n", dp->get_num_mem_reg_ranges(), n_in_air_ios);
 			for (auto it = dp->reg_bufs_set.begin(); it != dp->reg_bufs_set.end(); ++it)	// Print the list of registerd leaked bufs
-				pr_verbS(this, PRINT_MMAP_PREFIX "Force_clenaup buf [%d%c]\n", *it, 'i');
-			dp->registerd_bufs_force_clean();
+				pr_verbS(this, PRINT_MMAP_PREFIX "Force_cleanup buf [%d%c]\n", *it, 'i');
+			dp->registered_bufs_force_clean();
 			__abandon_all_clnt_io();
 		}
 		delete dp; dp = nullptr;
@@ -102,7 +102,7 @@ void srvr_imp::client_accept(connect_addr& addr) {
 		sock.print_address(clnt_path, addr);
 		pr_infoS(this, "accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
 		io_sock = sock_t(client_fd, sock.get_type());
-		io_sock.set_blocking(b.par.use_blocking_client_accept);	// Dont block on incomming io because same thread sends done io completions and thread may serve multiple block devices
+		io_sock.set_blocking(b.par.use_blocking_client_accept);	// Dont block on incoming io because same thread sends done io completions and thread may serve multiple block devices
 	} else {
 		io_sock = sock;
 	}
@@ -138,8 +138,8 @@ class backend_io_executor {
 
 	void _io_done_cb(void) {
 		pr_verbS(srv, PRINT_EXECUTOR ".Server io__cb_: rv=%ld\n", this, &io, io.get_raw_rv());
-		BUG_ON(client_io_ctx == NULL, "client will not be able to acciciate completion of this io");
-		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io lanuched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
+		BUG_ON(client_io_ctx == NULL, "client will not be able to accept completion of this io");
+		BUG_ON(thread_id != (uint64_t)pthread_self(), "Callback arrived on different thread, io launched on tid=0x%lx while callback came on tid=0x%lx", thread_id, (uint64_t)pthread_self());
 		io.params.set_completion(client_io_ctx, NULL);			// Restore client context
 		const int cmp_idx = srv->dp->srvr_finish_io(io, &need_wakeup_clnt_comp_reader);
 		pr_verbS(srv, PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_IO_CQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell={s=%u,c=%u}\n", PRINT_IO_REQ_ARGS(io.params), sqe_indx, cmp_idx, client_io_ctx, need_wakeup_clnt_io_submitter, need_wakeup_clnt_comp_reader);
@@ -241,7 +241,7 @@ void srvr_imp::__clnt_on_io_receive(const MGMT::msg_content &msg, const connect_
 int srvr_imp::run_once(void) noexcept {
 	if (exit_error_code)
 		return exit_error_code;
-	if (!has_connencted_client()) {
+	if (!has_connected_client()) {
 		pr_verbS(this, "Waiting to accept client...\n");
 		client_accept(this->ca);		// Should not be blocking if multiple bdevs are used on the same thread. Blocking / non blocking
 		return exit_error_code;
@@ -266,7 +266,7 @@ int srvr_imp::run_once(void) noexcept {
 		const auto *p = &msg.pay.c_hello;
 		char cid[sizeof(p->client_id)+1];
 		sprintf(cid, "%.*s", (int)sizeof(p->client_id), p->client_id);
-		BUG_ON(p->security_cookie[0] == 0, "Wrong secutiry from client %s\n", cid);
+		BUG_ON(p->security_cookie[0] == 0, "Wrong security from client %s\n", cid);
 		this->binfo = b.open1(cid);
 		const size_t n_send_bytes = msg.build_hel_ack();
 		ASSERT_IN_PRODUCTION(io_csring::is_big_enough_for(binfo.num_max_inflight_io));
@@ -294,7 +294,7 @@ int srvr_imp::run_once(void) noexcept {
 		const size_t n_send_bytes = msg.build_cl_ack();
 		send_to(msg, n_send_bytes, addr);
 	} else if (msg.is(MGMT::msg::die_now)) {
-		do_shut_down(__LINE__);			// Successfull kill by client
+		do_shut_down(__LINE__);			// Successful kill by client
 		__clnt_close("suicide");		// Optional Optimization: Close memory registration and backend as fast as possible
 		const size_t n_send_bytes = msg.build_die_ack();
 		strcpy(msg.pay.s_die.extra_info, "cdie");
@@ -397,4 +397,4 @@ int srvr_backend_bdev_api::set_thread_name(char (&out_name)[32], const char *_na
 	return rename_rv;
 }
 
-} // namespace gusli
+} // namespace

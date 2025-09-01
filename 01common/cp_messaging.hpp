@@ -41,7 +41,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		static constexpr type_t hello_ack =    {"Shello", 1};	//   \--> Server accepts/reject client
 		static constexpr type_t register_buf = {"Creg__", 2};	// Clnt->Srvr: Register memory buffers
 		static constexpr type_t register_ack = {"SregOk", 3};	//   \--> Server accepts/reject client register
-		static constexpr type_t unreg_buf =    {"CUnreg", 4};	// Clnt->Srvr: Un-Register preveiously mapped memory buffers
+		static constexpr type_t unreg_buf =    {"CUnreg", 4};	// Clnt->Srvr: Un-Register previously mapped memory buffers
 		static constexpr type_t unreg_ack =    {"SunrOk", 5};	//   \--> Server accepts/reject client un-register
 		static constexpr type_t close_nice =   {"Cclose", 6};	// Clnt->Srvr: Close bdev (socket remains open for future messages)
 		static constexpr type_t close_ack =    {"Sclose", 7};	//   \--> Server response on the above
@@ -87,7 +87,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 				bdev_info info;					// .bdev_descriptor < 0 means error
 			} s_hello_ack;
 			struct t_register_buf {
-				char name[8 + sizeof(backend_bdev_id)];			// +8 Because Starting with '/gs' + 4ybtes suffix + \0
+				char name[8 + sizeof(backend_bdev_id)];			// +8 Because Starting with '/gs' + 4 bytes suffix + \0
 				uint64_t client_pointer;
 				uint32_t num_blocks;							// Blocks as defined by the server
 				uint32_t buf_idx   : 16;
@@ -136,7 +136,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 					strncpy_no_trunc_warning(extra_info, p, 56);
 				}
 			} c_log, s_kal, s_kick, c_die, s_die, c_reb, wrong_cmd;
-			struct t_dp_cmd  {							// Client is producer of submitions, Server is producer of completions
+			struct t_dp_cmd  {							// Client is producer of submissions, Server is producer of completions
 				uint64_t reserved;
 				uint32_t sender_added_new_work;			// Boolean: Producer notifies consumer that it added new work for it to consume (Unblock consumer from blocked-read)
 				uint32_t sender_ready_for_work;			// Boolean: Consumer notifies producer that it is ready to consume new work     (Unblock producer from blocked-write)
@@ -146,24 +146,23 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 		const char *raw(void) const { return (const char*)this; };
 		bool is(msg::type_t mt) const { return hdr.is(mt); }
 		size_t get_msg_size(void) const { return sizeof(t_header) + sizeof(pay); }		// All messages have constant small size
-		#define BUIL_MSG_RET const size_t rv = get_msg_size(); return (rv);
-		size_t build_hello(  void) { hdr.init(MGMT::msg::hello);		BUIL_MSG_RET }
-		size_t build_hel_ack(void) { hdr.init(MGMT::msg::hello_ack);	BUIL_MSG_RET }
-		size_t build_reg_buf(void) { hdr.init(MGMT::msg::register_buf);	BUIL_MSG_RET }
-		size_t build_reg_ack(void) { hdr.init(MGMT::msg::register_ack);	BUIL_MSG_RET }
-		size_t build_unr_buf(void) { hdr.init(MGMT::msg::unreg_buf);	BUIL_MSG_RET }
-		size_t build_unr_ack(void) { hdr.init(MGMT::msg::unreg_ack);	BUIL_MSG_RET }
-		size_t build_close(void) {   hdr.init(MGMT::msg::close_nice);	pay.c_close.reserved = 0UL; BUIL_MSG_RET }
-		size_t build_cl_ack(void) {  hdr.init(MGMT::msg::close_ack);	BUIL_MSG_RET }
-		size_t build_log(   const std::string& s) { hdr.init(MGMT::msg::log);         pay.c_log.fill(s); BUIL_MSG_RET }
-		size_t build_reboot(const std::string& s) { hdr.init(MGMT::msg::srvr_reboot); pay.c_log.fill(s); BUIL_MSG_RET }
-		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.fill(); BUIL_MSG_RET }
-		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.fill(); BUIL_MSG_RET }
-		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	BUIL_MSG_RET }
-		size_t build_skick(void) {   hdr.init(MGMT::msg::server_kick);	BUIL_MSG_RET }
-		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	pay.wrong_cmd.fill(); BUIL_MSG_RET }
-		size_t build_dp_subm(void) { hdr.init(MGMT::msg::dp_submit);	pay.dp_submit.reserved = 0UL;   BUIL_MSG_RET }
-		size_t build_dp_comp(void) { hdr.init(MGMT::msg::dp_complete);	pay.dp_complete.reserved = 0UL; BUIL_MSG_RET }
+		size_t build_hello(  void) { hdr.init(MGMT::msg::hello);		return get_msg_size(); }
+		size_t build_hel_ack(void) { hdr.init(MGMT::msg::hello_ack);	return get_msg_size(); }
+		size_t build_reg_buf(void) { hdr.init(MGMT::msg::register_buf);	return get_msg_size(); }
+		size_t build_reg_ack(void) { hdr.init(MGMT::msg::register_ack);	return get_msg_size(); }
+		size_t build_unr_buf(void) { hdr.init(MGMT::msg::unreg_buf);	return get_msg_size(); }
+		size_t build_unr_ack(void) { hdr.init(MGMT::msg::unreg_ack);	return get_msg_size(); }
+		size_t build_close(void) {   hdr.init(MGMT::msg::close_nice);	pay.c_close.reserved = 0UL; return get_msg_size(); }
+		size_t build_cl_ack(void) {  hdr.init(MGMT::msg::close_ack);	return get_msg_size(); }
+		size_t build_log(   const std::string& s) { hdr.init(MGMT::msg::log);         pay.c_log.fill(s); return get_msg_size(); }
+		size_t build_reboot(const std::string& s) { hdr.init(MGMT::msg::srvr_reboot); pay.c_log.fill(s); return get_msg_size(); }
+		size_t build_die(    void) { hdr.init(MGMT::msg::die_now);		pay.c_die.fill(); return get_msg_size(); }
+		size_t build_die_ack(void) { hdr.init(MGMT::msg::die_ack);		pay.s_die.fill(); return get_msg_size(); }
+		size_t build_ping(void) {    hdr.init(MGMT::msg::keepalive);	return get_msg_size(); }
+		size_t build_skick(void) {   hdr.init(MGMT::msg::server_kick);	return get_msg_size(); }
+		size_t build_wrong(void) {   hdr.init(MGMT::msg::wrong_cmd);	pay.wrong_cmd.fill(); return get_msg_size(); }
+		size_t build_dp_subm(void) { hdr.init(MGMT::msg::dp_submit);	pay.dp_submit.reserved = 0UL;   return get_msg_size(); }
+		size_t build_dp_comp(void) { hdr.init(MGMT::msg::dp_complete);	pay.dp_complete.reserved = 0UL; return get_msg_size(); }
 
 		bool is_full(int n_bytes) const { return (n_bytes >= (int)sizeof(t_header)) && (n_bytes == (int)get_msg_size()); }
 	} __attribute__((aligned(sizeof(long))));
@@ -171,7 +170,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 
 inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg, bool with_epoll, connect_addr &addr) { // Todo: Use readn()
 	socklen_t sinlen = addr.get_len(sock.is_remote());
-	int n_bytes; nvTODO("Refactor this function, cionsider using readn() from utils.hpp");
+	int n_bytes; nvTODO("Refactor this function, consider using readn() from utils.hpp");
 	while (true) {
 		if (with_epoll)
 			sock.epoll_reply_wait("\t->clnt:zzzz_read");
@@ -199,7 +198,7 @@ inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg,
 }
 
 inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content& msg, bool with_epoll, int n_todo_bytes, const connect_addr &addr, const char* who) { // Todo: Use writen()
-	int n_bytes; nvTODO("Refactor this function, cionsider using readn() from utils.hpp");
+	int n_bytes; nvTODO("Refactor this function, consider using readn() from utils.hpp");
 	while (true) {
 		n_bytes = sock.send_msg(msg.raw(), n_todo_bytes, addr);
 		if (n_bytes == 0) {	// Socket closed
@@ -224,4 +223,4 @@ inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content
 	return ios_error;
 }
 
-} // namespace gusli
+} // namespace

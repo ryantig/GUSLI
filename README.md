@@ -16,7 +16,7 @@ limitations under the License.
 -->
 # Gusli
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Release](https://img.shields.io/badge/Release:-v0.03-brightgreen)](./CHANGELOG.md)
+[![Release](https://img.shields.io/badge/Release-v0.03-brightgreen)](./CHANGELOG.md)
 ![Branch](https://img.shields.io/badge/origin/main-brightgreen)
 <p align="center">
   <img src="./93docs/logo.png" alt="" width="400" />
@@ -29,27 +29,27 @@ It has a client library (.so) for IO submitting apps and server library (.so) fo
 - Zero copy kernel bypass io, using shared memory between processes
 - 1 client connects to multiple servers. Each server represents a block device.
 - Supported servers: SPDK based apps with standard bdevs, Any other process based on server library examples.
-- IO (read/Write) can be blocking or asyncronous. Async-io can use callback functions and/or be polled for completion and/or canceled.
-- The reason for separation of client and server is to avoid compile/link depndency between io submitting app and block device backend. Example: Backend might be spdk block device but client application does not have to be spdk application.
+- IO (read/Write) can be blocking or asynchronous. Async-io can use callback functions and/or be polled for completion and/or canceled.
+- The reason for separation of client and server is to avoid compile/link dependency between io submitting app and block device backend. Example: Backend might be spdk block device but client application does not have to be spdk application.
 - Client library ensures io is valid & properly throttled before issuing it to the server
 
 Additional Documentation and description: [Here](https://docs.google.com/document/d/1xXLyA2Di2G04zfLy8dzMor9DC2PNqUuXhMEFA2ZYpO4)
 
 ## Installation & Usage
 `make all`
-- executable of unitests will be created in root dir
+- executable of unit-tests will be created in root dir
 `make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/libg*; ll /usr/include/gus*;`
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
 - See examples directory for client/server implementation examples
 - See unit-tests directory to learn how to use the library
-- make file does instalation of binaries, see its output:
+- make file does installation of binaries, see its output:
     - Deliverables: **.so/.hpp** files pair for server side and .so/.hpp files pair for client
 - More info: type `make help` To see more info of how to compile
 - Compilation: Both g++ and clang++ are supported. clang example: `make USE_CLANG=1 all`
 
 ### Dependencies
 - Mandatory: None. Plain C++ code (libc) code.
-- Third party components are not auto downoaded/installed. Please do the following:
+- Third party components are not auto downloaded/installed. Please do the following:
 
 | OS      |            Install                      |   Remarks      |
 |---------|-----------------------------------------|----------------|
@@ -57,8 +57,8 @@ Additional Documentation and description: [Here](https://docs.google.com/documen
 | Fedora  | `dnf install gcc-c++ cmake pkg-config`  | 🚧 Not tested  |
 
 - Optional:
-    - For IO's with large scatter gathers (> 64 ranges), uring API to local blockdevices may help. So consider: `sudo apt install liburing-dev`
-    - For developers: usefull utils: `sudo apt install -y build-essential gdb meld ncdu tree valgrind`;
+    - For IO's with large scatter gathers (> 64 ranges), uring API to local block devices may help. So consider: `sudo apt install liburing-dev`
+    - For developers: useful utils: `sudo apt install -y build-essential gdb meld ncdu tree valgrind`;
 
 ### Monitor IO environment using Gusli
 Bash script which allows you to monitor the io buffers, stacks, threads, etc of both client and server processes, as well as force kill them.
@@ -69,7 +69,7 @@ Bash script which allows you to monitor the io buffers, stacks, threads, etc of 
 1. Client: [write-read-verify io](./07examples/client/sample_client.hpp)
     - function which connects to Gusli server issues some basic ios to it
     - `class unitest_io` shows how io can be launched in many modes (with/without async callback, with/without polling, blocking mode), with verification.
-2. Server: [A few server classes](./07examples/server/) like ram based block device, allways-fail-io, spdk-bdev, etc
+2. Server: [A few server classes](./07examples/server/) like ram based block device, always-fail-io, spdk-bdev, etc
 3. Testing executables:
     - SPDK Both: Executable which forks itself, runs spdk server in 1 process, client basic io tests in another process [spdk_app](./unitest/sample_app_spdk_both.cpp)
     - `./unitest/run` for running various Gusli unit-tests
@@ -96,7 +96,7 @@ Bash script which allows you to monitor the io buffers, stacks, threads, etc of 
 - Integrating client with [NIXL](https://github.com/ai-dynamo/nixl), see [install script](./80scripts/integration_with_nixl.sh)
 - Integrating server with [SPDK](https://github.com/spdk/spdk), see [install script](./80scripts/integration_with_spdkbdev.sh)
 
-> ⚠️ Gusli team assisted with the above integrations for testing purposes, but it is not responsible for it and integration can break if any of the above opensource projects introduce breaking changes.
+> ⚠️ Gusli team assisted with the above integrations for testing purposes, but it is not responsible for it and integration can break if any of the above open source projects introduce breaking changes.
 
 ## Support / Contributing
 The current Maintainers Group for the project consists of:
@@ -114,21 +114,21 @@ The current Maintainers Group for the project consists of:
 > Carefully read the below known issues
 
 #### Large known issues ⚠️
-1. **Proper client server disconenct-reconnect while io is in air**. Examples:
+1. **Proper client server disconnect-reconnect while io is in air**. Examples:
     - Unmap/Remap mem buffers destroys io buffers! Think how to solve it
-    - Client disconnect while Server backend returning completions - dont free io and executor
+    - Client disconnect while Server backend returning completions - don't free io and executor
     - Properly handling ghost remaining ios after cancel or disconnect
-    - This harms server upradability. Server restarting while IO is in air will not resubmit the ios automatically.
+    - This harms server upgradability. Server restarting while IO is in air will not resubmit the ios automatically.
 2. **Proper Design for IO canceling**.
     - For now IO canceling is implemented as cancel and blocking wait for all after effects of io to finish. This can lead to unbounded wait. We need to better understand how users will use the cancel and design appropriately
-    - Possible change: Dont block on canceled io but block on stop_all_ios() or unregister memory which those ios use.
-3. **Proper Design for IO done()**. I introduced this destructor to force the user to actually think how they use the io api concurently as io may have multithreaded access (completion callback, polling thread, io cancel thread, io destructor call). Explicit call to done() requires the user to understand when his io is terminated. But this is not mandatory and can be taken care internally in the io implementation via atomic refcount + block the ~destructor(). This however has its own costs, races and requires a carefull planning
+    - Possible change: Don't block on canceled io but block on stop_all_ios() or unregister memory which those ios use.
+3. **Proper Design for IO done()**. I introduced this destructor to force the user to actually think how they use the io api concurrently as io may have multithreaded access (completion callback, polling thread, io cancel thread, io destructor call). Explicit call to done() requires the user to understand when his io is terminated. But this is not mandatory and can be taken care internally in the io implementation via atomic refcount + block the ~destructor(). This however has its own costs, races and requires a careful planning
 4. **Dynamic addition of servers** not supported. When starting Gusli library a full configuration of servers is given. Only subset of servers can be actually connected, but a new server which is not in the config, cannot be accessed by the client.
-5. **Timouts not support yet**.
-    - User can monitor the IO and call cancel, but this does not guarantee io finish, much like stuck io to a local nvme disk.
+5. **Timeouts not support yet**.
+    - User can monitor the IO and call cancel, but this does not guarantee io finish, much like stuck io to a local disk.
     - Control path operations (open/close bdev, etc) have no timeout and cannot be canceled. They are typically fast.
 
-### Version release vhecklist
+### Version release checklist
 1. Run Correctness tests (pass the following tests): `./unitest/run ci`;
 2. Verify io performance did not suffer > 1.5[Miops]. Typically 2[M]+ for single core server/client
 3. Verify no breaking changes introduces in external library API's

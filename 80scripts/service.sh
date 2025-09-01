@@ -45,7 +45,7 @@ function GUSLI() {
 		sudo rm /dev/shm/gs*;
 		GUSLI show;
 	elif [[ $1 == huge_pages* ]]; then
-		# Set Up Hugepages (required for DPDK):
+		# Set Up Huge pages (required for DPDK):
 		if [ "`cat /proc/sys/vm/nr_hugepages`" == "0" ]; then
 			echo_green "Configuring huge pages";
 			sudo mkdir -p /mnt/huge;

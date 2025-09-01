@@ -25,7 +25,7 @@
 	2. Backed up by an empty file, in local dir of the executable
 	3. First 8 bytes of each block store the address of that block
 		so unit-tests can verify the correctness of reads
-	4. Completes io's immediately (syncronously)
+	4. Completes io's immediately (synchronously)
 */
 class server_ro_lba : private gusli::srvr_backend_bdev_api {
 	#define dslog(fmt, ...) ({ _unitest_log_fn("\x1b[16;34m%s: " fmt "\x1b[0;0m", binfo.name, ##__VA_ARGS__); })
@@ -75,12 +75,12 @@ class server_ro_lba : private gusli::srvr_backend_bdev_api {
 		io.set_success(io.params.buf_size());
 	}
  public:
-	server_ro_lba(const char* _name, const char* listen_addr, bool use_extenral_loop = false) {
+	server_ro_lba(const char* _name, const char* listen_addr, bool use_external_loop = false) {
 		my_assert(BREAKING_VERSION == 1);
 		strncpy(par.listen_address, listen_addr, sizeof(par.listen_address)-1);
 		par.log = stderr;
-		par.server_name = (use_extenral_loop ? "RoSrvEL" : "RoSrv");
-		par.has_external_polling_loop = use_extenral_loop;
+		par.server_name = (use_external_loop ? "RoSrvEL" : "RoSrv");
+		par.has_external_polling_loop = use_external_loop;
 		binfo.clear();
 		my_assert(set_thread_name(binfo.name, _name) == 0); // For debug, set its thread to block device name
 		dslog("metadata=|%s|\n", create_and_get_metadata_json());

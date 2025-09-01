@@ -35,26 +35,26 @@ class io_request_executor_base : no_implicit_constructors {
  protected:
 	server_io_req* io;								// Link to original IO. If cancel() not called will always be a valid pointer.
 	in_air_ios_holder& in_air;						// External class: Holder of all in air ios. IO will connect and disconnect from it
-	int64_t total_bytes = 0L;						// Total transferred bytes accross all io ranges
-	uint16_t num_ranges;							// Just cache this to be able to access the field even if io canceles and gets free
+	int64_t total_bytes = 0L;						// Total transferred bytes across all io ranges
+	uint16_t num_ranges;							// Just cache this to be able to access the field even if io cancels and gets free
 	bool had_construct_failure = false;				// Executor initialization encountered an error
 	bool is_remote_io = false;
 	const io_multi_map_t *get_mm(void) const { return io->get_multi_map(); }
 	enum io_type op(void) const { return io->params.op(); }
  private:
 	bool is_async_executor = false;					// Can async_work_done() be called Asynchronously by executor
-	struct cancelation_atomic_t {					// Synchronization between cancel() and asyncronous completion of io. Relevant only for async callback io/executors
+	struct cancellation_atomic_t {					// Synchronization between cancel() and asynchronous completion of io. Relevant only for async callback io/executors
 		t_lock_spinlock lock;						// Protect the critical section
-		bool has_finished_all_async_tasks = false;	// Set possibly asyncrounsly by internal completion
+		bool has_finished_all_async_tasks = false;	// Set possibly asynchronously by internal completion
 		bool was_canceled = false;					// Requested externally
 	} cmp;
 	struct detach_atomic_t {						// Synchronization between io detaching from executor and executor termination.
 		atomic_uint32_t count;						// Refcount starts with 2: io and executor, when io does not need executor
-		bool io_already_detached_from_me = false;	// Alternative to atomic refcount, used whne no async callbacks arrive
+		bool io_already_detached_from_me = false;	// Alternative to atomic refcount, used when no async callbacks arrive
 	} ref;
 	void __dec_ref(bool is_self) {					// IO and self hold reference. When both decreased auto-free
 		if (!is_self) {
-			ASSERT_IN_PRODUCTION(ref.io_already_detached_from_me == false);			// Detect double call of IO disconenct
+			ASSERT_IN_PRODUCTION(ref.io_already_detached_from_me == false);			// Detect double call of IO disconnect
 			ref.io_already_detached_from_me = true;
 		}
 		log_put(is_self ? 'e' : 'o');		// o = operation, e = executor
@@ -72,8 +72,8 @@ class io_request_executor_base : no_implicit_constructors {
 	void log_cancel(                                               ) const { pr_verb1(PRINT_EXECUTOR "was_cancel[%d]"                                                "\n", this, io,     cmp.was_canceled); }
 	void log_put(                                           char rv) const { pr_verb1(PRINT_EXECUTOR "put[%c(%d%d)]"                                                 "\n", this, io, rv, cmp.has_finished_all_async_tasks, ref.io_already_detached_from_me ); }
  protected:
-	void log_io_range_failed(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].failed[%ld]: "    PRINT_EXTERN_ERR_FMT "\n", this, io, lba, len,     rv, PRINT_EXTERN_ERR_ARGS); }
-	void log_io_range_succes(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        this, io, lba, len,     rv); }
+	void log_io_range_failed( uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].failed[%ld]: "    PRINT_EXTERN_ERR_FMT "\n", this, io, lba, len,     rv, PRINT_EXTERN_ERR_ARGS); }
+	void log_io_range_success(uint64_t lba, uint64_t len, int64_t rv) const { pr_verb1(PRINT_EXECUTOR "range[0x%lx].len[0x%lx].completed[%ld[b]]\n",                        this, io, lba, len,     rv); }
 	void async_work_done(void) {
 		if (is_async_executor) cmp.lock.lock();
 		ASSERT_IN_PRODUCTION(cmp.has_finished_all_async_tasks == false);				// Double call to async work completion
@@ -105,7 +105,7 @@ class io_request_executor_base : no_implicit_constructors {
 		if (can_start) {
 			io->start_execution();
 			log_start();
-		} else {													// Throtteled io is rejected: 'is_async' does not matter because failure is syncronous
+		} else {													// Throttled io is rejected: 'is_async' does not matter because failure is synchronous
 			log_start_reject();
 			had_construct_failure = true;
 			total_bytes = io_error_codes::E_THROTTLE_RETRY_LATER;
@@ -115,7 +115,7 @@ class io_request_executor_base : no_implicit_constructors {
 		log_free();
 		if (is_async_executor) { cmp.lock.destroy(); }
 	}
-	virtual void extern_notify_completion(int64_t rv) {				// Executors that wrap external execution flow are notified when flow ends. They dont exectue the IO themselves
+	virtual void extern_notify_completion(int64_t rv) {				// Executors that wrap external execution flow are notified when flow ends. They dont execute the IO themselves
 		if (is_remote_io) {
 			const int64_t cur_rv = io->get_raw_rv();					// Executor might already be canceled here, we update 'total_bytes' not cur_rv
 			BUG_ON(cur_rv != (int64_t)io_error_codes::E_IN_TRANSFER, "Wrong flow rv=%lu", cur_rv);
@@ -128,7 +128,7 @@ class io_request_executor_base : no_implicit_constructors {
 	virtual int run(void) = 0;								// Start IO execution, Return -1 if constructor had failure. Otherwise return 0;
 	virtual enum io_request::cancel_rv cancel(void) {		// Assume IO calls cancel() or detach_io() exactly once, no concurency here
 		io_request::cancel_rv rv;
-		cmp.lock.lock();									// Multiple cancel calls??? protect with atimc cmpxchng
+		cmp.lock.lock();									// Multiple cancel calls??? protect with atomic compare exchange
 		if (cmp.was_canceled) {
 			rv = io_request::cancel_rv::G_CANCELED;
 		} else if (cmp.has_finished_all_async_tasks) {
@@ -160,7 +160,7 @@ class io_request_executor_base : no_implicit_constructors {
 
 /*****************************************************************************/
 class aio_request_executor : public io_request_executor_base {						// Execute async io with aio, assume class allocated on heap (cant be on stack because non blocking)
-	uint32_t send_error;					// At least 1 request cound not be submitted for execution
+	uint32_t send_error;					// At least 1 request could not be submitted for execution
 	atomic_uint32_t num_remaining_req;		// Remaining in air io's, atomic counter due to async completions
 	union {
 		struct aiocb  req1;					// Single request, allocated inline to save mallocs
@@ -188,8 +188,8 @@ class aio_request_executor : public io_request_executor_base {						// Execute a
 		const int err = aio_error(r);
 		const int64_t range_total_bytes = ((0 == err) ? (int64_t)aio_return(r) : (int64_t)0);
 		total_bytes += range_total_bytes;
-		if (err == 0) log_io_range_succes(r->aio_offset, r->aio_nbytes, range_total_bytes);
-		else  		  log_io_range_failed(r->aio_offset, r->aio_nbytes, err);
+		if (err == 0) log_io_range_success(r->aio_offset, r->aio_nbytes, range_total_bytes);
+		else  		  log_io_range_failed( r->aio_offset, r->aio_nbytes, err);
 	}
 	static void __aio_comp_cb(sigval_t sigval) {
 		aio_request_executor* exec = (aio_request_executor*)sigval.sival_ptr;
@@ -261,8 +261,8 @@ class sync_request_executor : public blocking_request_executor {
 		lseek(fd, off, SEEK_SET);
 		const int64_t rv = (op == G_READ) ? read(fd, buf, num_bytes) : write(fd, buf, num_bytes);
 		total_bytes += rv;
-		if (rv > 0) log_io_range_succes(off, num_bytes, rv);
-		else  		log_io_range_failed(off, num_bytes, rv);
+		if (rv > 0) log_io_range_success(off, num_bytes, rv);
+		else  		log_io_range_failed( off, num_bytes, rv);
 		return rv;
 	}
  public:
@@ -286,7 +286,7 @@ class sync_request_executor : public blocking_request_executor {
 };
 
 /*****************************************************************************/
-// Wrap Exectuors. Client sends io to server and this process is wrapped by client side executor to monitor and cancel the io
+// Wrap Executors. Client sends io to server and this process is wrapped by client side executor to monitor and cancel the io
 class wrap_remote_io_exec_blocking : public blocking_request_executor {						// Convert remote async request io to blocking
 	completion_t comp;					// Block sender until io returns
  public:
@@ -316,25 +316,25 @@ class wrap_remote_io_exec_async : public io_request_executor_base {
 };
 
 /*****************************************************************************/
-// Exectuor for testing. Finishes IO only after it is explicitly canceled by user, effectively makeing IO stuck forever until canceled.
+// Executor for testing. Finishes IO only after it is explicitly canceled by user, effectively makeing IO stuck forever until canceled.
 class never_reply_executor : public io_request_executor_base {
  public:
 	never_reply_executor(in_air_ios_holder &_ina, io_request_base &_io) : io_request_executor_base(_ina, _io, true) {}
 	int run(void) override {
-		is_remote_io = true;	// Local client executer which emulates remotesrvr no reply
+		is_remote_io = true;	// Local client executer which emulates remote server no reply
 		if (unlikely(had_construct_failure)) return send_async_work_failed();
 		pr_verb1(PRINT_EXECUTOR "will_be_stuck\n", this, io);
 		return 0;
 	}
 };
 
-}; // namespace gusli
+}; // namespace
 
 /*****************************************************************************/
 #if defined(HAS_URING_LIB)
 #include <liburing.h>				// To use uring library do: sudo apt install -y liburing-dev   or   sudo dnf install liburing-devel
 namespace gusli {
-class uring_request_executor : public io_request_executor_base {	// Execute async io with liburing, assume class allocated on heap (cant be on stack because non blocking)
+class uring_request_executor : public io_request_executor_base {	// Execute async io with lib uring, assume class allocated on heap (cant be on stack because non blocking)
 	typedef void (*prep_func_t)(struct io_uring_sqe*, int fd, const void*buf, unsigned int nbytes, __u64 offset);
 	struct io_uring uring;
 	prep_func_t prep_fn;
@@ -350,8 +350,8 @@ class uring_request_executor : public io_request_executor_base {	// Execute asyn
 			char buf[256];
 			int buf_len = 256, count = 0;
 			buf[0] = 0;
-			if (p.features | IORING_FEAT_SQPOLL_NONFIXED) BUF_ADD("SQPOLL,");
-			if (p.features | IORING_FEAT_FAST_POLL)       BUF_ADD("IOPOLL,");
+			if (p.features | IORING_FEAT_SQPOLL_NONFIXED) BUF_ADD("SQ_POLL,");
+			if (p.features | IORING_FEAT_FAST_POLL)       BUF_ADD("IO_POLL,");
 			if (buf[0] == 0) BUF_ADD("None");
 			pr_verb1("uring flags=0x%x, params={%s}\n", p.flags, buf);
 		}
@@ -416,7 +416,7 @@ public:
 	enum io_request::cancel_rv cancel(void) override {
 		polling_lock.lock();
 		//const enum io_error_codes status = io_request_executor_base::is_still_running();
-		const enum io_error_codes status = is_still_running();		// Optimization: Poll cqes last time. If IO already completed return success instead of cancel.
+		const enum io_error_codes status = is_still_running();		// Optimization: Poll cqe's last time. If IO already completed return success instead of cancel.
 		io_request::cancel_rv rv = io_request::cancel_rv::G_ALLREADY_DONE;
 		if (status == io_error_codes::E_IN_TRANSFER) {
 			rv = io_request_executor_base::cancel();
@@ -439,12 +439,12 @@ public:
 		io_uring_cq_advance(&uring, count);			// Mark all seen
 		num_completed += count;
 		if (num_completed == num_ranges)
-			async_work_done();						// Next call to this function will abort beause executor is not running anymore
+			async_work_done();						// Next call to this function will abort because executor is not running anymore
 		polling_lock.unlock();
 		return io_request_executor_base::is_still_running();
 	}
 };
-}; // namespace gusli
+}; // namespace
 #endif
 
 /*****************************************************************************/

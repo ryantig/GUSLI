@@ -45,7 +45,7 @@ class unitest_io {
 	enum io_exec_mode mode;
  public:
 	unsigned int n_ios = 0;		// Number of executed ios
-	unsigned int n_cancl = 0;	// Number of canceled ios
+	unsigned int n_cancel = 0;	// Number of canceled ios
  private:
 	void print_io_comp(void) { n_ios++; if (_verbose) log_unitest("\t  +cmp[%u] %s-%c rv=%d\n", n_ios, io_exec_mode_str(mode), io.params.op(), io.get_error()); }
 	using ge = gusli::io_error_codes;
@@ -53,7 +53,7 @@ class unitest_io {
 		const ge io_rv = c->io.get_error();
 		my_assert(io_rv != ge::E_IN_TRANSFER);							// When callback is is done and cannot be in air
 		if (!c->_should_wait_for_io_finish) {
-			my_assert((io_rv == ge::E_CANCELED_BY_CALLER) || (io_rv == ge::E_THROTTLE_RETRY_LATER));		// Stuck ios can be resolved only by force cancelation or throttling
+			my_assert((io_rv == ge::E_CANCELED_BY_CALLER) || (io_rv == ge::E_THROTTLE_RETRY_LATER));		// Stuck ios can be resolved only by force cancellation or throttling
 		} else
 			my_assert(io_rv != ge::E_CANCELED_BY_CALLER);				// Even if canceled by caller, while IO is in air, callback cannot arrive
 		c->is_waiting_for_callback = false;
@@ -89,7 +89,7 @@ class unitest_io {
 		const ge io_rv = io.get_error();
 		my_assert(is_waiting_for_callback == false);
 		if (io_rv == ge::E_CANCELED_BY_CALLER) {
-			n_cancl++;
+			n_cancel++;
 			if (_should_wait_for_io_finish)
 				my_assert(_should_cancel);		// Blocking cancel waits for IO to finish
 		} else {
@@ -147,7 +147,7 @@ class unitest_io {
 	}
 
 	unitest_io& expect_success(bool val) { _expect_success = val; return *this; }
-	unitest_io& clear_stats(void) { n_ios = n_cancl = 0; return *this; }
+	unitest_io& clear_stats(void) { n_ios = n_cancel = 0; return *this; }
 	unitest_io& enable_prints(bool val) { _verbose = val; return *this; }
 	void clean_buf(void) { memset(io_buf, 0, buf_align); memset(io_buf, 'C', 16); }
 };

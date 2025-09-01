@@ -254,7 +254,7 @@ enum connect_rv bdev_backend_api::bdev_ctl_reboot1(const std::string &s) noexcep
 }
 
 void bdev_backend_api::bdev_ctl_reboot1_wait_for_srvr_disconnect(void) noexcept {
-	wait_server_reply.wait(); // Wait for disconenction of server from client
+	wait_server_reply.wait(); // Wait for disconnection of server from client
 }
 
 class reconnect_to_server_task {
@@ -267,13 +267,13 @@ class reconnect_to_server_task {
 		const int srvr_prefix_len = (int)strncpy_no_trunc_warning(new_name, b->info.name, 12);
 		strncpy_no_trunc_warning(&new_name[srvr_prefix_len], "cREC", 5);
 		pthread_getname_np(pthread_self(), old_name, sizeof(old_name));
-		pr_info1("\t\t\t%s[IO-Reconnector].p[%p].started, renaming %s->%s\n", b->info.name, me, old_name, new_name);
+		pr_info1("\t\t\t%s[IO-Reconnect].p[%p].started, renaming %s->%s\n", b->info.name, me, old_name, new_name);
 		const int rename_rv = pthread_setname_np(pthread_self(), new_name);
 		if (rename_rv != 0)
 			pr_err1("rename failed rv=%d " PRINT_EXTERN_ERR_FMT "\n", rename_rv, PRINT_EXTERN_ERR_ARGS);
 
 		global_clnt_context_imp::get().bdev_stop_all_ios(me->id, true);
-		pr_info1("\t\t\t%s[IO-Reconnector].p[%p].done\n", b->info.name, me);
+		pr_info1("\t\t\t%s[IO-Reconnect].p[%p].done\n", b->info.name, me);
 		b->wait_server_io_enabled.done();
 		delete me;
 		return nullptr;
@@ -297,7 +297,7 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_reboot2(const backend_bdev_id&
 		bdev->b.wait_server_io_enabled.reset();
 		if (bdev->conf.is_bdev_remote()) {
 			pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].send\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
-			rv = bdev->b.bdev_ctl_reboot1(s);	// Server will disconenct from client, listener will fail and try reconnect
+			rv = bdev->b.bdev_ctl_reboot1(s);	// Server will disconnect from client, listener will fail and try reconnect
 		} else {
 			pr_info1(PRINT_BDEV_ID_FMT " Reboot is a local drain. Reason %s\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
 			bdev->b.do_on_listener_thread_terminate();	// Simulate as in remote path, as if listener thread finished
@@ -307,7 +307,7 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_reboot2(const backend_bdev_id&
 	if (rv == C_OK) {
 		bdev->b.bdev_ctl_reboot1_wait_for_srvr_disconnect();
 		pr_info1(PRINT_BDEV_ID_FMT " ServerReboot.reason[%s].waited_for_shutdown\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str());
-		bdev->b.wait_server_io_enabled.wait(); // Wait for reconenction of server from client
+		bdev->b.wait_server_io_enabled.wait(); // Wait for reconnection of server to client
 	} else {
 		pr_err1(PRINT_BDEV_ID_FMT " Error rebooting server %s, rv=%d\n", PRINT_BDEV_ID_ARGS(*bdev), s.c_str(), rv);
 	}
@@ -345,9 +345,9 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 			stuck_io = bdev->b.dp->in_air.get_next_in_air_io();
 		}
 
-		// Save the list of registerd bufs to reregister them later
-		bufs = bdev->b.dp->registerd_bufs_get_list();
-		bdev->b.dp->registerd_bufs_force_clean();
+		// Save the list of registered bufs to reregister them later
+		bufs = bdev->b.dp->registered_bufs_get_list();
+		bdev->b.dp->registered_bufs_force_clean();
 
 		const connect_rv rv_disconnect = bdev->disconnect(false);
 		ASSERT_IN_PRODUCTION(rv_disconnect == connect_rv::C_OK);
@@ -357,8 +357,8 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 		const connect_rv rv_reconnect = bdev->connect(par.client_name);
 		ASSERT_IN_PRODUCTION(rv_reconnect == connect_rv::C_OK);
 		pr_info1(PRINT_BDEV_ID_FMT " reregistering %u mem bufs\n", PRINT_BDEV_ID_ARGS(*bdev), (uint32_t)bufs.size());
-		const connect_rv rv_rereg = bdev->b.map_buf_do_vec(bufs);
-		ASSERT_IN_PRODUCTION(rv_rereg == connect_rv::C_OK);
+		const connect_rv rv_reregister = bdev->b.map_buf_do_vec(bufs);
+		ASSERT_IN_PRODUCTION(rv_reregister == connect_rv::C_OK);
 	}
 	return C_OK;
 }
@@ -374,7 +374,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 		return C_NO_RESPONSE;
 	const uint32_t num_ios = bdev->b.dp->get_num_in_air_ios();	// Should be 0. Attempt to unregister bufs with in air IO may lead to memory corruption. Prevent this
 	if (num_ios) {
-		pr_err1("Error " PRINT_BDEV_ID_FMT " attemt to unregister mem with %u io's in air. This is a wrong flow that may lead to memory corruption!\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
+		pr_err1("Error " PRINT_BDEV_ID_FMT " attempt to unregister mem with %u io's in air. This is a wrong flow that may lead to memory corruption!\n", PRINT_BDEV_ID_ARGS(*bdev), num_ios);
 		return C_WRONG_ARGUMENTS;
 	}
 	return bdev->b.map_buf_un_vec(bufs);
@@ -548,23 +548,23 @@ uint32_t global_clnt_context::bdev_ctl_get_num_in_air_ios(const backend_bdev_id&
 /* IO api race conditions after io was submitted. Worst case - it has an async callback and it is polled:
 	* Multiple user different threads poll IO status via get_error().
 		* Extra race in polling mode io, where this function actually creates progress and not treats io as const
-		* IO executor is reposnsible for the poling critical section
+		* IO executor is responsible for the poling critical section
 	* Multiple user different threads call cancel_wait() due to timeout or any other reason.
 		* IO executor serialized those requests
 	* When IO completes and gives callback to user. This callback can also execute get_error() or cancel_wait()
 		* It will definitely call get_error() at least once
 		* Calling cancel make no sense from callback but user can do this (will get io already done as reply).
-	* Incomming io completions from Server
+	* Incoming io completions from Server
 		* With server backend - completion ring wakes up and calls client_receive_server_finish_io(), race with cancel ans stop all io's
 		* IO executor ris responsible for managing executor completions separately from user requests (like cancel / io poling)
 	* Stop all ios (Server disconnect and reconnect)
-		* Generate internal cancelation. Behavies like user requested cancel but on all ios.
+		* Generate internal cancellation. Behaves like user requested cancel but on all ios.
 	* Once cancel_wait() succeeds, IO can be freed so callback must not arrive on canceled ios
 
   Key points:
 	* Once IO status becomes not in transfer (success / failure) user can immediately call done() and free it (possibly polling thread).
 	* This implies that in the code we cannot refer to io after rv was set.
-  User potential miss-behaving that will cause memory corruption: (GUSLI does not protect agaisnt it)
+  User potential miss-behaving that will cause memory corruption: (GUSLI does not protect against it)
 	* Call done() and freeing io from completion callback. This is a bad practice because user may
 		* Poll the same io status from a different thread. done() will be called while another thread does polling
 		* Another thread may run { cancel() / done() } / stop all io and have a race of which thread call done()
@@ -572,7 +572,7 @@ uint32_t global_clnt_context::bdev_ctl_get_num_in_air_ios(const backend_bdev_id&
 		* Inherent race condition: seting io rv and issuing callback. GUSLI assumes that polling is potentially done so once
 			rv of io is set, immediately done() can be called and io can be free() from the polling thread.
 	* Calling done() and freeing the io too early with async io. A callback of completion may arrive before submit_io() finished
-		It is not advisable to free the io before user submition finished as even harmless prints ("submitted successfully")
+		It is not advisable to free the io before user submission finished as even harmless prints ("submitted successfully")
 		May cause use after free
 */
 void server_io_req::client_receive_server_finish_io(int64_t rv) {
@@ -629,15 +629,15 @@ void io_request_base::submit_io(void) noexcept {
 		bool need_wakeup_srvr;
 		const int send_rv = bdev->b.dp->clnt_send_io(*sio, &need_wakeup_srvr);
 		if (send_rv >= 0) {
-			nvTODO("Here completion from server could already arrived and access to *this below is potentiallu use after free");
+			nvTODO("Here completion from server could already arrived and access to *this below is potentially use after free");
 			pr_verb1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", doorbell=%d\n", PRINT_IO_REQ_ARGS(params), send_rv, this, need_wakeup_srvr);
 			if (need_wakeup_srvr) {
 				const int wakeup_rv = bdev->b.dp_wakeup_server();
 				if (wakeup_rv < 0)
-					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waiking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), send_rv, this);
+					pr_err1(PRINT_IO_REQ_FMT PRINT_IO_SQE_ELEM_FMT PRINT_CLNT_IO_PTR_FMT ", error waking up server, may stuck...\n", PRINT_IO_REQ_ARGS(params), send_rv, this);
 			}
 			// Callback will come in future
-		} else { // Submition failed, Give callback
+		} else { // Submission failed, Give callback
 			((server_io_req *)this)->client_receive_server_finish_io(send_rv);
 		}
 		if (should_block)
@@ -716,10 +716,7 @@ io_request::~io_request() {				// Needed because user may not call get error nor
 	}
 }
 
-}	// namespace
 /************************* communicate with server *****************************************/
-namespace gusli {
-
 int bdev_backend_api::send_to(MGMT::msg_content &msg, size_t n_bytes) const {
 	if (msg.is(MGMT::msg::dp_submit))
 		pr_verb1(" >> %s: %s\n", srv_addr, msg.raw());
@@ -951,11 +948,11 @@ void bdev_backend_api::check_incoming(void) {
 			is_control_path_ok = false;
 		} else if (msg.is(MGMT::msg::dp_complete)) {
 			// Drain all awaiting completions
-			bool need_wakeup_srvr = false, wakup_on_msg;
-			int idx = dp->clnt_receive_completion(&wakup_on_msg);
-			for (; idx >= 0; idx = dp->clnt_receive_completion(&wakup_on_msg)) {
-				need_wakeup_srvr |= wakup_on_msg;
-				pr_verb1(PRINT_IO_CQE_ELEM_FMT " processed completion. Need_wakeup=%d\n", idx, wakup_on_msg);
+			bool need_wakeup_srvr = false, wakeup_on_msg;
+			int idx = dp->clnt_receive_completion(&wakeup_on_msg);
+			for (; idx >= 0; idx = dp->clnt_receive_completion(&wakeup_on_msg)) {
+				need_wakeup_srvr |= wakeup_on_msg;
+				pr_verb1(PRINT_IO_CQE_ELEM_FMT " processed completion. Need_wakeup=%d\n", idx, wakeup_on_msg);
 			}
 			if (need_wakeup_srvr) { // We dont send more than ring size ios so server never runs out of completion entries
 				// Find bdev by message address and call bdev->b.dp_wakeup_server()); // because client is ready to accept new completions
@@ -974,7 +971,7 @@ int bdev_backend_api::dp_wakeup_server(void) const {
 	auto *p = &msg.pay.dp_submit;
 	p->sender_added_new_work = true;
 	p->sender_ready_for_work = false;
-	dp->stats.n_doorbels_wakeup_srvr++;
+	dp->stats.n_doorbells_wakeup_srvr++;
 	return send_to(msg, size);
 }
 
@@ -1000,7 +997,7 @@ void bdev_backend_api::do_on_listener_thread_terminate(void) {
 	server_bdev *s = container_of(this, server_bdev, b);
 	wait_server_reply.done();	// Wakeup whoever waited for a server reply but will not get it because connection is broken / listener thread existed
 	const uint32_t should_reconnect = should_try_reconnect.read();
-	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconenct[%d]\n", info.name, srv_addr, should_reconnect);
+	pr_info1("\t\t\t%s[Listener].addr[%s].end.reconnect[%d]\n", info.name, srv_addr, should_reconnect);
 	if (should_reconnect)
 		new reconnect_to_server_task(s);
 }

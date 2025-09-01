@@ -50,7 +50,7 @@ class server_io_req : public backend_io_req {		// Additional set of internal fun
 /*********************** In Air IO's holder ***********************/
 class in_air_ios_holder {
 	t_lock_spinlock lock_;				// Producer Insert/remove mutual exclusion. Unrelated to ioring consumer
-	uint64_t n_total_ios;				// Cumultive io stats
+	uint64_t n_total_ios;				// Cumulative io stats
 	uint64_t n_throttled_ios;
 	using idx_t = server_io_req::uid_t;
 	idx_t num_max_inflight_io;
@@ -127,7 +127,7 @@ class in_air_ios_holder {
 		if (!remove) {
 			for_each_set_bit(i, bmp) {
 				ASSERT_IN_PRODUCTION(ios_arr[i] != nullptr);
-				for_each_io_exec_fn(ios_arr[i]);		// Make sure you function does not require lock or dead lock will occure
+				for_each_io_exec_fn(ios_arr[i]);		// Make sure you function does not require lock or dead lock will occur
 			}
 		} else {
 			for_each_set_bit(i, bmp) {
@@ -135,7 +135,7 @@ class in_air_ios_holder {
 				ASSERT_IN_PRODUCTION(ptr != nullptr);
 				if (remove)
 					del(*ptr);							// Remove the io from the list
-				for_each_io_exec_fn(ptr);				// Function can free the io. Make sure you function does not require lock or dead lock will occure
+				for_each_io_exec_fn(ptr);				// Function can free the io. Make sure you function does not require lock or dead lock will occur
 			}
 		}
 		BUG_ON((remove && !is_empty()), "IAIOL: corruption Corruption");
@@ -150,4 +150,4 @@ class in_air_ios_holder {
 	}
 };
 
-} // namespace gusli
+} // namespace

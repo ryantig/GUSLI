@@ -85,7 +85,7 @@ case "$1" in
 	;;
   *)
 	echo $"Usage: $0 {1 of the options below}";
-	echo_yellow "  ------------ Unitests of sub components:";
+	echo_yellow "  ------------ Unit-tests of sub components:";
 	echo "    spdk_both         - SPDK backend server with client, simple io";
 	echo "    all               - all tests 1 by 1";
 	echo "    ci                - Full CI test suit";

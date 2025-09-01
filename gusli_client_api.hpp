@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* Gusli client: Block IO submition api */
+/* Gusli client: Block IO submission api */
 #include <stdio.h>			// FILE, printf
 #include <string.h>			// memset, memcmp
 #include <stdint.h>			// uint64_t, uint32_t
@@ -43,7 +43,7 @@ struct bdev_info {							// After connection to bdev established, this info can 
 	char name[32];							// Server self reported name, used for logging / debug only.
 	int32_t  bdev_descriptor;				// Much like file descriptor, Used to access this bdev in datapath. 0 and negative are invalid
 	uint32_t block_size;					// In [bytes]. Minimal unit for IO (size and alignment). Typically 4[KB]..16[MB], 1[B] for files
-	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrinked.
+	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrunk.
 	uint16_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side. Values: [1..500]
 	uint16_t flags_is_auto_extendable : 1;	// Reads beyond max lba (num_total_blocks) return 0, not error. Writes block until bdev is extended and then succeed
 	uint16_t flags_reserved           : 15;
@@ -83,7 +83,7 @@ struct bdev_config_params {
 	bool is_valid(void)       const { return id.is_valid() && (has_storage() || is_dummy()) && is_valid_acl() && (conn.any[0] != 0) && (security_cookie[0] != 0); }
 } __attribute__((aligned(sizeof(long))));
 
-class client_config_file {							// You can write config file manualy or auto generated using this class
+class client_config_file {							// You can write config file manually or auto generated using this class
 	std::string c;
  public:
 	SYMBOL_EXPORT client_config_file(int version = 1) noexcept  {
@@ -116,7 +116,7 @@ enum io_error_codes {							// Exhaustive list of error codes
 	E_INTERNAL_FAULT = 			-11,			// Consult with developers. Internal library problem
 	E_BACKEND_FAULT = 			-15,			// Underlying block device could not execute the io
 	E_CANCELED_BY_CALLER = 		-10,			// IO Operation was explicitly canceled by caller.
-	E_THROTTLE_RETRY_LATER = 	-12,			// IO Operation cannot be submittedd
+	E_THROTTLE_RETRY_LATER = 	-12,			// IO Operation cannot be submitted
 	E_PERM_FAIL_NO_RETRY = 		-13,			// IO Operation, Probably data loss, cannot execute request and no point in retrying it
 	E_INVAL_PARAMS = 			-14,			// Invalid parameters/op/block-device for execution
 };
@@ -152,15 +152,15 @@ struct io_multi_map_t {							// Scatter gather list of multi range io, 8[b] hea
 
 class io_request_base {							// Data structure for issuing IO
  public:
-	class params_t {							// Parameters for IO, Use setter/getter functions to intialize them
+	class params_t {							// Parameters for IO, Use setter/getter functions to initialize them
 		io_map_t _map;							// Holds a mapping for IO buffer or a mapping to scatter-gather list of mappings
-		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the openned block device to which the io is sent
+		int32_t _bd_id;							// Take from bdev_info::bdev_descriptor. Identifies the opened block device to which the io is sent
 		//uint32_t timeout_msec;				// Optional timeout for IO in [msec].  0 or ~0 mean infinity. Not supported, Use async io mode and cancel the io if needed
 		enum io_type _op         : 8;			// Operation to be performed
-		uint8_t _priority        : 7;			// [0..100] priority. 100 is highest, 0 lowest. Deafult = 0
+		uint8_t _priority        : 7;			// [0..100] priority. 100 is highest, 0 lowest. Default = 0
 		uint8_t _is_mutable_data : 1;			// Default false, Set to true if content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
 		uint16_t _assume_safe_io : 1;			// Default false, Set to true if caller verifies correctness of io (fully inside mapped area, etc...), Skips internal checks so IO uses less client side CPU
-		uint16_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kuburnetes due to security issues of liburing
+		uint16_t _try_using_uring_api : 1;		// If possible use uring api, more efficient for io's with large amount of ranges, but does not run in default containers of kubernetes due to security issues of lib-uring
 		uint16_t _has_mm              : 1;		// First 4K of io buffer contains io_multi_map_t (scatter gather) description for multi-io
 		uint16_t _async_no_comp       : 1;		// Internal flag, IO is async but caller will poll it instead of completion
 		uint16_t _is_remote_bdev      : 1;		// Internal flag, IO is going to server (not local client block device)
@@ -176,12 +176,12 @@ class io_request_base {							// Data structure for issuing IO
 									  void set_async_pollable(void) {    _comp_ctx = NULL;       _comp_cb = NULL;                _async_no_comp = true; }
 		void init_1_rng(enum io_type op, int id, uint64_t lba, uint64_t len, void *buf) { _has_mm = 0; _op = op; _bd_id = id; _map.init(buf,        len,          lba); }
 		void init_multi(enum io_type op, int id,  const io_multi_map_t& mm) {             _has_mm = 1; _op = op; _bd_id = id; _map.init((void*)&mm, mm.my_size(), 0  ); }
-		params_t &set_mutalbe_data(      bool v) { _is_mutable_data = v;     return *this; }	// Set, when content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
+		params_t &set_mutable_data(      bool v) { _is_mutable_data = v;     return *this; }	// Set, when content of io buffer might be changed by caller while IO is in air. If cannot guarantee immutability io will suffer a penalty of internal copy of the buffer
 		params_t &set_try_use_uring(     bool v) { _try_using_uring_api = v; return *this; }
 		params_t &set_safe_io(           bool v) { _assume_safe_io = v;      return *this; }
 		params_t &set_priority(uint8_t percents) { _priority = percents; if (_priority > 100) _priority = 100;  return *this; }
 
-		// API to change initialized io params, for resubmittion
+		// API to change initialized io params, for resubmission
 		params_t &set(enum io_type op) { _op = op;   return *this; }	// Example: You issued write and immediately want to issue read with the same params
 		params_t &set_dev(int32_t bd) { _bd_id = bd; return *this; }	// Example: Issue write to disk0 and afterwards to disk1 for backup
 		io_map_t &change_map(void)    { return _map; }					// Example: Wrote io to offset 0x40 and for backup want to write the same io to offset 0x140 as well.change_map().offset_lba_bytes += 0x100;
@@ -201,10 +201,10 @@ class io_request_base {							// Data structure for issuing IO
 	} params;
 	io_request_base() { memset(this, 0, sizeof(*this)); }
 	SYMBOL_EXPORT void submit_io(void) noexcept;						// Execute io. May Call again to retry failed io. All errors/success should be checked with function below
-	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Runnyng on async callback io may yield racy results
+	SYMBOL_EXPORT enum io_error_codes get_error(void) noexcept;			// Query io completion status for blocking IO, poll on pollable io. Running on async callback io may yield racy results
 	enum cancel_rv { G_CANCELED = 'V', G_ALLREADY_DONE = 'D' };			// DONE = IO finished error/success. CANCELED = Successfully canceled (Async IO, completion will not be executed)
-	SYMBOL_EXPORT_NO_DISCARD enum cancel_rv cancel_wait(void) noexcept;	// Cancel I/O request. For Async IO, completion will not arrive after call to this function, but uncareful user may call it while completion callback is concurently running. Note: IO cancelation blocks until registered memory will not be used anymore
-	SYMBOL_EXPORT void done(void) noexcept;								// Must call done() after you finish anylizing the run of submit_io(). Can submit the io again / free it / change it and submit again after call to this function
+	SYMBOL_EXPORT_NO_DISCARD enum cancel_rv cancel_wait(void) noexcept;	// Cancel I/O request. For Async IO, completion will not arrive after call to this function, but non careful user may call it while completion callback is concurrently running. Note: IO cancellation blocks until registered memory will not be used anymore
+	SYMBOL_EXPORT void done(void) noexcept;								// Must call done() after you finish analyzing the run of submit_io(). Can submit the io again / free it / change it and submit again after call to this function
  protected:																// Below extra 16[b] for execution state
 	class io_request_executor_base* _exec;								// During execution executor attaches to IO, Server side uses it to execute io
 	struct output_t { int64_t rv; } out;								// Negative error code or amount of bytes transferred.
@@ -222,7 +222,7 @@ enum connect_rv { C_OK = 0, C_NO_DEVICE = -100,
 	C_REMAINS_OPEN /* Already open / Cannot close because in use*/,
 	C_WRONG_ARGUMENTS};
 
-static constexpr const char* thread_names_prefix = "gusli_";		// All gusli aux threads will have this prefix for easier ps | grep
+static constexpr const char* thread_names_prefix = "gusli_";		// All library aux threads will have this prefix for easier ps | grep
 
 class clnt_init_exception : public std::runtime_error {				// Initialization exception thrown during construction error
  public:
@@ -250,7 +250,7 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 		unsigned int max_num_simultaneous_requests = 256;
 	};
 	static constexpr const int BREAKING_VERSION = 1;					// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
-	SYMBOL_EXPORT global_clnt_context(const init_params& par);			// Throws clnt_init_exceptiont upon error. Use string and error code to find out more about failure
+	SYMBOL_EXPORT global_clnt_context(const init_params& par);			// Throws clnt_init_exception upon error. Use string and error code to find out more about failure
 	SYMBOL_EXPORT ~global_clnt_context() noexcept;
 	SYMBOL_EXPORT const char *get_metadata_json(void) const noexcept;	// Get the version of the library to adapt application dynamically to library features set.
 
@@ -265,7 +265,7 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv open__bufs_register(const backend_bdev_id&, const mem_list&)                           const noexcept;	// Register shared memory buffers which will store the content of future io
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv close_bufs_unregist(const backend_bdev_id&, const mem_list&, bool stop_server = false) const noexcept;	// Reverse of the above, stop server param kills the server app. No reconnection is possible
 
-	// Get block device information (after it was oppened)
+	// Get block device information (after it was opened)
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_get_info(      const backend_bdev_id&, bdev_info &rv)  const noexcept;
 	SYMBOL_EXPORT_NO_DISCARD int32_t   bdev_get_descriptor(      const backend_bdev_id&)                 const noexcept;
 
@@ -280,4 +280,4 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
 };
 
-} // namespace gusli
+} // namespace

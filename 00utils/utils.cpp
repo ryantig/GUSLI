@@ -195,7 +195,7 @@ int sock_t::srvr_accept_clnt(struct connect_addr& ca) const {
 void sock_t::nice_close(void) {
 	epoll_reply_stop();
 	if (is_alive()) {
-		shutdown(_fd, SHUT_RDWR);	// Stop all read/write on socket, existing data remains in the socket. Must be called in multithreaded app, becasue close on thread1 will not unblock thread2 which is blocked on read/write
+		shutdown(_fd, SHUT_RDWR);	// Stop all read/write on socket, existing data remains in the socket. Must be called in multithreaded app, because close on thread1 will not unblock thread2 which is blocked on read/write
 		close(_fd); _fd = -1;
 	}
 }
@@ -331,23 +331,21 @@ int thread_api_bound_to_1_core(uint16_t core_idx) {
 }
 
 int thread_api_set_high_cpu_usage(const char *thread_name) {
-	if (false) {		// change to true for NVMESH-3892, db flush get stuck
-		struct sched_param param;
-		int p = -1;
-		int rv = pthread_getschedparam(pthread_self(), &p, &param);
-		if (rv != 0) {
-			pr_err("%s: Cannot get sched_policy. rv=%d, " PRINT_EXTERN_ERR_FMT "\n", thread_name, rv, PRINT_EXTERN_ERR_ARGS);
-			return -1;
-		}
-		pr_info("%s: policy=%s(%u), priority=%d\n", thread_name, (p == SCHED_FIFO) ? "SCHED_FIFO" : (p == SCHED_RR) ? "SCHED_RR" : (p == SCHED_OTHER) ? "SCHED_OTHER" : "???", p, param.sched_priority);
-		param.sched_priority = 98;  // Priority range: 1 (low) to 99 (high) for real-time
-		rv = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-		if (rv != 0) {
-			pr_err("%s: Cannot set sched_policy. rv=%d, " PRINT_EXTERN_ERR_FMT "\n", thread_name, rv, PRINT_EXTERN_ERR_ARGS);
-			return -1;
-		}
-		pr_note("%s: set policy=SCHED_FIFO, priority=%d\n", thread_name, param.sched_priority);
+	struct sched_param param;
+	int p = -1;
+	int rv = pthread_getschedparam(pthread_self(), &p, &param);
+	if (rv != 0) {
+		pr_err("%s: Cannot get sched_policy. rv=%d, " PRINT_EXTERN_ERR_FMT "\n", thread_name, rv, PRINT_EXTERN_ERR_ARGS);
+		return -1;
 	}
+	pr_info("%s: policy=%s(%u), priority=%d\n", thread_name, (p == SCHED_FIFO) ? "SCHED_FIFO" : (p == SCHED_RR) ? "SCHED_RR" : (p == SCHED_OTHER) ? "SCHED_OTHER" : "???", p, param.sched_priority);
+	param.sched_priority = 98;  // Priority range: 1 (low) to 99 (high) for real-time
+	rv = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	if (rv != 0) {
+		pr_err("%s: Cannot set sched_policy. rv=%d, " PRINT_EXTERN_ERR_FMT "\n", thread_name, rv, PRINT_EXTERN_ERR_ARGS);
+		return -1;
+	}
+	pr_note("%s: set policy=SCHED_FIFO, priority=%d\n", thread_name, param.sched_priority);
 	return 0;
 }
 
@@ -371,7 +369,7 @@ void sock_t::set_io_buffer_size(unsigned rlen, unsigned wlen) {
 
 #include <netinet/tcp.h>
 void sock_t::set_optimize_for_latency(bool do_optimize) {
-	int optval = do_optimize ? 1 : 0;	// Disable TCP nagel algorithm, dont gather multiple small packets, but send them immediatly
+	int optval = do_optimize ? 1 : 0;	// Disable TCP nagel algorithm, dont gather multiple small packets, but send them immediately
 	if (setsockopt(_fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval)) < 0)
 		pr_emerg("Unable to turn off NAGEL-TCP algorithm, latency can be high!\n");
 }
@@ -474,9 +472,9 @@ void tDbg::flog_flush(void) {
 #include <sys/time.h>
 #include <time.h>			// strftime
 int tDbg::get_timestamp_str(char rv[32], const uint32_t unix_epoch_sec) {
-	const time_t nowtime = unix_epoch_sec;
+	const time_t now_time = unix_epoch_sec;
 	struct tm tmInfo;
-	localtime_r(&nowtime, &tmInfo);
+	localtime_r(&now_time, &tmInfo);
 	return strftime(rv, 32, "%Y.%m.%d-%H:%M:%S", &tmInfo);
 }
 

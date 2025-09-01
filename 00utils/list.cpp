@@ -42,7 +42,7 @@ static inline void __list_add(struct list_head *New, struct list_head *prev, str
 	prev->next = New;
 }
 
-bool is_in_list(const struct list_head *entry){
+bool is_in_list(const struct list_head *entry) {
 	if ((entry->next == entry->prev)&&(entry->prev == entry))
 		return false;									// This entry is not part of any list
 	if ((entry->next == LIST_POISON1)||(entry->prev == LIST_POISON2))
@@ -50,11 +50,11 @@ bool is_in_list(const struct list_head *entry){
 	return true;
 }
 
-void list_add(struct list_head *New, struct list_head *head){
+void list_add(struct list_head *New, struct list_head *head) {
 	__list_add(New, head, head->next);
 }
 
-void __list_cut_position(struct list_head *list, struct list_head *head, struct list_head *entry){
+void __list_cut_position(struct list_head *list, struct list_head *head, struct list_head *entry) {
 	struct list_head *new_first = entry->next;
 	list->next = head->next;
 	list->next->prev = list;
@@ -64,7 +64,7 @@ void __list_cut_position(struct list_head *list, struct list_head *head, struct 
 	new_first->prev = head;
 }
 
-void list_add_tail(struct list_head *New, struct list_head *head){
+void list_add_tail(struct list_head *New, struct list_head *head) {
 	__list_add(New, head->prev, head);
 }
 

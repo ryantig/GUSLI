@@ -25,10 +25,10 @@ namespace gusli {
 class bdev_stats_clnt {
 	void clear(void) { memset(this, 0, sizeof(*this)); }
 	int print_stats(char* buf, int buf_len) {
-		return scnprintf(buf, buf_len, "d={%lu}", n_doorbels_wakeup_srvr);
+		return scnprintf(buf, buf_len, "d={%lu}", n_doorbells_wakeup_srvr);
 	}
  public:
-	uint64_t n_doorbels_wakeup_srvr;
+	uint64_t n_doorbells_wakeup_srvr;
 	bdev_stats_clnt() { clear(); }
 	~bdev_stats_clnt() {
 		char str[256];
@@ -164,18 +164,18 @@ class bdevs_hash { 					// Hash table of connected servers
 	void clear(void) { arr.clear(); }
 };
 
-class global_clnt_context_imp : no_implicit_constructors, public base_library { // Singletone: Library context
+class global_clnt_context_imp : no_implicit_constructors, public base_library { // Singleton: Library context
 	global_clnt_context::init_params par;
 	global_clnt_context_imp();
 	~global_clnt_context_imp();
-	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing nvme disk / etc.
+	void on_event_server_down(void);		// Start accumulating IO's / Possibly failing with time out. Server is inaccessible due to being hot upgraded / missing disk / etc.
 	void on_event_server_up(void);
 	int parse_conf(void);
  public:
 	bdevs_hash bdevs;
 	shm_io_bufs_global_t *shm_io_bufs;
 
-	static global_clnt_context_imp& get(void) noexcept;				// Get singletone
+	static global_clnt_context_imp& get(void) noexcept;				// Get singleton
 	int init(const global_clnt_context::init_params& _par, const char* metadata_json_format) noexcept;
 	const char *get_metadata_json(void) const noexcept { return lib_info_json; }
 	int destroy(void) noexcept;
@@ -192,4 +192,4 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 	enum connect_rv bdev_ctl_reboot2(   const backend_bdev_id& id, const std::string &s) noexcept;
 };
 
-} // namespace gusli
+} // namespace

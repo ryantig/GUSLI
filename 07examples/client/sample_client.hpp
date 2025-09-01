@@ -106,7 +106,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 	for (int b = 0; b < n_devs; b++) {
 		log_line("Remote server %s, connecting...", srvr_addr[b]);
 		struct gusli::backend_bdev_id bdev; bdev.set_from(bdev_uuid[b]);
-		int n_attempts = 0;		// Try to conenct for 5 seconds
+		int n_attempts = 0;		// Try to connect for 5 seconds
 		enum gusli::connect_rv con_rv = gusli::connect_rv::C_NO_RESPONSE;
 		for (; ((con_rv == gusli::connect_rv::C_NO_RESPONSE) && (n_attempts < 10)); n_attempts++ ) {
 			con_rv = gc.open__bufs_register(bdev, io_bufs);
@@ -119,7 +119,7 @@ int client_simple_test_of_server(const char* clnt_name, const int n_devs, const 
 		gusli::bdev_info info;
 		my_assert(gc.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		my_assert(info.num_total_blocks > 0x100);			// We write to first few blocks
-		log_line("Remote server %s oppened and mapped bufs", info.name);
+		log_line("Remote server %s opened and mapped bufs", info.name);
 	}
 
 	for (int b = 0; b < n_devs; b++) {

@@ -26,9 +26,8 @@ namespace gusli {
 	https://elixir.bootlin.com/linux/v6.14.5/source/tools/include/io_uring/mini_liburing.h
 	https://github.com/anlongfei/libaio/blob/master/src/libaio.h
 	https://github.com/Mulling/io-uring-ipc
-	#include <aio.h>
 */
-struct io_csring_sqe {					// IO submition queue entry
+struct io_csring_sqe {					// IO submission queue entry
 	using context_t = io_request::params_t;
 	context_t user_data;
 	uint32_t is_used : 8;
@@ -111,7 +110,7 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 };
 
 struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev, shared memory is initialized
-	static constexpr int CAPACITY = 512;	// Maximal ammount of in air IO's + at least 1
+	static constexpr int CAPACITY = 512;	// Maximal amount of in air IO's + at least 1
 	io_csring_queue<io_csring_sqe, CAPACITY, 's'> sq;
 	io_csring_queue<io_csring_cqe, CAPACITY, 'c'> cq;
 	void init(void) {						// Initialized by client (producer)
@@ -131,9 +130,9 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 				shm_io_bufs->does_include(map.data)); }
 	io_csring *get(void) const { return (io_csring *)shm_ring.get_buf(); }
  public:
-	t_shared_mem shm_ring;							// Mapped Submition/completion queues.
+	t_shared_mem shm_ring;							// Mapped Submission/completion queues.
 	shm_io_bufs_global_t *shm_io_bufs;				// Pointer to global structure
-	shm_io_bufs_unuque_set_for_bdev reg_bufs_set;
+	shm_io_bufs_unique_set_for_bdev reg_bufs_set;
 	in_air_ios_holder in_air;
 	T_stats stats;
 	const bdev_info &binfo;
@@ -157,11 +156,11 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 	bool srvr_remap_io_bufs_to_my(server_io_req &io) const;	// IO bufs pointers are given in clients addresses, need to convert them to server addresses
 	int  srvr_finish_io(          server_io_req &io, bool *need_wakeup_clnt_consumer) const;
 
-	std::vector<io_buffer_t> registerd_bufs_get_list(void) const {
+	std::vector<io_buffer_t> registered_bufs_get_list(void) const {
 		return shm_io_bufs->get_all_bufs(reg_bufs_set);
 	}
 
-	void registerd_bufs_force_clean(void) {
+	void registered_bufs_force_clean(void) {
 		t_lock_guard l(shm_io_bufs->with_lock());
 		for (auto it = reg_bufs_set.begin(); it != reg_bufs_set.end(); ++it) {
 			base_shm_element *g_map = shm_io_bufs->find2(*it);
@@ -212,7 +211,7 @@ inline bool datapath_t<T>::verify_io_param_valid(const server_io_req &io) const 
 		if (!verify_map_valid(mm->entries[i]))				// Each entry is valid
 			return false;
 	}
-	return shm_io_bufs->does_include(io.params.map().data);	// Scatter-gather is accesible to server
+	return shm_io_bufs->does_include(io.params.map().data);	// Scatter-gather is accessible to server
 }
 
 template <class T>
@@ -276,4 +275,4 @@ inline void __compilation_verification(void) {
 	BUILD_BUG_ON(sizeof(io_multi_map_t) != 8);
 }
 
-} // namespace gusli
+} // namespace

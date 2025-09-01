@@ -21,7 +21,7 @@
 #define UNITEST_CLNT_NAME "[_test_]"
 /***************************** Base sync IO test ***************************************/
 #include <chrono>
-class test_timer {	 	// Dont use concurently from multiple threads
+class test_timer {	 	// Dont use concurrently from multiple threads
 	std::chrono::time_point<std::chrono::steady_clock> start;
 public:
 	void     tic(void) { start = std::chrono::steady_clock::now(); }
@@ -177,7 +177,7 @@ int io_race_conditions_unittest(const gusli::bdev_info& binfo, unitest_io& my_io
 					my_assert(strcmp(data, my_io.io_buf) == 0);
 			}
 			const uint64_t n_micro_sec = timer.toc();
-			log_time(n_micro_sec, "Test summary[%s]: canceled %6u/%6u", io_exec_mode_str((io_exec_mode)i), my_io.n_cancl, my_io.n_ios);
+			log_time(n_micro_sec, "Test summary[%s]: canceled %6u/%6u", io_exec_mode_str((io_exec_mode)i), my_io.n_cancel, my_io.n_ios);
 			my_io.clear_stats();
 		}
 		my_io.enable_prints(true).clear_stats();
@@ -355,7 +355,7 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 
 	if (1) {
 		log_unitest("After drain, Retry the same ios, server disconnects client\n");
-		std::string dbg_msg = "FORCE disconenct";
+		std::string dbg_msg = "FORCE disconnect";
 		for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {
 			my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);	// Dont wait for io completion
 			my_assert(my_io[i].io.get_error() == gusli::io_error_codes::E_IN_TRANSFER);
@@ -435,7 +435,7 @@ template<class T> class atomic {
 };
 typedef atomic<uint64_t> atomic_uint64_t;
 
-class all_ios_t *glbal_all_ios = NULL;
+class all_ios_t *global_all_ios = NULL;
 class all_ios_t {
 	gusli::io_request ios[512];
 	atomic_uint64_t n_completed_ios;
@@ -446,17 +446,17 @@ class all_ios_t {
 	sem_t wait;						// Block test until completes
 	static void __comp_cb(gusli::io_request *c) {
 		my_assert(c->get_error() == 0);
-		const uint64_t n_completed_ios = glbal_all_ios->n_completed_ios.inc();
-		// log_unitest("Submit n_comp=%lu, %lu\n", n_completed_ios, glbal_all_ios->n_ios_todo);
-		if (n_completed_ios < glbal_all_ios->n_ios_todo) {
-			c->params.change_map().offset_lba_bytes += 7*glbal_all_ios->block_size;		// Read from a different place
+		const uint64_t n_completed_ios = global_all_ios->n_completed_ios.inc();
+		// log_unitest("Submit n_comp=%lu, %lu\n", n_completed_ios, global_all_ios->n_ios_todo);
+		if (n_completed_ios < global_all_ios->n_ios_todo) {
+			c->params.change_map().offset_lba_bytes += 7*global_all_ios->block_size;		// Read from a different place
 			c->done();
 			c->submit_io();
 			return;
 		}
-		const uint64_t still_in_air = glbal_all_ios->n_in_air_ios.dec();
+		const uint64_t still_in_air = global_all_ios->n_in_air_ios.dec();
 		if (still_in_air == 0)
-			my_assert(sem_post(&glbal_all_ios->wait) == 0);				// Unblock waiter
+			my_assert(sem_post(&global_all_ios->wait) == 0);				// Unblock waiter
 	}
  public:
 	all_ios_t(const gusli::io_buffer_t io_buf, const gusli::bdev_info& info) {
@@ -466,9 +466,9 @@ class all_ios_t {
 		for (int i=0; i < n_max_ios_in_air; i++) {
 			auto *p = &ios[i].params;
 			p->init_1_rng(gusli::G_READ, info.bdev_descriptor, (i * block_size) + 0x100000, 1 * block_size, (char*)io_buf.ptr + (i * block_size)); // Destination buffer for read
-			p->set_priority(100).set_safe_io(true).set_mutalbe_data(false).set_completion(&ios[i], __comp_cb);
+			p->set_priority(100).set_safe_io(true).set_mutable_data(false).set_completion(&ios[i], __comp_cb);
 		}
-		glbal_all_ios = this;
+		global_all_ios = this;
 		n_completed_ios.set(0);
 	}
 	template<class T> static inline T min(         T x, T y) { return x < y ? x : y; }
@@ -556,11 +556,11 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 }
 
 
-void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preassure) {
+void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_pressure) {
 	static constexpr const int n_servers = 3;
 	const auto server_code = [] (int i) -> void {
-		const bool use_extenral_loop = (UUID.SRVR_ADDR[i][0] == 't');
-		server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], use_extenral_loop);
+		const bool use_external_loop = (UUID.SRVR_ADDR[i][0] == 't');
+		server_ro_lba ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i], use_external_loop);
 		ds.run();
 	};
 	servers_list child(lib, UUID.REMOTE, UUID.SRVR_NAME, "basic", n_servers, server_code);
@@ -575,7 +575,7 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 		gusli::bdev_info info;
 		my_assert(lib.bdev_get_info(bdev, info) == gusli::connect_rv::C_OK);
 		const bool is_unaligned_block = ((info.block_size % UNITEST_SERVER_BLOCK_SIZE) != 0);
-		my_assert(!is_unaligned_block);	// Else: unitest io buffer is not properly alligned
+		my_assert(!is_unaligned_block);	// Else: unitest io buffer is not properly aligned
 		my_assert(info.num_max_inflight_io >= MAX_SERVER_IN_FLIGHT_IO);	// Else: not enough unitest buffers for all io's
 
 		// Map app buffers for read operations
@@ -596,11 +596,11 @@ void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_preas
 			client_test_write_read_verify_multi(info, io_bufs);
 		}
 
-		if (s == 0) { // Lauch async perf read test on first server only
-			log_line("IO-to-srvr-perf %u[Mio]", (num_ios_preassure >> 20));
+		if (s == 0) { // Launch async perf read test on first server only
+			log_line("IO-to-srvr-perf %u[Mio]", (num_ios_pressure >> 20));
 			all_ios_t ios(io_bufs[0], info);
 			for (int i = 0; i < 4; i++)
-				ios.launch_perf_reads(num_ios_preassure);
+				ios.launch_perf_reads(num_ios_pressure);
 		}
 
 		log_line("%s: Unmap bufs", UUID.SRVR_NAME[s]);
@@ -643,7 +643,7 @@ void client_server_stuck_io_and_throttle_test(gusli::global_clnt_context& lib) {
 	child.wait_for_all();
 }
 
-void client_server_io_racees_test(gusli::global_clnt_context& lib) {
+void client_server_io_races_test(gusli::global_clnt_context& lib) {
 	const auto server_code = [] (int i) -> void {
 		zero_server_ram ds(UUID.SRVR_NAME[i], UUID.SRVR_ADDR[i]);
 		ds.run();
@@ -807,17 +807,17 @@ void unitest_huge_mem_map_and_io(const gusli::global_clnt_context* lib) {
 /*****************************************************************************/
 #include <getopt.h>
 int main(int argc, char *argv[]) {
-	int opt, num_ios_preassure = (1 << 23), n_iter_race_tests = 10000;
+	int opt, num_ios_pressure = (1 << 23), n_iter_race_tests = 10000;
 	int do_large_io_test = true;
 	while ((opt = getopt(argc, argv, "n:c:l:h")) != -1) {
 		switch (opt) {
-			case 'n': num_ios_preassure = std::stoi(  optarg); break;
+			case 'n': num_ios_pressure = std::stoi(   optarg); break;
 			case 'c': n_iter_race_tests = std::stoi(  optarg); break;
 			case 'l': do_large_io_test =  std::stoi(  optarg); break;
 			case 'h':
 			default:
-				log_unitest("Usage: %s [-n num_ios_preassure] [-c n_iter_race_tests] [-l do_large_io_test] [-h]\n", argv[0]);
-				log_unitest("  -n num_ios_preassure, (default: %d)\n", num_ios_preassure);
+				log_unitest("Usage: %s [-n num_ios_pressure] [-c n_iter_race_tests] [-l do_large_io_test] [-h]\n", argv[0]);
+				log_unitest("  -n num_ios_pressure,  (default: %d)\n", num_ios_pressure);
 				log_unitest("  -c n_iter_race_tests, (default: %d)\n", n_iter_race_tests);
 				log_unitest("  -l 1/0, (default: %d)\n", do_large_io_test);
 				log_unitest("  -h                    Show this help message\n");
@@ -834,11 +834,11 @@ int main(int argc, char *argv[]) {
 	unitest_auto_open_close(lib);
 	client_stuck_io_and_throttle_tests(*lib, UUID.AUTO_STUCK);
 	client_server_stuck_io_and_throttle_test(*lib);
-	client_server_io_racees_test(*lib);
+	client_server_io_races_test(*lib);
 	if (do_large_io_test) unitest_huge_mem_map_and_io(lib);
 	base_lib_unitests(*lib, n_iter_race_tests);
 	client_no_server_reply_test(*lib);
-	client_server_basic_test(*lib, num_ios_preassure);
+	client_server_basic_test(*lib, num_ios_pressure);
 	delete lib;
 	log_unitest("Done!!! Success\n\n\n");
 }

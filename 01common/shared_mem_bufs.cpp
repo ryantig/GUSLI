@@ -120,15 +120,15 @@ const base_shm_element* shm_io_bufs_global_t::insert_on_server(const char* name,
 	return rv;
 }
 
-std::vector<io_buffer_t> shm_io_bufs_global_t::get_all_bufs(const shm_io_bufs_unuque_set_for_bdev& u) {
+std::vector<io_buffer_t> shm_io_bufs_global_t::get_all_bufs(const shm_io_bufs_unique_set_for_bdev& u) {
 	t_lock_guard l(with_lock());
 	std::vector<io_buffer_t> rv;
 	rv.reserve(bufs.size());
 	for (const base_shm_element& shm_buf : bufs) {
-		if (u.has(shm_buf.buf_idx))					// Deliberatly, return the buffers ordered as 'bufs' not as 'u'
+		if (u.has(shm_buf.buf_idx))					// Deliberately, return the buffers ordered as 'bufs' not as 'u'
 			rv.emplace_back(shm_buf.get_buf());
 	}
 	return rv;
 }
 
-} // namespace gusli
+} // namespace

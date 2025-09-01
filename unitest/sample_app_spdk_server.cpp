@@ -18,7 +18,7 @@
 #include "../07examples/server/spdk_app_1server.hpp"
 int main(int argc, const char **argv) {
 	log_line("!!! Important !!!");
-	log_unitest("Launching spdk server, waiting for client to conenct, press Ctrl+C to quit\n");
+	log_unitest("Launching spdk server, waiting for client to connect, press Ctrl+C to quit\n");
 	log_line("!!! Important !!!");
 	server_spdk_app_1_gusli_server app(argc, argv);
 	return app.get_rv();

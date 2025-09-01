@@ -74,7 +74,7 @@ class t_lock_spinlock {			// For fast very short critical sections
 	bool is_locked(void) { if (pthread_spin_trylock(&m) == 0) { unlock(); return false; } return true; }
 };
 
-class t_no_lock {				// Dumy no lock, which does not protect from race conditions. Used when another (external) mechanism/algorithm guarantees atomicity
+class t_no_lock {				// Dummy no lock, which does not protect from race conditions. Used when another (external) mechanism/algorithm guarantees atomicity
 	bool _is_locked;
  public:
 	void init(void) {   _is_locked = false; }
@@ -93,22 +93,24 @@ class t_lock_guard {
 };
 
 /************************************ Serializer **********************************/
-class t_serializer {		// Launch async task and wait for its rv (return value). Poor performance, Dont use in run time code!
-	pthread_cond_t gcond = PTHREAD_COND_INITIALIZER;
-	pthread_mutex_t glock = PTHREAD_MUTEX_INITIALIZER;
+#if 0
+class completion_t {		// Launch async task and wait for its rv (return value). Poor performance, Dont use in run time code!
+	pthread_cond_t c = PTHREAD_COND_INITIALIZER;
+	pthread_mutex_t l = PTHREAD_MUTEX_INITIALIZER;
 	int rv;
  public:
-	void init(void) {    pthread_mutex_lock(&glock); }
-	void destroy(void) { pthread_mutex_unlock(&glock); }
-	int wait_for_async_rv(void) {			// Caller thread: Launch async task and wait
-		pthread_cond_wait(&gcond, &glock);
+	void init(void) {    pthread_mutex_lock(&l); }
+	void destroy(void) { pthread_mutex_unlock(&l); }
+	int wait(void) {			// Caller thread: Launch async task and wait
+		pthread_cond_wait(&c, &l);
 		return rv;
 	}
 	void wakeup_with_rv(int _rv) {			// Async task thread: Notify about completion
 		rv = _rv;
-		pthread_cond_signal(&gcond);
+		pthread_cond_signal(&c);
 	}
 };
+#endif
 
 #include <semaphore.h>
 class completion_t {		// Completion
@@ -136,7 +138,7 @@ class t_shared_mem {
 	size_t n_bytes;			// Length of the buffer
 	bool is_external_buf;	// Was buffer given externally or internally mapped
 	void force_populate_all_pages(void) {					// Time consuming for large buffers
-		// If mmaped memory still does not have kernel pages and /dev/shm was too small SIGBUS signal will be rised when writing to the buffer. This is due to optimizitc linux allocator
+		// If mmaped memory still does not have kernel pages and /dev/shm was too small SIGBUS signal will be thrown when writing to the buffer. This is due to optimistic linux allocator
 		for (size_t i = 0; i < n_bytes; i += 4096)		// Write to each and every page to force kernel mapping (page faults) and find out about SIGBUS now and not upon first usage
 			*((uint64_t*)((size_t)buf + i)) = ~0x0UL;
 	}
@@ -154,10 +156,10 @@ class t_shared_mem {
 				pr_err("Error munmap len=0x%lx, buf=%p " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
 				// To avoid segmentation fault when user continues to use this pointer, leave it as mapped to deleted shm file
 			} else if (is_external_buf) {	// Was in the heap before we remapped it to shared memory, return back to the heap
-				// Note!!! This operation fragments the heap because kernel will assign different physical pages. So dont do that alot
+				// Note!!! This operation fragments the heap because kernel will assign different physical pages. So dont do that a lot
 				void* map_rv = mmap(buf, n_bytes, f_prot, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
 				if (map_rv == MAP_FAILED) {
-					pr_err("Error returning len=0x%lx, buf=%p to heam from shm. User app may seg fault " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
+					pr_err("Error returning len=0x%lx, buf=%p to heap from shm. User app may seg fault " PRINT_EXTERN_ERR_FMT "\n", n_bytes, buf, PRINT_EXTERN_ERR_ARGS);
 				}
 			}
 			buf = NULL;

@@ -21,7 +21,7 @@
 
 namespace gusli {
 
-class backend_io_req : public io_request_base {					// Data structure for processing incomming IO from gusli client
+class backend_io_req : public io_request_base {					// Data structure for processing incoming IO from client
 	void set_rv(int64_t result) {
 		const bool do_cb = params.has_callback();				// Save param on stack, because this might get free
 		std::atomic_thread_fence(std::memory_order_release);	// Ensure all the needed parts of 'this' were copied to stack, before setting the result
@@ -38,8 +38,8 @@ class backend_io_req : public io_request_base {					// Data structure for proces
 	}
 };
 
-class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive from this class privetly) for backend of block device
-	// Note: Copy/Move-Cosntructor/Assignmet-op is disabled. gusli will use your derive class by pointer. Your derive class can be wrapped as unique_ptr<> but putting it into vector is deliberatly disabled
+class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive from this class privately) for backend of block device
+	// Note: Copy/Move-Constructor/Assignment-op is disabled. Gusli will use your derived class by pointer. Your derived class can be wrapped as unique_ptr<> but putting it into vector is deliberately disabled
  public:
 	/* Backend API towards GUSLI: implement (in your derived class) the functions & params initialization below */
 	static constexpr const int BREAKING_VERSION = 1;			// Hopefully will always be 1. When braking API change is introduced, this version goes up so apps which link with the library can detect that during compilation
@@ -59,11 +59,11 @@ class srvr_backend_bdev_api : no_implicit_constructors {		// Implement (derive f
 	SYMBOL_EXPORT ~srvr_backend_bdev_api() noexcept;// Cleans up 'impl'
 	/* Gusli API towards your class, USE this API to initialize/User the server */
 	SYMBOL_EXPORT const char *create_and_get_metadata_json(void);// Call from your derived class constructor. Initializes 'impl'. Upon error throws exception. Get the version of the library to adapt application dynamically to library features set.
-	SYMBOL_EXPORT int set_thread_name(char (&out_name)[32], const char your_prefix[8]) const noexcept;	// Optional: Build a server name and change current thread to this name
-	SYMBOL_EXPORT_NO_DISCARD int run(void) const noexcept;		// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successfull server exit
+	SYMBOL_EXPORT int set_thread_name(char (&out_name)[32], const char your_prefix[8]) const noexcept;	// Optional: Build a server name and change current thread to this name, May be called from constructor
+	SYMBOL_EXPORT_NO_DISCARD int run(void) const noexcept;		// Main server loop. Returns < 0 upon error, 0 - may continue to run the loop, >0 - successful server exit
  private:
 	static constexpr const char* metadata_json_format = "{\"%s\":{\"version\" : \"%s\", \"commit\" : \"%lx\", \"optimization\" : \"%s\", \"trace_level\" : %u, \"Build\" : \"%s\"}}";
-	class srvr_imp *impl;										// Actual implementation of the gusli engine, dont touch
+	class srvr_imp *impl;										// Actual implementation of the library server engine, dont touch
 };
 
-} // namespace gusli
+} // namespace

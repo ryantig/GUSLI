@@ -29,8 +29,8 @@ static inline int32_t get_connected_bdev_descriptor(gusli::global_clnt_context& 
 
 class servers_list {
 	union server_process {
-		pthread_t tid;								// Thread  id when server is lauched as thread
-		__pid_t   pid;								// Process id when server is lauched as process via fork()
+		pthread_t tid;								// Thread  id when server is launched as thread
+		__pid_t   pid;								// Process id when server is launched as process via fork()
 	};
 	static constexpr bool launch_server_as_process = true;
 	const char* const *names;						// Names of servers, for debug prints

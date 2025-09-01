@@ -28,7 +28,7 @@ class base_shm_element {			// Represents a unique shared mem region (with approp
  public:
 	t_shared_mem mem;
 	void *other_party_ptr;			// Server store client side pointer to be able to translate client io bufs pointers to his addresses. Not used by client because it maps buffers to multiple servers / bdevs
-	uint32_t buf_idx;				// Unique evergrowing identifier of a buffer. Same value on client and server. All other fields 'this' can differ between client and server
+	uint32_t buf_idx;				// Unique ever growing identifier of a buffer. Same value on client and server. All other fields 'this' can differ between client and server
 	uint32_t ref_count;				// Amount of block devices which use this memory region. Client Process: may register it with multiple servers. Server Process: may be in charge of multiple block devices
 	base_shm_element(uint32_t bi, void *p = nullptr) : other_party_ptr(p), buf_idx(bi), ref_count(1) {}
 	~base_shm_element() { ASSERT_IN_PRODUCTION(ref_count == 0); ref_count = ~0U; }							// Trap double destructor call
@@ -63,13 +63,13 @@ class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing
 	uint32_t client_unique_buf_idx_generator;
 	t_lock_mutex lock_;
 	int n_refs;													// Amount of objects using this global construct (Multiple servers in the same process, Client & Server if fork() is used in tests, etc )
-	static constexpr const size_t max_num_mapped_ranges = 16;	// Too much io ranges will make datapath slow, because we serch them linearly. Solve this in future
+	static constexpr const size_t max_num_mapped_ranges = 16;	// Too much io ranges will make datapath slow, because we search them linearly. Solve this in future
 	static constexpr const char* file_fmt = "/gs_iobuf_%06d";	// Buffer with index 'x' will have this file format under /dev/shm
  protected:
 	shm_io_bufs_global_t() : client_unique_buf_idx_generator(0), n_refs(1) { lock_.init(); bufs.reserve(max_num_mapped_ranges); }
 	~shm_io_bufs_global_t() { ASSERT_IN_PRODUCTION(n_refs == 0); lock_.destroy(); bufs.clear(); }
  public:
-	static shm_io_bufs_global_t* get(const char* debug_who);	// Singletone refs
+	static shm_io_bufs_global_t* get(const char* debug_who);	// Singleton refs
 	static void                  put(const char* debug_who);
 	t_lock_mutex& with_lock(void) { return lock_; }
 
@@ -81,7 +81,7 @@ class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing
 	void dec_ref(const base_shm_element *el, bool may_free = true);			// Done with buffer 'el', found with functions above
 	const base_shm_element* insert_on_client(const io_buffer_t& r);
 	const base_shm_element* insert_on_server(const char* name, uint32_t buf_idx, void* client_pointer, uint64_t n_bytes);
-	std::vector<io_buffer_t> get_all_bufs(const class shm_io_bufs_unuque_set_for_bdev& u);	// Copy does not affect ref_count
+	std::vector<io_buffer_t> get_all_bufs(const class shm_io_bufs_unique_set_for_bdev& u);	// Copy does not affect ref_count
 
 	// Datapath IO API
 	bool does_include(const io_buffer_t &buf) const {						// Client: check if IO is included in registered buffers
@@ -97,12 +97,12 @@ class shm_io_bufs_global_t : no_implicit_constructors {			// Singleton: Managing
 				return true;
 			} else { }  // We dont know in which range the io resides so try with a different buffer
 		}
-		return false;	// Not contained in any mapped range. Clients bug! IO cannot be executred by server
+		return false;	// Not contained in any mapped range. Clients bug! IO cannot be executed by server
 	}
 };
 
 /************************* Clnt-Srvr PerBdev memBuf **************************/
-class shm_io_bufs_unuque_set_for_bdev {		// Each block device cannot allow multiple registration to buffers
+class shm_io_bufs_unique_set_for_bdev {		// Each block device cannot allow multiple registration to buffers
 	std::unordered_set<uint32_t> u;			// Unique set of already registered buffers
  public:
 	size_t size(void) const { return u.size(); }
@@ -112,7 +112,7 @@ class shm_io_bufs_unuque_set_for_bdev {		// Each block device cannot allow multi
 	std::unordered_set<uint32_t>::const_iterator begin() const { return u.begin(); }
 	std::unordered_set<uint32_t>::const_iterator end() const {   return u.end(); }
 	void clear() { u.clear(); }
-	~shm_io_bufs_unuque_set_for_bdev() { ASSERT_IN_PRODUCTION(size() == 0); }
+	~shm_io_bufs_unique_set_for_bdev() { ASSERT_IN_PRODUCTION(size() == 0); }
 };
 
-} // namespace gusli
+} // namespace

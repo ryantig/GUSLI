@@ -198,7 +198,7 @@ class server_spdk_ram : private gusli::srvr_backend_bdev_api {
 		back.bdev_name = _name;
 		back.my_srvr = this;
 		my_assert(set_thread_name(binfo.name, _name) == 0); // For debug, set its thread to block device name
-		dslog(this, "construced, metadata=|%s|\n", create_and_get_metadata_json());
+		dslog(this, "constructed, metadata=|%s|\n", create_and_get_metadata_json());
 	}
 	int run_once(void) { return last_run_once_rv = gusli::srvr_backend_bdev_api::run(); }
 	virtual ~server_spdk_ram() { dslog(this, "Destructor\n"); }

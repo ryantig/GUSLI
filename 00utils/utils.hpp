@@ -88,9 +88,9 @@ struct no_constructors_at_all : no_implicit_constructors { // Stronger version, 
 };
 
 /******************************** Debugger *********************************/
-class tDbg : no_implicit_constructors {			// Debugging utility Singletone: Debugger/Logger/Timer.
+class tDbg : no_implicit_constructors {			// Debugging utility Singleton: Debugger/Logger/Timer.
 	uint64_t timer;		// Used for profiling Timer start/measure
-	int debugger_pid;	// Enusre the costly function called once
+	int debugger_pid;	// Ensure the costly function called once
 	FILE* flog;			// File to which logs are written
 	tDbg() : debugger_pid(-1), flog(stdout) { timer_start(); } // Launch timer in case user uses get() before start
 	~tDbg() {};
@@ -98,12 +98,12 @@ class tDbg : no_implicit_constructors {			// Debugging utility Singletone: Debug
 	void break_point(void);
 	static void dump_stack(void);
 public:
-	static tDbg& get(void); // Singletone
+	static tDbg& get(void); // Singleton
 	// ----------------- Debugging utils
 	static int get_cur_timestamp_str(char rv[32]);
 	static int get_timestamp_str(    char rv[32], const uint32_t unix_epoch_sec);
 	static uint64_t get_cur_timestamp_unix(void);
-	void     timer_start(void) { timer = get_cur_timestamp_unix(); } // Dont use concurently from multiple threads
+	void     timer_start(void) { timer = get_cur_timestamp_unix(); } // Dont use concurrently from multiple threads
 	uint64_t timer_get_start_time_usec(void) const { return this->timer; }
 	uint64_t timer_get_elapsed_time_usec(void) const { return (get_cur_timestamp_unix() - timer); }
 	static inline bool is_little_endian_machine(void) { const int i = 9; return *((char *)&i) == 9; }
@@ -180,7 +180,7 @@ static inline char toupper_unsafe(char letter) { return (letter >= 'a') ? (lette
 const char *__log_to_human(const char *str, const size_t len);
 const char *__log_to_human(const char *str, const size_t len, char* dst_buf, const size_t dst_buf_len);
 uint64_t str2_long_no_less_then(const char* str, long lb);
-size_t strncpy_no_trunc_warning(char* dst, const char* src, int len); // In realease compilation gcc issues warning on string truncation when using strncpy
+size_t strncpy_no_trunc_warning(char* dst, const char* src, int len); // In release compilation gcc issues warning on string truncation when using strncpy
 
 /* For easier grep in logs, there is a specific printing format for important variables */
 #define PRINT_EXTERN_ERR_FMT  "errno=%d:%s"
