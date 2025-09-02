@@ -38,6 +38,7 @@ shm_io_bufs_global_t* shm_io_bufs_global_t::get(const char* debug_who) {
 }
 
 void shm_io_bufs_global_t::put(const char* debug_who) {
+	shm_io_bufs_global_t* to_free = nullptr;
 	if (!shm_io_bufs_singleton) {
 		pr_err1(PRINT_GLOBAL_BUF_FMT ".put_be4_get\n", PRINT_GLOBAL_BUF_ARGS());
 		return;
@@ -47,11 +48,12 @@ void shm_io_bufs_global_t::put(const char* debug_who) {
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".did_dec\n", PRINT_GLOBAL_BUF_ARGS());
 		if (shm_io_bufs_singleton->n_refs > 0)
 			return;
-	}	// Here release the lock to be able to delete
-	pr_info1(PRINT_GLOBAL_BUF_FMT ".destruct.total_n_buffers=%u\n", PRINT_GLOBAL_BUF_ARGS(), shm_io_bufs_singleton->client_unique_buf_idx_generator);
-	if (shm_io_bufs_singleton->n_refs == 0)
-		delete shm_io_bufs_singleton;
-	shm_io_bufs_singleton = nullptr;
+		ASSERT_IN_PRODUCTION(shm_io_bufs_singleton->n_refs == 0);
+		to_free = shm_io_bufs_singleton;
+		shm_io_bufs_singleton = nullptr;
+	}	// Here release the lock to be able to delete / create
+	pr_info1(PRINT_GLOBAL_BUF_FMT ".destruct.total_n_buffers=%u\n", PRINT_GLOBAL_BUF_ARGS(), to_free->client_unique_buf_idx_generator);
+	delete to_free;
 }
 
 base_shm_element* shm_io_bufs_global_t::find1(const io_buffer_t &buf) {
