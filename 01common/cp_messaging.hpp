@@ -168,7 +168,7 @@ class MGMT : no_constructors_at_all {		// CLient<-->Server control path API
 	} __attribute__((aligned(sizeof(long))));
 };
 
-inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg, bool with_epoll, connect_addr &addr) { // Todo: Use readn()
+inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg, bool with_epoll, connect_addr &addr) {
 	socklen_t sinlen = addr.get_len(sock.is_remote());
 	int n_bytes; nvTODO("Refactor this function, consider using readn() from utils.hpp");
 	while (true) {
@@ -197,7 +197,7 @@ inline enum io_state __read_1_full_message(sock_t& sock, MGMT::msg_content& msg,
 	return ios_error;
 }
 
-inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content& msg, bool with_epoll, int n_todo_bytes, const connect_addr &addr, const char* who) { // Todo: Use writen()
+inline enum io_state __send_1_full_message(const sock_t& sock, MGMT::msg_content& msg, bool with_epoll, int n_todo_bytes, const connect_addr &addr, const char* who) {
 	int n_bytes; nvTODO("Refactor this function, consider using readn() from utils.hpp");
 	while (true) {
 		n_bytes = sock.send_msg(msg.raw(), n_todo_bytes, addr);

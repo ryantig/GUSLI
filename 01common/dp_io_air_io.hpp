@@ -73,12 +73,12 @@ class in_air_ios_holder {
 	}
 	idx_t find_next_free_element_from(idx_t i = 0) const {
 		i = bmp.find_next_zero_bit(i);
-		BUG_ON(i >= num_max_inflight_io, "IAIOL: Invalid call to this function. No space in array");
+		ASSERT_IN_PRODUCTION(i < num_max_inflight_io);
 		return i;
 	}
 	idx_t find_next_used_element(idx_t i = 0) const {
 		i = bmp.find_next_bit(i);
-		BUG_ON(i >= num_max_inflight_io, "IAIOL: Invalid call to this function. No space in array");
+		ASSERT_IN_PRODUCTION(i < num_max_inflight_io);
 		return i;
 	}
  public:
@@ -138,7 +138,7 @@ class in_air_ios_holder {
 				for_each_io_exec_fn(ptr);				// Function can free the io. Make sure you function does not require lock or dead lock will occur
 			}
 		}
-		BUG_ON((remove && !is_empty()), "IAIOL: corruption Corruption");
+		BUG_ON((remove && !is_empty()), "remove corruption, in air io remain class=%p", this);
 	}
 	~in_air_ios_holder() {
 		BUG_ON(lock_.is_locked(), "Circular buffer is still locked during destruction!");
