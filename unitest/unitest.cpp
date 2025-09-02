@@ -55,11 +55,12 @@ void test_non_existing_bdev(gusli::global_clnt_context& lib) {
 	bdev.set_from("NonExist_bdev");
 	log_line("test wrong bdev %s", bdev.uuid);
 	gusli::bdev_info bdi;
-	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_DEVICE);
-	my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_NO_DEVICE);
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
-	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_NO_DEVICE);
-	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_NO_DEVICE);
+	const auto no_dev_err = gusli::connect_rv::C_NO_DEVICE;
+	my_assert(no_dev_err == lib.bdev_connect(bdev));
+	my_assert(no_dev_err == lib.bdev_get_info(bdev, bdi));
+	my_assert(no_dev_err == lib.bdev_bufs_register(bdev, mem));
+	my_assert(no_dev_err == lib.bdev_bufs_unregist(bdev, mem));
+	my_assert(no_dev_err == lib.bdev_disconnect(bdev));
 	lib.bdev_ctl_report_data_corruption(bdev, (1UL << 13));
 	unitest_io my_io;
 	my_io.io.params.set_dev(345);					// Failed IO with invalid descriptor
@@ -75,24 +76,25 @@ int base_lib_mem_registration_bad_path(gusli::global_clnt_context& lib, const gu
 	std::vector<gusli::io_buffer_t> mem;
 	mem.reserve(2);
 	mem.emplace_back(my_io[0].get_map());
+	const auto wrong_args = gusli::connect_rv::C_WRONG_ARGUMENTS;
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Register same buffer again
+	my_assert(lib.bdev_bufs_register(bdev, mem) == wrong_args);	// Register same buffer again
 	const uint64_t ofst = (mem[0].byte_len / 2);
 	mem[0].ptr = (void*)((char*)mem[0].ptr + ofst);
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Overlapping buff
+	my_assert(lib.bdev_bufs_register(bdev, mem) == wrong_args);	// Overlapping buff
 	mem[0].ptr = (void*)((char*)mem[0].ptr - 2*ofst);
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Overlapping buff
+	my_assert(lib.bdev_bufs_register(bdev, mem) == wrong_args);	// Overlapping buff
 	mem[0].byte_len = 0;
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// zero length buffer
+	my_assert(lib.bdev_bufs_register(bdev, mem) == wrong_args);	// zero length buffer
 	mem.clear();
-	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Empty vector of ranges
-	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);	// Empty vector of ranges
+	my_assert(lib.bdev_bufs_register(bdev, mem) == wrong_args);	// Empty vector of ranges
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == wrong_args);	// Empty vector of ranges
 	my_assert(lib.bdev_disconnect(bdev) == gusli::connect_rv::C_REMAINS_OPEN);				// Cannot disconnect with mapped buffers
 	mem.emplace_back(my_io[1].get_map());
 	my_assert(lib.bdev_bufs_register(bdev, mem) == gusli::connect_rv::C_OK);				// 2 ranges io[0] and io[1]
 	mem.emplace_back(my_io[0].get_map());
 	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);			// Unregister 2 buffers in reverse order io[1] and io[0]
-	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_WRONG_ARGUMENTS);
+	my_assert(lib.bdev_bufs_unregist(bdev, mem) == wrong_args);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
 	my_assert(lib.bdev_disconnect(bdev) != gusli::C_OK);			// Double disconnect
 	my_assert(lib.bdev_connect(   bdev) == gusli::C_OK);			// Verify can connect and disconnect again
@@ -554,7 +556,6 @@ void client_no_server_reply_test(gusli::global_clnt_context& lib) {
 	my_assert(con_rv == gusli::connect_rv::C_NO_RESPONSE);
 	my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_NO_RESPONSE);
 }
-
 
 void client_server_basic_test(gusli::global_clnt_context& lib, int num_ios_pressure) {
 	static constexpr const int n_servers = 3;
