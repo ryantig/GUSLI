@@ -30,7 +30,7 @@ shm_io_bufs_global_t* shm_io_bufs_global_t::get(const char* debug_who) {
 		shm_io_bufs_singleton = new shm_io_bufs_global_t();
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".construct\n", PRINT_GLOBAL_BUF_ARGS());
 	} else {
-		t_lock_guard l(shm_io_bufs_singleton->lock_);
+		do_with_lock(shm_io_bufs_singleton->lock_);
 		shm_io_bufs_singleton->n_refs++;
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".did_inc\n", PRINT_GLOBAL_BUF_ARGS());
 	}
@@ -42,7 +42,7 @@ void shm_io_bufs_global_t::put(const char* debug_who) {
 		pr_err1(PRINT_GLOBAL_BUF_FMT ".put_be4_get\n", PRINT_GLOBAL_BUF_ARGS());
 		return;
 	} else {
-		t_lock_guard l(shm_io_bufs_singleton->lock_);
+		do_with_lock(shm_io_bufs_singleton->lock_);
 		shm_io_bufs_singleton->n_refs--;
 		pr_info1(PRINT_GLOBAL_BUF_FMT ".did_dec\n", PRINT_GLOBAL_BUF_ARGS());
 		if (shm_io_bufs_singleton->n_refs > 0)
@@ -121,7 +121,7 @@ const base_shm_element* shm_io_bufs_global_t::insert_on_server(const char* name,
 }
 
 std::vector<io_buffer_t> shm_io_bufs_global_t::get_all_bufs(const shm_io_bufs_unique_set_for_bdev& u) {
-	t_lock_guard l(with_lock());
+	do_with_lock(with_lock());
 	std::vector<io_buffer_t> rv;
 	rv.reserve(bufs.size());
 	for (const base_shm_element& shm_buf : bufs) {

@@ -132,7 +132,7 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	return bdev->connect(par.client_name);
 }
 
@@ -212,7 +212,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_register(const backend_bdev_i
 		return C_NO_DEVICE;
 	if (bufs.empty())
 		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
 	return bdev->b.map_buf_do_vec(bufs);
@@ -231,7 +231,7 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_log_msg2(const backend_bdev_id
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
 	if (!bdev->conf.is_bdev_remote()) {
@@ -291,7 +291,7 @@ enum connect_rv global_clnt_context_imp::bdev_ctl_reboot2(const backend_bdev_id&
 		return C_NO_DEVICE;
 	enum connect_rv rv;
 	{
-		t_lock_guard l(bdev->control_path_lock);
+		do_with_lock(bdev->control_path_lock);
 		if (!bdev->is_alive())
 			return C_NO_RESPONSE;
 		bdev->b.wait_server_io_enabled.reset();
@@ -318,7 +318,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	const bool is_alive = bdev->is_alive();
 	if (!is_alive && !do_reconnect) {
 		pr_info1(PRINT_BDEV_ID_FMT " Force stop on stopped blockdevice, do nothing!\n", PRINT_BDEV_ID_ARGS(*bdev));
@@ -369,7 +369,7 @@ enum connect_rv global_clnt_context_imp::bdev_bufs_unregist(const backend_bdev_i
 		return C_NO_DEVICE;
 	if (bufs.empty())
 		return C_WRONG_ARGUMENTS;			// Empty vector is invalid
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	if (!bdev->is_alive())
 		return C_NO_RESPONSE;
 	const uint32_t num_ios = bdev->b.dp->get_num_in_air_ios();	// Should be 0. Attempt to unregister bufs with in air IO may lead to memory corruption. Prevent this
@@ -414,7 +414,7 @@ enum connect_rv global_clnt_context_imp::bdev_disconnect(const backend_bdev_id& 
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	return bdev->disconnect(false);
 }
 
@@ -422,7 +422,7 @@ void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint
 	server_bdev *bdev = bdevs.find_by(id);
 	if (bdev) {
 		pr_err1("Error: User reported data corruption on " PRINT_BDEV_ID_FMT ", lba=0x%lx[B]\n", PRINT_BDEV_ID_ARGS(*bdev), offset_lba_bytes);
-		t_lock_guard l(bdev->control_path_lock);
+		do_with_lock(bdev->control_path_lock);
 		bdev->disconnect(true);
 	} else {
 		pr_err1("Error: User reported data corruption on unknown " PRINT_BDEV_UUID_FMT ", lba=0x%lx[B]\n", id.uuid, offset_lba_bytes);
@@ -432,7 +432,7 @@ void global_clnt_context_imp::bdev_ctl_report_di(const backend_bdev_id& id, uint
 uint32_t global_clnt_context_imp::bdev_ctl_get_n_in_air_ios(const backend_bdev_id& id) noexcept {
 	server_bdev *bdev = bdevs.find_by(id);
 	if (bdev) {
-		t_lock_guard l(bdev->control_path_lock);
+		do_with_lock(bdev->control_path_lock);
 		if (bdev->is_alive()) {
 			const uint32_t rv = bdev->b.dp->get_num_in_air_ios();
 			pr_verb1(PRINT_BDEV_ID_FMT ".n_ios=%u\n", PRINT_BDEV_ID_ARGS(*bdev), rv);
@@ -446,7 +446,7 @@ enum connect_rv global_clnt_context_imp::bdev_get_info(const backend_bdev_id& id
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev) return C_NO_DEVICE;
 	if (!bdev->is_alive()) return C_NO_RESPONSE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	*ret_val = bdev->b.info;
 	return C_OK;
 }
@@ -501,7 +501,7 @@ enum connect_rv global_clnt_context::open__bufs_register(const backend_bdev_id& 
 	server_bdev *bdev = c.bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	if (!bdev->is_alive()) {						// Try to auto open bdev
 		const enum connect_rv rv = c.bdev_connect(id);
 		if (rv != C_OK)
@@ -514,7 +514,7 @@ enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& 
 	server_bdev *bdev = c.bdevs.find_by(id);
 	if (!bdev)
 		return C_NO_DEVICE;
-	t_lock_guard l(bdev->control_path_lock);
+	do_with_lock(bdev->control_path_lock);
 	if (!bufs.empty()) {
 		const enum connect_rv rv = c.bdev_bufs_unregist(id, bufs);
 		if (rv != C_OK)
@@ -802,7 +802,7 @@ int bdev_backend_api::map_buf(const io_buffer_t io) {
 	MGMT::msg_content msg;
 	const size_t size = msg.build_reg_buf();
 	{
-		t_lock_guard l(dp->shm_io_bufs->with_lock());
+		do_with_lock(dp->shm_io_bufs->with_lock());
 		const base_shm_element *g_map = dp->shm_io_bufs->insert_on_client(io);
 		if (!g_map)
 			return -__LINE__;			// Buffer rejected by global hash
@@ -838,7 +838,7 @@ int bdev_backend_api::map_buf_un(const io_buffer_t io) {
 	MGMT::msg_content msg;
 	const size_t size = msg.build_unr_buf();
 	{
-		t_lock_guard l(dp->shm_io_bufs->with_lock());
+		do_with_lock(dp->shm_io_bufs->with_lock());
 		const base_shm_element *g_map = dp->shm_io_bufs->find1(io);
 		if (!g_map) {
 			pr_err1("Wrong unregister buf request to " PRINT_IO_BUF_FMT ", it does not exist\n", PRINT_IO_BUF_ARGS(io));
@@ -927,7 +927,7 @@ void bdev_backend_api::check_incoming(void) {
 		} else if (msg.is(MGMT::msg::register_ack)) {
 			const auto *pr = &msg.pay.s_register_ack;
 			if (pr->is_io_buf) {
-				t_lock_guard l(dp->shm_io_bufs->with_lock());
+				do_with_lock(dp->shm_io_bufs->with_lock());
 				BUG_ON(!dp->shm_io_bufs->find2(pr->buf_idx), "Server gave ack on unknown registered memory buf_idx=%u, srvr_ptr=0x%lx\n", pr->buf_idx, pr->server_pointer);
 			}
 			pr_info1("RegisterAck[%d%c] name=%s, srvr_ptr=0x%lx, rv=%d\n", pr->get_buf_idx(), pr->get_buf_type(), pr->name, pr->server_pointer, pr->rv);

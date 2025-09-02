@@ -83,7 +83,7 @@ class in_air_ios_holder {
 	}
  public:
 	idx_t size(void) {
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		return num_ios_in_air;
 	}
 	in_air_ios_holder(idx_t n_max_ios) : n_total_ios(0), n_throttled_ios(0), num_max_inflight_io(n_max_ios), num_ios_in_air(0), bmp(num_max_inflight_io) {
@@ -93,7 +93,7 @@ class in_air_ios_holder {
 		memset(ios_arr, 0, sizeof(server_io_req *) * n_max_ios);	// Set all ptrs to null
 	}
 	bool insert(server_io_req &io) {
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		if (unlikely(is_full())) {
 			++n_throttled_ios;
 			io.unique_id_assign();
@@ -108,11 +108,11 @@ class in_air_ios_holder {
 		return true;
 	}
 	void remove(server_io_req &io) {
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		del(io);
 	}
 	server_io_req *get_next_in_air_io(void) {
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		if (is_empty())
 			return nullptr; // Do nothing
 		idx_t i = find_next_used_element();
@@ -120,7 +120,7 @@ class in_air_ios_holder {
 	}
 
 	void exec_for_each_io(void (*for_each_io_exec_fn)(server_io_req *io), bool remove = false) {
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		if (is_empty())
 			return; // Do nothing
 		uint32_t i;

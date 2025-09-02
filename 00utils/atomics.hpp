@@ -84,13 +84,13 @@ class t_no_lock {				// Dummy no lock, which does not protect from race conditio
 	bool is_locked(void) { return _is_locked; }
 };
 
-template <class T>
-class t_lock_guard {
+template <class T> class t_lock_guard_auto {		// Automatically release lock at the end of critical section
 	T& _lock;
  public:
-	explicit t_lock_guard(T& lock) : _lock(lock) { _lock.lock(); }
-	~t_lock_guard() { _lock.unlock(); }
+	explicit t_lock_guard_auto(T& lock) : _lock(lock) { _lock.lock(); }
+	~t_lock_guard_auto() { _lock.unlock(); }
 };
+#define do_with_lock(lock) t_lock_guard_auto<typeof(lock)> _l(lock)			// nvTODO("suffix _l with line number") to allow nested lock guards
 
 /************************************ Serializer **********************************/
 #if 0

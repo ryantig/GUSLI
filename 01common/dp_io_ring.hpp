@@ -83,7 +83,7 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 		lock_.destroy();
 	}
 	int insert(const T::context_t& p, bool *was_list_empty) {	// -1 on error, index of element [0..CAPACITY-1] on success
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		*was_list_empty = is_empty();
 		// pr_verbs("%c: nelems=%u ++\n", dbg_name, in_queue());
 		if (is_full())
@@ -96,7 +96,7 @@ class io_csring_queue : no_constructors_at_all {	// Circular buffer, can hold up
 		return (int)(i-arr);
 	}
 	int remove(T::context_t* p, bool *was_list_full) {			// -1 on error, index of element on success
-		t_lock_guard l(lock_);
+		do_with_lock(lock_);
 		*was_list_full = is_full();
 		// pr_verbs("%c: nelems=%u --\n", dbg_name, in_queue());
 		if (is_empty())
@@ -161,7 +161,7 @@ template <class T_stats> class datapath_t {												// Datapath of block devi
 	}
 
 	void registered_bufs_force_clean(void) {
-		t_lock_guard l(shm_io_bufs->with_lock());
+		do_with_lock(shm_io_bufs->with_lock());
 		for (auto it = reg_bufs_set.begin(); it != reg_bufs_set.end(); ++it) {
 			base_shm_element *g_map = shm_io_bufs->find2(*it);
 			BUG_ON(!g_map, PRINT_MMAP_PREFIX " GC: unknown buf [%d%c] globally", *it, 'i');
