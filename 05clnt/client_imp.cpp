@@ -81,7 +81,7 @@ int bdev_config_params::init_parse(int version, const char* const argv[], int ar
 	int n_args_read = 0;
 	char c;
 	if (argc < 6) return -__LINE__;
-	n_args_read += sscanf(argv[0], "%16s", id.set_invalid()->uuid);
+	n_args_read += sscanf(argv[0], "%16s", id.set_invalid()->uuid);		// id is overrun by 1 byte with 0x0. Dont care as next field will be initialized later
 	n_args_read += sscanf(argv[1], "%c", &c); type = (bdev_config_params::bdev_type)c;
 	n_args_read += sscanf(argv[2], "%c", &c); how = (bdev_config_params::connect_how)c;
 	n_args_read += sscanf(argv[3], "%c", &c); is_direct_io = (bool)((c == 'D')||(c == 'd'));
