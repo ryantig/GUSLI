@@ -238,7 +238,7 @@ class sock_t {
 	static bool is_ip_of_local_host(const ip_addr_str ip) { return (!strncmp(ip,"127.", 4) || !strncmp(ip,"::1", 3)); } // Actually IP4: 127.0.0.0/8, IP6 single address
  private:
 	int _fd;			// internal file descriptor to read/write from/to
-	int epoll_fd;		// Can wait for reply using epol, or busy loop
+	int epoll_fd;		// Can wait for reply using epoll, or busy loop
 	enum type _type;
 	int resolve_sin_addr(const ip_addr_str ip, struct sockaddr_in *srvr) const;
 	void epoll_reply_start(void);		// Used to send message and blocking wait for reply
@@ -251,6 +251,7 @@ class sock_t {
  public:
 	sock_t() { memset(this, 0, sizeof(*this)); }
 	sock_t(int fd, enum type t = type::S_UNK) : _fd(fd), epoll_fd(-1), _type(t) {}
+	void re_init(int fd = -1, enum type t = type::S_UNK) { _fd = fd; epoll_fd = -1, _type = t; }
 	void epoll_reply_wait(const char* debug_prefix_to_print_in_logs = "") const;
 	inline int fd(void) const { return _fd; }
 	bool is_alive(void) const { return _fd > 0; }
@@ -269,6 +270,7 @@ class sock_t {
 	int  clnt_connect_to_srvr_uds(const char* domain_socket_path,         connect_addr& ca, bool is_blocking);
 	void print_address(                        char addr[32]      , const connect_addr& src) const;				// Upon incommin msg, extract server address
 	void nice_close(void);
+	~sock_t() { BUG_ON(is_alive(), "Socket %d not properly closed", _fd); }
 	ssize_t send_msg(const void *buf, size_t len,                   const connect_addr& ca) const;
 };
 

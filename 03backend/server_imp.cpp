@@ -101,7 +101,7 @@ void srvr_imp::client_accept(connect_addr& addr) {
 		char clnt_path[32];
 		sock.print_address(clnt_path, addr);
 		pr_infoS(this, "accept a_fd=%d, c_fd=%d, path=%s\n", sock.fd(), client_fd, clnt_path);
-		io_sock = sock_t(client_fd, sock.get_type());
+		io_sock.re_init(client_fd, sock.get_type());
 		io_sock.set_blocking(b.par.use_blocking_client_accept);	// Dont block on incoming io because same thread sends done io completions and thread may serve multiple block devices
 	} else {
 		io_sock = sock;
@@ -111,9 +111,13 @@ void srvr_imp::client_accept(connect_addr& addr) {
 }
 
 void srvr_imp::client_reject(const char* why) {
-	if (sock.uses_connection() && sock.is_alive()) {
-		io_sock.nice_close();	// First kill the connection to stop receiving msgs from client
-		ca.clean();
+	if (io_sock.is_alive()) {
+		if (sock.uses_connection()) {
+			io_sock.nice_close();	// First kill the connection to stop receiving msgs from client
+			ca.clean();
+		} else {
+			io_sock.re_init();		// Accept sock and io_sock are the same file descriptor. Do not close io sock. Just clean it
+		}
 	}
 	__clnt_close(why);			// Close if not already closed
 }
