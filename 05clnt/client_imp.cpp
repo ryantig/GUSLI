@@ -48,7 +48,7 @@ int global_clnt_context_imp::parse_conf(void) {
 	if (is_file_path) {
 		FILE* f = fopen(par.config_file, "rt");
 		if (f) {		// Read the config to buffer
-			const long rv = fread(buf, 1, sizeof(buf), f);
+			const long rv = fread(buf, 1, sizeof(buf)-1, f);
 			if (rv >= 0) {
 				buf_end = &buf[rv];
 				buf[rv] = 0;
