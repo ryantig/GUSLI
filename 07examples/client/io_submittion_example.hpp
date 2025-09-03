@@ -150,6 +150,7 @@ class unitest_io {
 	unitest_io& clear_stats(void) { n_ios = n_cancel = 0; return *this; }
 	unitest_io& enable_prints(bool val) { _verbose = val; return *this; }
 	void clean_buf(void) { memset(io_buf, 0, buf_align); memset(io_buf, 'C', 16); }
+	bool is_clean_buf(void) const { return !memcmp(io_buf, "CCCCCCCC", 8); }
 };
 
 gusli::io_buffer_t alloc_io_buffer(const uint32_t block_size, uint32_t n_blocks) {

@@ -322,6 +322,7 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 
 	// Submit A few reads to overlapping lba's
 	for (uint32_t i = 0; i < n_ios; i++) {
+		my_io[i].clean_buf();
 		my_io[i].expect_success(false).io.params.init_1_rng(gusli::G_NOP, fd, bdi.block_size, (i+1) * bdi.block_size, my_io[i].io_buf);
 		my_assert(my_io[i].io.params.map().data.byte_len <= my_io->get_map().byte_len);	// Sanity that we dont do mem corrupt
 		my_io[i].exec_dont_block(gusli::G_READ, tested_modes[i%3]);	// Dont wait for io completion
@@ -343,6 +344,8 @@ int client_stuck_io_and_throttle_tests(gusli::global_clnt_context& lib, const ch
 	my_assert(lib.bdev_force_refresh(bdev) == _ok);					// Disconnect reconnect and drain ios
 	my_assert(lib.bdev_ctl_get_num_in_air_ios(bdev) == 0);
 	my_assert(lib.bdev_force_refresh(bdev) == _ok);					// Second stop is meaningless
+	for (uint32_t i = 0; i < n_ios; i++)
+		my_assert(!my_io[i].is_clean_buf());						// Assert a problematic behavior, because buffers were unmapped and remapped content changes. This should be fixed and assert the opposite condition
 
 	// Verify all in-air ios terminated
 	for (uint32_t i = 0; i < bdi.num_max_inflight_io; i++) {	// Stuck Ios were canceled
