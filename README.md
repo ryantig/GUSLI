@@ -56,7 +56,8 @@ Additional Documentation and description: [Here](https://docs.google.com/documen
 
 - Optional:
     - For IO's with large scatter gathers (> 64 ranges), uring API to local block devices may help. So consider: `sudo apt install liburing-dev`
-    - For developers: useful utils: `sudo apt install -y build-essential gdb meld ncdu tree valgrind`;
+    - For developers: useful utils: `sudo apt install -y build-essential gdb meld ncdu tree valgrind`
+- You can see the actual dependencies of this dynamic library by doing `ldd /usr/lib/libgusli_*.so`
 
 ### Monitor IO environment using Gusli
 Bash script which allows you to monitor the io buffers, stacks, threads, etc of both client and server processes, as well as force kill them.

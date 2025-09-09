@@ -56,3 +56,5 @@ function GUSLI() {
 		fi
 	fi
 }
+
+echo_green "Thank you. Type GUSLI to see service options";
