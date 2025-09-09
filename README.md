@@ -37,7 +37,7 @@ Additional Documentation and description: [Here](https://docs.google.com/documen
 
 ## Installation & Usage
 `make all`
-- For production `make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0; ls /usr/lib/libg*; ls /usr/include/gus*;`
+- For production `make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0; ls /usr/lib/libg*; ls /usr/include/gus*;`
 - executables of unit-tests will be created in project root dir (same as makefile)
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
 - make file does installation of binaries, see its output:

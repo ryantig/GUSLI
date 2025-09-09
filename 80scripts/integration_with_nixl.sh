@@ -46,13 +46,12 @@ apt-get update; apt-get install -y libgflags-dev meson autoconf libtool gdb htop
 
 # Step 3.1: Install latests gusli lib
 cd /home/danielhe/projects/nixl;
-if false; then								# Debuuging / Developing GUSLI-NIXL integration
-	rm -rf ./gusli/; cp -r ../gusli .;		# Copy local dev version
-	cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0 TRACE_LEVEL=7 && cd ..;
+if false; then								# Debugging / Developing GUSLI-NIXL integration
+	rm -rf ./gusli; cp -r ../gusli .;		# Copy local dev version
 else
-	rm -rf ./gusli;
-	git clone git@github.com:nvidia/gusli.git && cd gusli && make all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 && cd .. && ls /usr/lib/libg* && ls /usr/include/gus*;
+	rm -rf ./gusli; git clone git@github.com:nvidia/gusli.git;
 fi;
+cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0 TRACE_LEVEL=5 && cd .. && ls /usr/lib/libg* && ls /usr/include/gus*;
 source gusli/80scripts/service.sh;
 
 # Step 3.2: Build NIXL unitests
