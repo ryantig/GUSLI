@@ -103,8 +103,10 @@ int global_clnt_context_imp::init(const global_clnt_context::init_params& _par, 
 	par = _par;
 	tDbg::log_file_set(par.log);
 	par.client_name = _par.client_name ? strdup(_par.client_name) : strdup("client1");	// dup client name string
-	if (!io_csring::is_big_enough_for(par.max_num_simultaneous_requests))
+	if (!io_csring::is_big_enough_for(par.max_num_simultaneous_requests)) {
+		pr_err1("Cannot support %u[ios] concurrently. Support at most %u\n.", par.max_num_simultaneous_requests, io_csring::get_capacity());
 		abort_exe_init_on_err()
+	}
 	if (start() != 0)
 		abort_exe_init_on_err()
 	const int rv = parse_conf();
@@ -134,10 +136,10 @@ enum connect_rv global_clnt_context_imp::bdev_connect(const backend_bdev_id& id)
 	if (!bdev)
 		return C_NO_DEVICE;
 	do_with_lock(bdev->control_path_lock);
-	return bdev->connect(par.client_name);
+	return bdev->connect(par.client_name, par.max_num_simultaneous_requests);
 }
 
-enum connect_rv server_bdev::connect(const char* client_name) {
+enum connect_rv server_bdev::connect(const char* client_name, const unsigned num_max_inflight_io) {
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
 	server_bdev *bdev = this;
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
@@ -146,11 +148,11 @@ enum connect_rv server_bdev::connect(const char* client_name) {
 		return C_REMAINS_OPEN;
 	bdev_info *info = &bdev->b.info;
 	info->clear();
-	info->num_max_inflight_io = 256;
+	info->num_max_inflight_io = num_max_inflight_io;
 	if (bdev->conf.is_dummy()) {
 		info->bdev_descriptor = 100000001;
 		info->block_size = 4096;
-		info->num_max_inflight_io = 4;
+		info->num_max_inflight_io = std::min(4U, num_max_inflight_io);
 		strcpy(info->name, (bdev->conf.type == bdev_config_params::bdev_type::DUMMY_DEV_FAIL) ? "FAIL_DEV" : "STUCK_DEV");
 		info->num_total_blocks = (1 << 10);		// 4[MB] dummy
 		MGMT::msg_content msg;
@@ -355,7 +357,7 @@ enum connect_rv global_clnt_context_imp::bdev_stop_all_ios(const backend_bdev_id
 	}
 
 	if (do_reconnect) {
-		const connect_rv rv_reconnect = bdev->connect(par.client_name);
+		const connect_rv rv_reconnect = bdev->connect(par.client_name, par.max_num_simultaneous_requests);
 		ASSERT_IN_PRODUCTION(rv_reconnect == connect_rv::C_OK);
 		pr_info1(PRINT_BDEV_ID_FMT " reregistering %u mem bufs\n", PRINT_BDEV_ID_ARGS(*bdev), (uint32_t)bufs.size());
 		const connect_rv rv_reregister = bdev->b.map_buf_do_vec(bufs);

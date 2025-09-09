@@ -703,7 +703,7 @@ gusli::global_clnt_context* lib_initialize_unitests(void) {
 	gusli::client_config_file conf(1 /*Version*/);
 	strncpy(clnt_name, UNITEST_CLNT_NAME, sizeof(clnt_name));
 	p.client_name = clnt_name;
-	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;
+	p.max_num_simultaneous_requests = MAX_SERVER_IN_FLIGHT_IO;	// set to 510?
 	{	// Generate config
 		using gsc = gusli::bdev_config_params;
 		conf.bdev_add(gsc(UUID.LOCAL_FILE,    gsc::bdev_type::DEV_FS_FILE,     "./store.bin",  "sec=0x11", 0, gsc::connect_how::EXCLUSIVE_RW));

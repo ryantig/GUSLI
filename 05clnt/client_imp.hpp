@@ -81,7 +81,7 @@ struct server_bdev {					// Reflection of server (how to communicate with it)
 	bdev_backend_api b;					// Remote connection
 	t_lock_mutex_recursive control_path_lock;
 	server_bdev() { control_path_lock.init(); }
-	enum connect_rv connect(const char* clnt_name);
+	enum connect_rv connect(const char* clnt_name, const unsigned num_max_inflight_io);
 	enum connect_rv disconnect(const bool do_suicide);
 	int get_fd(void) const { return b.info.bdev_descriptor; }
 	int& get_fd(void) { return b.info.bdev_descriptor; }

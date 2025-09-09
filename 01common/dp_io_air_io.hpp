@@ -56,7 +56,7 @@ class in_air_ios_holder {
 	idx_t num_max_inflight_io;
 	idx_t num_ios_in_air;
 	server_io_req **ios_arr;			// For each in air io, store a pointer to it in element of its unique id index
-	small_ints_set<500> bmp;			// Up to 500 ios. Stores a bit field, turned on bit for element in a set
+	small_ints_set<512> bmp;			// Up to 512 ios. Stores a bit field, turned on bit for element in a set
 
 	// Below all functions must be called while holding lock
 	bool is_full( void) const { return (num_ios_in_air == num_max_inflight_io); }

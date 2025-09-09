@@ -120,6 +120,7 @@ struct io_csring : no_constructors_at_all {	// Datapath mechanism to remote bdev
 	// datapath
 	static bool is_big_enough_for(int num_max_inflight_io) { return CAPACITY >= (num_max_inflight_io+1); }	// +1 for debug, so according to max io's ring will never be full so producer will never have to block
 	static size_t n_needed_bytes(size_t block_size) { return align_up(sizeof(io_csring), block_size); }
+	static int get_capacity(void) { return CAPACITY - 1; }
 };
 
 /***************************** Generic datapath ******************************/
