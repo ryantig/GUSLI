@@ -37,11 +37,9 @@ Additional Documentation and description: [Here](https://docs.google.com/documen
 
 ## Installation & Usage
 `make all`
-- executable of unit-tests will be created in root dir
-`make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 TRACE_LEVEL=5; ll /usr/lib/libg*; ll /usr/include/gus*;`
+- For production `make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0; ls /usr/lib/libg*; ls /usr/include/gus*;`
+- executables of unit-tests will be created in project root dir (same as makefile)
 - use the command above to build and install production libraries into /usr  (/usr/lib, /usr/include)
-- See examples directory for client/server implementation examples
-- See unit-tests directory to learn how to use the library
 - make file does installation of binaries, see its output:
     - Deliverables: **.so/.hpp** files pair for server side and .so/.hpp files pair for client
 - More info: type `make help` To see more info of how to compile
@@ -74,7 +72,8 @@ Bash script which allows you to monitor the io buffers, stacks, threads, etc of 
     - SPDK Both: Executable which forks itself, runs spdk server in 1 process, client basic io tests in another process [spdk_app](./unitest/sample_app_spdk_both.cpp)
     - `./unitest/run` for running various Gusli unit-tests
 4. Gusli clients connect to servers via a config file. Example of config code can be found in a function `client_simple_test_of_server()`
-5. How to link? See example when running `make all`
+5. See unit-test directory to learn more how to use the library and how it is tests.
+6. How to link? See examples above
 
 #### How to integrate with Gusli
 1. First decide what does your app need. Serve io (like user space block device) or Issue io (then you are a client).
@@ -96,7 +95,9 @@ Bash script which allows you to monitor the io buffers, stacks, threads, etc of 
 - Integrating client with [NIXL](https://github.com/ai-dynamo/nixl), see [install script](./80scripts/integration_with_nixl.sh)
 - Integrating server with [SPDK](https://github.com/spdk/spdk), see [install script](./80scripts/integration_with_spdkbdev.sh)
 
-> ⚠️ Gusli team assisted with the above integrations for testing purposes, but it is not responsible for it and integration can break if any of the above open source projects introduce breaking changes.
+> ⚠️ Gusli team assisted with the above integrations for testing purposes. It is not responsible for it and integration can break if any of the above open source projects introduce breaking changes.
+
+***
 
 ## Support / Contributing
 The current Maintainers Group for the project consists of:
@@ -107,7 +108,7 @@ The current Maintainers Group for the project consists of:
 
 
 ### Roadmap & Project status
-1. [Jira](https://jirasw.nvidia.com/browse/NVMESH-5811)
+1. [Jira Plan](https://jirasw.nvidia.com/browse/NVMESH-5811), accessible only internally in NVIDIA
 3. Todos in the code are marked with `nvTODO()` macro
 
 > [!Important]
@@ -136,17 +137,12 @@ The current Maintainers Group for the project consists of:
 5. Update the [change log](./CHANGELOG.md)
 
 ### Github Todos:
-- [ ] [Set up project integrations](https://gitlab-master.nvidia.com/excelero/gusli/-/settings/integrations)
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+- [ ] Set up project integrations, Create a new merge request
+- [ ] Automatically close issues from merge requests
+- [ ] Enable merge request approvals
+- [ ] SetUp CI/CD pipeline, Set automerge after approval and pipeline succeeds
+- [ ] Analyze code for known vulnerabilities with Static Application Security Testing
+- [ ] Deploy to Kubernetes, instead of just local makefile
 
 ***
 

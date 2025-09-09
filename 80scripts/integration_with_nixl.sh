@@ -51,8 +51,7 @@ if false; then								# Debuuging / Developing GUSLI-NIXL integration
 	cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0 TRACE_LEVEL=7 && cd ..;
 else
 	rm -rf ./gusli;
-	git clone ssh://git@gitlab-master.nvidia.com:12051/excelero/gusli.git && cd gusli && make all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 && cd .. && ll /usr/lib/libg* && ll /usr/include/gus*;
-
+	git clone git@github.com:nvidia/gusli.git && cd gusli && make all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 && cd .. && ls /usr/lib/libg* && ls /usr/include/gus*;
 fi;
 source gusli/80scripts/service.sh;
 
