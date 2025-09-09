@@ -21,6 +21,7 @@
 #include "io_executors.hpp"
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <linux/fs.h>				// Definition of BLKGETSIZE64
 
 namespace gusli {
 
