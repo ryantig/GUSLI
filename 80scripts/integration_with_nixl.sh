@@ -49,7 +49,10 @@ cd /home/danielhe/projects/nixl;
 if false; then								# Debugging / Developing GUSLI-NIXL integration
 	rm -rf ./gusli; cp -r ../gusli .;		# Copy local dev version
 else
-	rm -rf ./gusli; git clone git@github.com:nvidia/gusli.git;
+	rm -rf ./gusli;
+	git clone https://github.com/NVIDIA/GUSLI.git;		# Public repo
+	git clone git@github.com:nvidia/gusli.git; 			# Private repo
+	git clone ssh://git@github.com/nvidia/gusli.git;	# Private repo
 fi;
 cd gusli && make clean all BUILD_RELEASE=1 BUILD_FOR_UNITEST=0 VERBOSE=1 ALLOW_USE_URING=0 TRACE_LEVEL=5 && cd .. && ls /usr/lib/libg* && ls /usr/include/gus*;
 source gusli/80scripts/service.sh;
