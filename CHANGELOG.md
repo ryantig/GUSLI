@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - None
 #### Security issues
 - None
+***
+## [v0.0.4] - 2025-09-09
+#### Added
+- Moved to opensource repository, a few minor bug fixes
 ## [v0.0.3] - 2025-08-14
 #### Added
 - IO throttling, Clnt-Srvr reconnect, SPDK support, shm remapping

@@ -16,7 +16,7 @@ limitations under the License.
 -->
 # Gusli
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Release](https://img.shields.io/badge/Release-v0.03-brightgreen)](./CHANGELOG.md)
+[![Release](https://img.shields.io/badge/Release-v0.04-brightgreen)](./CHANGELOG.md)
 ![Branch](https://img.shields.io/badge/origin/main-brightgreen)
 <p align="center">
   <img src="./93docs/logo.png" alt="" width="400" />
