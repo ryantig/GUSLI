@@ -130,7 +130,7 @@ ifeq ($(COMMIT_ID),)
 endif
 
 # ********** Define Linker flags *********
-LFLAGS_ALL = -lpthread -rdynamic
+LFLAGS_ALL = -lpthread -rdynamic -lrt
 LFLAGS_EXT =
 # ********** External libraries ********* check for lib using pkg-config and update flags appropriately
 ifeq ($(ALLOW_USE_URING),1)
