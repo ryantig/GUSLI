@@ -259,13 +259,14 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Set bdev to 10[blocks]");
 		const uint64_t new_size = 10 * bdi.block_size;
 		bdi.num_total_blocks = new_size;
+		if (0) bdi.set_leak_fs_file_on_close(true);
 		my_assert(lib.bdev_override_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		// Verify value was set, via get
-		memset(&bdi, 0, sizeof(bdi));
+		bdi.clear();
 		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		my_assert(bdi.num_total_blocks == new_size);
 		const uint64_t offset = 4;
-		my_assert(bdi.num_total_blocks < (offset + data_len)); // Verify this io becomes illegal
+		my_assert(bdi.get_bdev_size() < (offset + data_len)); // Verify this io becomes illegal
 		my_io.io.params.init_1_rng(gusli::G_NOP, fd, 0, data_len, my_io.io_buf);
 		my_io.expect_success(false);
 		my_io.exec(gusli::G_WRITE, io_exec_mode::SYNC_BLOCKING_1_BY_1);

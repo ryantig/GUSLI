@@ -397,8 +397,12 @@ enum connect_rv server_bdev::disconnect(const bool do_suicide) {
 		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
 		close(bdev->get_fd());
-		const int remove_rv = remove(bdev->conf.conn.any);
-		rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
+		if (bdev->b.info.flags_leak_fs_file_on_close) {
+			pr_info1("bdev %s, leaking file %s\n", bdev->b.info.name, bdev->conf.conn.any);
+		} else {
+			const int remove_rv = remove(bdev->conf.conn.any);
+			rv = (remove_rv == 0) ? C_OK : C_NO_RESPONSE;
+		}
 		bdev->b.disconnect(id, do_suicide);
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_BLK_KERNEL) {
 		close(bdev->get_fd());
@@ -465,7 +469,8 @@ enum connect_rv global_clnt_context_imp::bdev_set_info(const backend_bdev_id& id
 	}
 	nvTODO("Verify that this is correct, and set other fields as well");
 	bdev->b.info.num_total_blocks = set_val->num_total_blocks;
-	pr_note1(PRINT_BDEV_ID_FMT " setting num_blocks to 0x%lx\n", PRINT_BDEV_ID_ARGS(*bdev), set_val->num_total_blocks);
+	bdev->b.info.flags_leak_fs_file_on_close = set_val->flags_leak_fs_file_on_close;
+	pr_note1(PRINT_BDEV_ID_FMT " setting num_blocks to 0x%lx, leak?=%u\n", PRINT_BDEV_ID_ARGS(*bdev), set_val->num_total_blocks, set_val->flags_leak_fs_file_on_close);
 	return C_OK;
 }
 

@@ -46,10 +46,12 @@ struct bdev_info {							// After connection to bdev established, this info can 
 	uint64_t num_total_blocks;				// Number of blocks accessible for IO. Can be extended in runtime, never shrunk.
 	uint16_t num_max_inflight_io;			// QOS. More than this amount will be throttled by the client side. Values: [1..500]
 	uint16_t flags_is_auto_extendable : 1;	// Reads beyond max lba (num_total_blocks) return 0, not error. Writes block until bdev is extended and then succeed
-	uint16_t flags_reserved           : 15;
+	uint16_t flags_leak_fs_file_on_close : 1;	// Relevant only for bdev_type DEV_FS_FILE, deliberately leak the file on close. Used for various testing scenarios. Same can be achieved with hard linking externally so this flag is just for convenience.
+	uint16_t flags_reserved           : 14;
 	void clear(void) { memset(this, 0, sizeof(*this)); bdev_descriptor = -1; }
 	bool is_valid(void) const { return (block_size > 0) && (bdev_descriptor > 0); }
 	uint64_t get_bdev_size(void) const { return num_total_blocks * block_size; }
+	void set_leak_fs_file_on_close(bool val = false) { flags_leak_fs_file_on_close = val; }
 } __attribute__((aligned(sizeof(long))));
 
 struct bdev_config_params {
