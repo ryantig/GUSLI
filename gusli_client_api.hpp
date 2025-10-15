@@ -270,6 +270,7 @@ class global_clnt_context : no_implicit_constructors {		// RAII (Resource Acquis
 	SYMBOL_EXPORT_NO_DISCARD int32_t   bdev_get_descriptor(      const backend_bdev_id&)                 const noexcept;
 
 	// Advanced Control API towards server, for debugging / testing / crisis management
+	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_override_info( const backend_bdev_id&, const bdev_info &val) noexcept;
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_force_close(   const backend_bdev_id&, bool reconnect = false) const noexcept;	// Call this if you want to unregister-mem / close block device but some IO's are stuck. Cancels all io air IO's, executes their callbacks. Can Reconnect to server and reregister memory buffers
 	SYMBOL_EXPORT_NO_DISCARD enum connect_rv bdev_force_refresh( const backend_bdev_id& id)              const noexcept { return bdev_force_close(id, true); }
 	SYMBOL_EXPORT         void bdev_ctl_report_data_corruption(  const backend_bdev_id&, uint64_t lba)   const noexcept;	// Hopefully never use: Report data corruption at lba[bytes]. Will kill the server to avoid further data corruption.

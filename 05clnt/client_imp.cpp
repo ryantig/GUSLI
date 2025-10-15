@@ -454,6 +454,21 @@ enum connect_rv global_clnt_context_imp::bdev_get_info(const backend_bdev_id& id
 	return C_OK;
 }
 
+enum connect_rv global_clnt_context_imp::bdev_set_info(const backend_bdev_id& id, const bdev_info *set_val) noexcept {
+	server_bdev *bdev = bdevs.find_by(id);
+	if (!bdev) return C_NO_DEVICE;
+	if (!bdev->is_alive()) return C_NO_RESPONSE;
+	do_with_lock(bdev->control_path_lock);
+	if (bdev->conf.type != bdev_config_params::bdev_type::DEV_FS_FILE) {
+		pr_err1("Error: This type of operation is not supported yet for " PRINT_BDEV_ID_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev));
+		return C_WRONG_ARGUMENTS;
+	}
+	nvTODO("Verify that this is correct, and set other fields as well");
+	bdev->b.info.num_total_blocks = set_val->num_total_blocks;
+	pr_note1(PRINT_BDEV_ID_FMT " setting num_blocks to 0x%lx\n", PRINT_BDEV_ID_ARGS(*bdev), set_val->num_total_blocks);
+	return C_OK;
+}
+
 /********************************* global_clnt_context ********************************************/
 global_clnt_context::global_clnt_context(const init_params& par) {
 	auto& instance = global_clnt_context_imp::get();
@@ -530,6 +545,10 @@ enum connect_rv global_clnt_context::close_bufs_unregist(const backend_bdev_id& 
 
 enum connect_rv global_clnt_context::bdev_get_info(const backend_bdev_id& id, bdev_info &rv) const noexcept {
 	return global_clnt_context_imp::get().bdev_get_info(id, &rv);
+}
+
+enum connect_rv global_clnt_context::bdev_override_info(const backend_bdev_id& id, const bdev_info &val) noexcept {
+	return global_clnt_context_imp::get().bdev_set_info(id, &val);
 }
 
 int32_t global_clnt_context::bdev_get_descriptor(const backend_bdev_id& id) const noexcept {

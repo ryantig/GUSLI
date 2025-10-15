@@ -186,6 +186,7 @@ class global_clnt_context_imp : no_implicit_constructors, public base_library { 
 	enum connect_rv bdev_bufs_unregist(const backend_bdev_id&, const std::vector<io_buffer_t>& bufs) noexcept;
 	enum connect_rv bdev_disconnect(   const backend_bdev_id&) noexcept;
 	enum connect_rv bdev_get_info(     const backend_bdev_id&, bdev_info *ret_val) noexcept;
+	enum connect_rv bdev_set_info(     const backend_bdev_id&, const bdev_info *set_val) noexcept;
 	void bdev_ctl_report_di(           const backend_bdev_id&, uint64_t offset_lba_bytes) noexcept;
 	uint32_t bdev_ctl_get_n_in_air_ios(const backend_bdev_id&) noexcept;
 	enum connect_rv bdev_ctl_log_msg2(  const backend_bdev_id& id, const std::string &s) noexcept;
