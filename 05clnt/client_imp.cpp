@@ -462,6 +462,7 @@ enum connect_rv global_clnt_context_imp::bdev_set_info(const backend_bdev_id& id
 	server_bdev *bdev = bdevs.find_by(id);
 	if (!bdev) return C_NO_DEVICE;
 	if (!bdev->is_alive()) return C_NO_RESPONSE;
+	if (!set_val->is_valid()) return C_WRONG_ARGUMENTS;
 	do_with_lock(bdev->control_path_lock);
 	if (bdev->conf.type != bdev_config_params::bdev_type::DEV_FS_FILE) {
 		pr_err1("Error: This type of operation is not supported yet for " PRINT_BDEV_ID_FMT "\n", PRINT_BDEV_ID_ARGS(*bdev));
