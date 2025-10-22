@@ -260,7 +260,6 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 		log_line("Set bdev to %lu[blocks], each of %u[bytes]", new_size_blocks, bdi.block_size);
 		bdi.num_total_blocks = new_size_blocks;
 		bdi.set_leak_fs_file_on_close(true);
-		bdi.set_leak_fs_file_on_close();
 		my_assert(lib.bdev_override_info(bdev, bdi) == gusli::connect_rv::C_OK);
 		// Verify value was set, via get
 		bdi.clear();
@@ -275,6 +274,15 @@ int base_lib_unitests(gusli::global_clnt_context& lib, int n_iter_race_tests = 1
 
 	my_assert(lib.bdev_bufs_unregist(bdev, mem) == gusli::connect_rv::C_OK);
 	my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+
+	if (bdi.flags_leak_fs_file_on_close) {	// Previous close leaked the file. Open it again and close with remove
+		my_assert(lib.bdev_connect(bdev) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_get_info(bdev, bdi) == gusli::connect_rv::C_OK);
+		my_assert(bdi.flags_leak_fs_file_on_close);
+		bdi.set_leak_fs_file_on_close();
+		my_assert(lib.bdev_override_info(bdev, bdi) == gusli::connect_rv::C_OK);
+		my_assert(lib.bdev_disconnect(bdev) == gusli::C_OK);
+	}
 
 	if (1) {
 		log_line("Failed read");

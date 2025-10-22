@@ -143,7 +143,7 @@ enum connect_rv server_bdev::connect(const char* client_name, const unsigned num
 	static constexpr const mode_t blk_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;  // rw-r--r--
 	server_bdev *bdev = this;
 	const int o_flag = (O_RDWR | O_CREAT | O_LARGEFILE) | (bdev->conf.is_direct_io ? O_DIRECT : 0);
-	pr_info1("Open " PRINT_BDEV_ID_FMT ", flag=0x%x\n", PRINT_BDEV_ID_ARGS(*bdev), o_flag);
+	pr_info1("Open " PRINT_BDEV_ID_FMT ", flag=0x%x, how=%c\n", PRINT_BDEV_ID_ARGS(*bdev), o_flag, bdev->conf.how);
 	if (bdev->is_alive())
 		return C_REMAINS_OPEN;
 	bdev_info *info = &bdev->b.info;
@@ -159,6 +159,19 @@ enum connect_rv server_bdev::connect(const char* client_name, const unsigned num
 		const int rv_dp_init = bdev->b.create_dp(bdev->conf.id, msg);
 		return (rv_dp_init >= 0) ? C_OK : C_NO_RESPONSE;
 	} else if (bdev->conf.type == bdev_config_params::bdev_type::DEV_FS_FILE) {
+		int access_how = F_OK | R_OK;
+		if (bdev->conf.how == bdev_config_params::connect_how::EXCLUSIVE_RW) {
+			access_how |= (W_OK /*| X_OK*/);	// Dont test for exclusive for now as it may not work without sudo
+		} else if (bdev->conf.how == bdev_config_params::connect_how::SHARED_RW) {
+			access_how |= (W_OK);
+		}
+		const int access_rv = access(bdev->conf.conn.any, access_how);
+		if (access_rv == 0) {
+			pr_info1("\tFile %s already exists, will not remove it upon close\n", bdev->conf.conn.any);
+			info->flags_leak_fs_file_on_close = true;
+		} else {
+			pr_info1("\tFile %s does not exist, " PRINT_EXTERN_ERR_FMT "\n", bdev->conf.conn.any, PRINT_EXTERN_ERR_ARGS);
+		}
 		info->bdev_descriptor = open(bdev->conf.conn.any, o_flag, blk_mode);
 		if (info->bdev_descriptor > 0) {
 			info->block_size = 1;
