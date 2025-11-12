@@ -99,6 +99,21 @@ Bash script which allows you to monitor the io buffers, stacks, threads, etc of 
 > ⚠️ Gusli team assisted with the above integrations for testing purposes. It is not responsible for it and integration can break if any of the above open source projects introduce breaking changes.
 
 ***
+## Performance
+### Concurrency
+- Gusli Server is single threaded (1 cpu core for each block device). This is by design as multiple block devices may be used.
+    - This thread receives client io, submits it to backend and sends completions to client
+- Gusli client allocates 1 thread for for each block device.
+    - This thead submits io to server and listens for completions from server
+- You can submit and wait for IO from multiple threads. For more info read code documentation of client api header file
+
+### Numbers
+- Client is able to push about 1.5 - 2.5 Million ios per second to block device on the server
+    - Meaning: 1 cpu 100% working on server and 1 cpu 100% on client
+- If each io is 1[MB] this is equals to > 1 Terabyte per second.
+- GUSLI cpu usage should not the bottle neck, Bottleneck will be other components (like physical driver of NVME or underlying disk bandwidth, network bandwidth etc)
+
+***
 
 ## Support / Contributing
 The current Maintainers Group for the project consists of:
